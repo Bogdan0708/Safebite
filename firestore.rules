@@ -1,0 +1,154 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ============================================
+    // HELPER FUNCTIONS
+    // ============================================
+
+    // Check if user is authenticated
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Check if user owns the document
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // Check if user is an admin (requires custom claim)
+    function isAdmin() {
+      return isAuthenticated() && request.auth.token.admin == true;
+    }
+
+    // Check if user is a verified reviewer
+    function isVerifiedReviewer() {
+      return isAuthenticated() &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isVerifiedReviewer == true;
+    }
+
+    // ============================================
+    // USERS COLLECTION
+    // ============================================
+
+    match /users/{userId} {
+      // Users can read their own profile
+      allow read: if isOwner(userId);
+
+      // Users can create their own profile on sign up
+      allow create: if isOwner(userId) &&
+        request.resource.data.keys().hasAll(['email', 'displayName', 'createdAt']) &&
+        request.resource.data.isPremium == false &&
+        request.resource.data.isVerifiedReviewer == false;
+
+      // Users can update their own profile (but not isPremium or isVerifiedReviewer)
+      allow update: if isOwner(userId) &&
+        !request.resource.data.diff(resource.data).affectedKeys().hasAny(['isPremium', 'isVerifiedReviewer', 'reviewCount']);
+
+      // Users can delete their own profile (GDPR)
+      allow delete: if isOwner(userId);
+
+      // Saved restaurants subcollection
+      match /savedRestaurants/{savedId} {
+        allow read, write: if isOwner(userId);
+      }
+    }
+
+    // ============================================
+    // RESTAURANTS COLLECTION
+    // ============================================
+
+    match /restaurants/{restaurantId} {
+      // Anyone can read restaurants (even unauthenticated for map view)
+      allow read: if true;
+
+      // Only admins can create/update restaurants
+      allow create, update: if isAdmin();
+
+      // Only admins can delete restaurants
+      allow delete: if isAdmin();
+    }
+
+    // ============================================
+    // REVIEWS COLLECTION
+    // ============================================
+
+    match /reviews/{reviewId} {
+      // Anyone can read reviews
+      allow read: if true;
+
+      // Authenticated users can create reviews
+      allow create: if isAuthenticated() &&
+        request.resource.data.userId == request.auth.uid &&
+        request.resource.data.keys().hasAll(['restaurantId', 'userId', 'content', 'safetyRating', 'createdAt']) &&
+        request.resource.data.safetyRating >= 1 &&
+        request.resource.data.safetyRating <= 5;
+
+      // Users can update their own reviews
+      allow update: if isAuthenticated() &&
+        resource.data.userId == request.auth.uid &&
+        request.resource.data.userId == request.auth.uid;
+
+      // Users can delete their own reviews
+      allow delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
+    }
+
+    // ============================================
+    // INCIDENTS COLLECTION
+    // ============================================
+
+    match /incidents/{incidentId} {
+      // Only authenticated users can read incidents
+      allow read: if isAuthenticated();
+
+      // Authenticated users can report incidents
+      allow create: if isAuthenticated() &&
+        request.resource.data.userId == request.auth.uid &&
+        request.resource.data.keys().hasAll(['restaurantId', 'userId', 'description', 'incidentDate', 'createdAt']);
+
+      // Users can update their own incident reports
+      allow update: if isAuthenticated() && resource.data.userId == request.auth.uid;
+
+      // Users can delete their own incident reports
+      allow delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
+    }
+
+    // ============================================
+    // TRUST SCORES COLLECTION
+    // ============================================
+
+    match /trustScores/{restaurantId} {
+      // Anyone can read trust scores
+      allow read: if true;
+
+      // Only admins or cloud functions can write trust scores
+      allow write: if isAdmin();
+    }
+
+    // ============================================
+    // VERIFICATIONS COLLECTION (Admin only)
+    // ============================================
+
+    match /verifications/{verificationId} {
+      // Only admins can read/write verifications
+      allow read, write: if isAdmin();
+    }
+
+    // ============================================
+    // SAFETY QUIZ RESULTS
+    // ============================================
+
+    match /quizResults/{resultId} {
+      // Users can read their own quiz results
+      allow read: if isAuthenticated() && resource.data.userId == request.auth.uid;
+
+      // Users can submit quiz results
+      allow create: if isAuthenticated() &&
+        request.resource.data.userId == request.auth.uid;
+
+      // No updates or deletes allowed
+      allow update, delete: if false;
+    }
+  }
+}
