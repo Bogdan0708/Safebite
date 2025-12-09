@@ -1,0 +1,12 @@
+{
+  "name": "safebite-scripts",
+  "version": "1.0.0",
+  "description": "Firebase scripts for SafeBite",
+  "scripts": {
+    "seed": "node seed-firestore.js",
+    "clear": "node clear-firestore.js"
+  },
+  "dependencies": {
+    "firebase-admin": "^12.0.0"
+  }
+}

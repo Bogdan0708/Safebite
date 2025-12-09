@@ -1,0 +1,13 @@
+// SafeBite Configuration Template
+// Copy this file to Config.xcconfig and fill in your values
+// DO NOT commit Config.xcconfig to version control
+
+// Google Places API Key
+// Get from: https://console.cloud.google.com/apis/credentials
+GOOGLE_PLACES_API_KEY = your-google-places-api-key-here
+
+// Firebase (auto-configured via GoogleService-Info.plist)
+// No additional config needed
+
+// App Store Connect (for StoreKit)
+// STOREKIT_CONFIG = Configuration.storekit

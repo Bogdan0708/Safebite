@@ -1,0 +1,163 @@
+/*
+  Localizable.strings (Spanish)
+  SafeBite
+
+  Spanish - Español
+*/
+
+// MARK: - Common
+"app_name" = "SafeBite";
+"ok" = "OK";
+"cancel" = "Cancelar";
+"done" = "Hecho";
+"save" = "Guardar";
+"delete" = "Eliminar";
+"edit" = "Editar";
+"close" = "Cerrar";
+"search" = "Buscar";
+"filter" = "Filtrar";
+"clear" = "Borrar";
+"loading" = "Cargando...";
+"error" = "Error";
+"retry" = "Reintentar";
+
+// MARK: - Tab Bar
+"tab_map" = "Mapa";
+"tab_search" = "Buscar";
+"tab_saved" = "Guardados";
+"tab_profile" = "Perfil";
+
+// MARK: - Trust Score
+"trust_score" = "Puntuación de Confianza";
+"trust_verified" = "Verificado Seguro";
+"trust_community" = "Seguro Comunidad";
+"trust_caution" = "Verificar";
+"trust_unverified" = "No Verificado";
+"trust_professional" = "Verificación Profesional";
+"trust_community_validation" = "Validación Comunitaria";
+"trust_freshness" = "Frescura de Datos";
+
+// MARK: - Safety
+"celiac_safe" = "Seguro para Celíacos";
+"dedicated_kitchen" = "Cocina Dedicada";
+"separate_fryer" = "Freidora Separada";
+"trained_staff" = "Personal Capacitado";
+"cross_contamination" = "Contaminación Cruzada";
+"certified" = "Certificado";
+"verified" = "Verificado";
+
+// MARK: - Filters
+"filter_celiac_safe" = "Seguro para Celíacos";
+"filter_verified_only" = "Solo Verificados";
+"filter_dedicated_kitchen" = "Cocina Dedicada";
+"filter_separate_fryer" = "Freidora Separada";
+"filter_open_now" = "Abierto Ahora";
+"clear_filters" = "Borrar Todos los Filtros";
+
+// MARK: - Search
+"search_placeholder" = "Buscar restaurantes, cocinas...";
+"search_recent" = "Búsquedas Recientes";
+"search_results" = "%d restaurantes encontrados";
+"search_no_results" = "No se encontraron restaurantes";
+"search_no_results_hint" = "Prueba otro término o ajusta tus filtros";
+"browse_cuisine" = "Explorar por Cocina";
+"quick_filters" = "Filtros Rápidos";
+
+// MARK: - Restaurant Detail
+"directions" = "Cómo Llegar";
+"view_details" = "Ver Detalles";
+"call" = "Llamar";
+"website" = "Sitio Web";
+"share" = "Compartir";
+"save_restaurant" = "Guardar";
+"remove_saved" = "Eliminar";
+"reviews_count" = "%d reseñas";
+"safety_checklist" = "Lista de Seguridad";
+"what_to_ask" = "Qué Preguntar";
+"opening_hours" = "Horarios";
+"open_now" = "Abierto Ahora";
+"closed" = "Cerrado";
+
+// MARK: - Reviews
+"reviews" = "Reseñas";
+"write_review" = "Escribir Reseña";
+"had_reaction" = "¿Tuviste una reacción?";
+"reaction_yes" = "Sí, tuve una reacción";
+"reaction_no" = "No, me sentí seguro";
+"staff_knowledge" = "Conocimiento del Personal";
+"food_rating" = "Calificación de Comida";
+"safety_rating" = "Calificación de Seguridad";
+"items_ordered" = "Platos Pedidos";
+"add_photo" = "Añadir Foto";
+"submit_review" = "Enviar Reseña";
+"helpful" = "Útil";
+"verified_reviewer" = "Reseñador Verificado";
+
+// MARK: - Severity Levels
+"severity_celiac" = "Enfermedad Celíaca";
+"severity_ncgs" = "Sensibilidad al Gluten No Celíaca";
+"severity_wheat_allergy" = "Alergia al Trigo";
+"severity_preference" = "Preferencia Sin Gluten";
+
+// MARK: - Incident Report
+"report_incident" = "Reportar Incidente";
+"incident_description" = "¿Qué pasó?";
+"incident_date" = "¿Cuándo ocurrió?";
+"incident_items" = "¿Qué pediste?";
+"suspected_item" = "Plato Sospechoso";
+"was_staff_notified" = "¿Notificaste al personal?";
+
+// MARK: - Profile
+"sign_in" = "Iniciar Sesión";
+"sign_out" = "Cerrar Sesión";
+"sign_in_prompt" = "Inicia sesión en SafeBite";
+"sign_in_description" = "Guarda tus restaurantes favoritos, deja reseñas y sincroniza entre dispositivos.";
+"health_profile" = "Perfil de Salud";
+"activity" = "Actividad";
+"settings" = "Ajustes";
+"language" = "Idioma";
+"currency" = "Moneda";
+"notifications" = "Notificaciones";
+"location_access" = "Acceso a Ubicación";
+"about" = "Acerca de";
+"version" = "Versión";
+"contact_support" = "Contactar Soporte";
+
+// MARK: - Premium
+"premium" = "Premium";
+"premium_title" = "SafeBite Premium";
+"premium_subtitle" = "Desbloquea todo el potencial de comer seguro";
+"upgrade_premium" = "Actualizar a Premium";
+"premium_active" = "Premium Activo";
+"restore_purchases" = "Restaurar Compras";
+"start_trial" = "Iniciar Prueba Gratuita";
+"price_per_year" = "€24,99/año";
+"trial_description" = "7 días de prueba gratis, luego €24,99/año";
+
+// MARK: - GDPR
+"gdpr_title" = "Tu Privacidad Importa";
+"gdpr_health_data" = "Protección de Datos de Salud";
+"gdpr_health_description" = "Tus preferencias dietéticas son datos de salud sensibles. Encriptamos todo y nunca compartimos con terceros.";
+"gdpr_control" = "Tu Control";
+"gdpr_control_description" = "Puedes exportar o eliminar tus datos en cualquier momento desde Ajustes.";
+"gdpr_location" = "Acceso a Ubicación";
+"gdpr_location_description" = "Usamos tu ubicación solo para encontrar restaurantes cercanos. Nunca se almacena en nuestros servidores.";
+"gdpr_storage" = "Almacenamiento UE";
+"gdpr_storage_description" = "Todos los datos se almacenan en centros de datos de la UE para cumplir con el RGPD.";
+"gdpr_agree" = "Acepto y Continuar";
+"privacy_policy" = "Política de Privacidad";
+"export_data" = "Exportar Mis Datos";
+"delete_account" = "Eliminar Cuenta";
+"delete_account_warning" = "Esto eliminará permanentemente tu cuenta y todos tus datos. Esta acción no se puede deshacer.";
+
+// MARK: - Errors
+"error_network" = "Error de red. Comprueba tu conexión.";
+"error_location" = "No se pudo obtener tu ubicación.";
+"error_search" = "Búsqueda fallida. Inténtalo de nuevo.";
+"error_loading" = "Error al cargar datos.";
+
+// MARK: - What to Ask (by cuisine)
+"ask_italian" = "¿La pasta viene de una estación de cocción dedicada? ¿La base de pizza se hace en un área separada?";
+"ask_asian" = "¿Tu salsa de soja contiene trigo? ¿Usas un wok separado para pedidos sin gluten?";
+"ask_bakery" = "¿Los artículos sin gluten se preparan en un área separada? ¿Cambian los guantes entre pedidos?";
+"ask_general" = "¿Tienen una freidora dedicada para artículos sin gluten? ¿Cómo previenen la contaminación cruzada?";

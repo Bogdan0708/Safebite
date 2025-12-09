@@ -1,0 +1,163 @@
+/*
+  Localizable.strings (French)
+  SafeBite
+
+  French - Français
+*/
+
+// MARK: - Common
+"app_name" = "SafeBite";
+"ok" = "OK";
+"cancel" = "Annuler";
+"done" = "Terminé";
+"save" = "Enregistrer";
+"delete" = "Supprimer";
+"edit" = "Modifier";
+"close" = "Fermer";
+"search" = "Rechercher";
+"filter" = "Filtrer";
+"clear" = "Effacer";
+"loading" = "Chargement...";
+"error" = "Erreur";
+"retry" = "Réessayer";
+
+// MARK: - Tab Bar
+"tab_map" = "Carte";
+"tab_search" = "Recherche";
+"tab_saved" = "Favoris";
+"tab_profile" = "Profil";
+
+// MARK: - Trust Score
+"trust_score" = "Score de Confiance";
+"trust_verified" = "Vérifié Sûr";
+"trust_community" = "Sûr Communauté";
+"trust_caution" = "À Vérifier";
+"trust_unverified" = "Non Vérifié";
+"trust_professional" = "Vérification Professionnelle";
+"trust_community_validation" = "Validation Communautaire";
+"trust_freshness" = "Fraîcheur des Données";
+
+// MARK: - Safety
+"celiac_safe" = "Sûr Cœliaque";
+"dedicated_kitchen" = "Cuisine Dédiée";
+"separate_fryer" = "Friteuse Séparée";
+"trained_staff" = "Personnel Formé";
+"cross_contamination" = "Contamination Croisée";
+"certified" = "Certifié";
+"verified" = "Vérifié";
+
+// MARK: - Filters
+"filter_celiac_safe" = "Sûr Cœliaque";
+"filter_verified_only" = "Vérifiés Uniquement";
+"filter_dedicated_kitchen" = "Cuisine Dédiée";
+"filter_separate_fryer" = "Friteuse Séparée";
+"filter_open_now" = "Ouvert Maintenant";
+"clear_filters" = "Effacer Tous les Filtres";
+
+// MARK: - Search
+"search_placeholder" = "Rechercher restaurants, cuisines...";
+"search_recent" = "Recherches Récentes";
+"search_results" = "%d restaurants trouvés";
+"search_no_results" = "Aucun restaurant trouvé";
+"search_no_results_hint" = "Essayez un autre terme ou ajustez vos filtres";
+"browse_cuisine" = "Parcourir par Cuisine";
+"quick_filters" = "Filtres Rapides";
+
+// MARK: - Restaurant Detail
+"directions" = "Itinéraire";
+"view_details" = "Voir les Détails";
+"call" = "Appeler";
+"website" = "Site Web";
+"share" = "Partager";
+"save_restaurant" = "Enregistrer";
+"remove_saved" = "Retirer";
+"reviews_count" = "%d avis";
+"safety_checklist" = "Liste de Vérification Sécurité";
+"what_to_ask" = "Questions à Poser";
+"opening_hours" = "Heures d'Ouverture";
+"open_now" = "Ouvert";
+"closed" = "Fermé";
+
+// MARK: - Reviews
+"reviews" = "Avis";
+"write_review" = "Écrire un Avis";
+"had_reaction" = "Avez-vous eu une réaction?";
+"reaction_yes" = "Oui, j'ai eu une réaction";
+"reaction_no" = "Non, je me suis senti en sécurité";
+"staff_knowledge" = "Connaissance du Personnel";
+"food_rating" = "Note de la Nourriture";
+"safety_rating" = "Note de Sécurité";
+"items_ordered" = "Plats Commandés";
+"add_photo" = "Ajouter une Photo";
+"submit_review" = "Soumettre l'Avis";
+"helpful" = "Utile";
+"verified_reviewer" = "Évaluateur Vérifié";
+
+// MARK: - Severity Levels
+"severity_celiac" = "Maladie Cœliaque";
+"severity_ncgs" = "Sensibilité au Gluten Non-Cœliaque";
+"severity_wheat_allergy" = "Allergie au Blé";
+"severity_preference" = "Préférence Sans Gluten";
+
+// MARK: - Incident Report
+"report_incident" = "Signaler un Incident";
+"incident_description" = "Que s'est-il passé?";
+"incident_date" = "Quand est-ce arrivé?";
+"incident_items" = "Qu'avez-vous commandé?";
+"suspected_item" = "Plat Suspect";
+"was_staff_notified" = "Avez-vous prévenu le personnel?";
+
+// MARK: - Profile
+"sign_in" = "Se Connecter";
+"sign_out" = "Se Déconnecter";
+"sign_in_prompt" = "Connectez-vous à SafeBite";
+"sign_in_description" = "Enregistrez vos restaurants favoris, laissez des avis et synchronisez entre vos appareils.";
+"health_profile" = "Profil de Santé";
+"activity" = "Activité";
+"settings" = "Paramètres";
+"language" = "Langue";
+"currency" = "Devise";
+"notifications" = "Notifications";
+"location_access" = "Accès à la Position";
+"about" = "À Propos";
+"version" = "Version";
+"contact_support" = "Contacter le Support";
+
+// MARK: - Premium
+"premium" = "Premium";
+"premium_title" = "SafeBite Premium";
+"premium_subtitle" = "Libérez tout le potentiel de la restauration sécurisée";
+"upgrade_premium" = "Passer à Premium";
+"premium_active" = "Premium Actif";
+"restore_purchases" = "Restaurer les Achats";
+"start_trial" = "Commencer l'Essai Gratuit";
+"price_per_year" = "24,99€/an";
+"trial_description" = "7 jours d'essai gratuit, puis 24,99€/an";
+
+// MARK: - GDPR
+"gdpr_title" = "Votre Vie Privée Compte";
+"gdpr_health_data" = "Protection des Données de Santé";
+"gdpr_health_description" = "Vos préférences alimentaires sont des données de santé sensibles. Nous chiffrons tout et ne partageons jamais avec des tiers.";
+"gdpr_control" = "Votre Contrôle";
+"gdpr_control_description" = "Vous pouvez exporter ou supprimer vos données à tout moment dans les Paramètres.";
+"gdpr_location" = "Accès à la Position";
+"gdpr_location_description" = "Nous utilisons votre position uniquement pour trouver des restaurants à proximité. Elle n'est jamais stockée sur nos serveurs.";
+"gdpr_storage" = "Stockage UE";
+"gdpr_storage_description" = "Toutes les données sont stockées dans des centres de données UE pour la conformité RGPD.";
+"gdpr_agree" = "J'Accepte et Continue";
+"privacy_policy" = "Politique de Confidentialité";
+"export_data" = "Exporter Mes Données";
+"delete_account" = "Supprimer le Compte";
+"delete_account_warning" = "Cela supprimera définitivement votre compte et toutes vos données. Cette action est irréversible.";
+
+// MARK: - Errors
+"error_network" = "Erreur réseau. Vérifiez votre connexion.";
+"error_location" = "Impossible d'obtenir votre position.";
+"error_search" = "Recherche échouée. Veuillez réessayer.";
+"error_loading" = "Échec du chargement des données.";
+
+// MARK: - What to Ask (by cuisine)
+"ask_italian" = "Vos pâtes proviennent-elles d'un poste de cuisson dédié? Votre pâte à pizza est-elle préparée dans un espace séparé?";
+"ask_asian" = "Votre sauce soja contient-elle du blé? Utilisez-vous un wok séparé pour les commandes sans gluten?";
+"ask_bakery" = "Les articles sans gluten sont-ils préparés dans un espace séparé? Changez-vous de gants entre les commandes?";
+"ask_general" = "Avez-vous une friteuse dédiée aux articles sans gluten? Comment évitez-vous la contamination croisée?";
