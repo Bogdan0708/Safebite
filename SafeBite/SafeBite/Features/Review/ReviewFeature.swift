@@ -160,8 +160,12 @@ struct ReviewFeature {
                 }
 
                 state.isSubmitting = true
-                // TODO: Submit to Firebase
-                return .none
+                
+                // Simulate submission (TODO: Integrate Firebase)
+                return .run { send in
+                    try await Task.sleep(nanoseconds: 1 * 1_000_000_000)
+                    await send(.submitCompleted)
+                }
 
             case .submitCompleted:
                 state.isSubmitting = false

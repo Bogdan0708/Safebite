@@ -39,6 +39,7 @@ struct MapFeature {
 
         // Search & Filter
         case searchQueryChanged(String)
+        case performSearch(String) // Added
         case filterToggled(FilterOption)
         case clearFilters
         case toggleFiltersSheet
@@ -60,6 +61,8 @@ struct MapFeature {
 
     @Dependency(\.restaurantClient) var restaurantClient
     @Dependency(\.locationClient) var locationClient
+
+    private enum CancelID { case search }
 
     var body: some ReducerOf<Self> {
         Reduce { state, action in
@@ -83,8 +86,28 @@ struct MapFeature {
 
             case .searchQueryChanged(let query):
                 state.searchQuery = query
-                // TODO: Debounce and search
-                return .none
+                if query.isEmpty {
+                    return .send(.fetchRestaurantsNearby)
+                }
+                return .run { send in
+                    try await Task.sleep(nanoseconds: 500 * 1_000_000)
+                    await send(.performSearch(query))
+                }
+                .cancellable(id: CancelID.search, cancelInFlight: true)
+
+            case .performSearch(let query):
+                state.isLoading = true
+                state.errorMessage = nil
+                let center = state.userLocation ?? state.region.center
+                
+                return .run { send in
+                    do {
+                        let restaurants = try await restaurantClient.search(query, center)
+                        await send(.restaurantsReceived(restaurants))
+                    } catch {
+                        await send(.fetchFailed(error.localizedDescription))
+                    }
+                }
 
             case .filterToggled(let filter):
                 if state.activeFilters.contains(filter) {

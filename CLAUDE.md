@@ -9,6 +9,27 @@ SafeBite is an iOS app for finding gluten-free restaurants across Europe and the
 **Target:** iOS 17+, macOS 14+
 **Tech Stack:** SwiftUI, The Composable Architecture (TCA), SwiftData, Firebase, MapKit, StoreKit 2
 
+## Project Structure
+
+**Important:** Source files are located in `SafeBite/SafeBite/` (nested structure due to SPM configuration).
+
+```
+AvaGF/
+├── Package.swift              # SPM package definition (path: "SafeBite")
+├── CLAUDE.md                  # This file
+├── SafeBite/
+│   ├── .build/                # SPM build artifacts (ignore)
+│   └── SafeBite/              # Actual source files
+│       ├── SafeBiteApp.swift  # App entry point + AppFeature
+│       ├── GoogleService-Info.plist
+│       ├── Components/        # Empty - reserved for reusable UI
+│       ├── Features/          # 9 TCA feature modules
+│       ├── Models/            # 5 SwiftData models
+│       ├── Services/          # 6 service singletons
+│       └── Resources/         # Localization files
+└── SafeBiteTests/             # Test target (placeholder)
+```
+
 ## Build Commands
 
 ```bash
@@ -34,15 +55,15 @@ Every feature follows the TCA pattern with paired files:
 
 ```
 Features/
-├── Map/              # Main map view with restaurant pins
-├── Search/           # Restaurant search with filters
-├── Saved/            # Saved/favorite restaurants with sorting/filtering
-├── Profile/          # User settings, subscriptions
-├── RestaurantDetail/ # Full restaurant info and safety checklist
-├── Review/           # Review submission with safety quiz
-├── Auth/             # Sign in/sign up flows
-├── Subscription/     # Premium subscription paywall
-└── GDPR/             # Privacy settings and data export
+├── Map/              # Main map view with restaurant pins (601 lines)
+├── Search/           # Restaurant search with filters (211 lines)
+├── Saved/            # Saved/favorite restaurants with sorting/filtering (435 lines)
+├── Profile/          # User settings, subscriptions (326 lines)
+├── RestaurantDetail/ # Full restaurant info and safety checklist (295 lines)
+├── Review/           # Review submission with safety quiz (356 lines)
+├── Auth/             # Sign in/sign up flows (259 lines)
+├── Subscription/     # Premium subscription paywall (277 lines)
+└── GDPR/             # Privacy settings and data export (299 lines)
 ```
 
 **Root Reducer:** `AppFeature` in `SafeBiteApp.swift` composes all child features using `Scope`.
@@ -76,7 +97,9 @@ Users must pass a 10-question safety quiz (`SafetyQuizState` in `ReviewFeature.s
 
 ## Services
 
-### PersistenceService (`Services/PersistenceService.swift`)
+All services are in `SafeBite/SafeBite/Services/`:
+
+### PersistenceService (`PersistenceService.swift`)
 SwiftData-based persistence layer with singleton access:
 ```swift
 PersistenceService.shared.container  // ModelContainer for SwiftUI
@@ -87,6 +110,7 @@ PersistenceService.shared.context    // MainActor ModelContext
 - `Restaurant` - Core restaurant data with safety profile
 - `Review` - User reviews with safety ratings
 - `User` - User profile and preferences
+- `IncidentReport` - Contamination incident reports
 - `SavedRestaurantEntity` - SwiftData entity for favorites
 - `CachedRestaurant` - Google Places cache (24-hour TTL)
 
@@ -95,17 +119,17 @@ PersistenceService.shared.context    // MainActor ModelContext
 - `exportUserData()` - Returns `UserDataExport` for GDPR export
 - `deleteAllData()` - GDPR right to erasure
 
-### AuthenticationService (`Services/AuthenticationService.swift`)
-Firebase Auth wrapper (currently mocked for development):
+### AuthenticationService (`AuthenticationService.swift`)
+Firebase Auth wrapper:
 ```swift
 AuthenticationService.shared.signIn(email:password:)
 AuthenticationService.shared.signUp(email:password:displayName:)
-AuthenticationService.shared.signInWithApple()  // Returns ASAuthorizationAppleIDRequest
+AuthenticationService.shared.signInWithApple()
 AuthenticationService.shared.signOut()
 AuthenticationService.shared.deleteAccount()
 ```
 
-### SubscriptionService (`Services/SubscriptionService.swift`)
+### SubscriptionService (`SubscriptionService.swift`)
 StoreKit 2 subscription handling:
 ```swift
 SubscriptionService.shared.loadProducts()
@@ -117,8 +141,22 @@ SubscriptionService.shared.restorePurchases()
 - `com.safebite.premium.monthly` - Monthly subscription
 - `com.safebite.premium.yearly` - Yearly subscription (recommended)
 
-### GooglePlacesService (`Services/GooglePlacesService.swift`)
-Actor-based API client with 24-hour caching for Google Places API.
+### GooglePlacesService (`GooglePlacesService.swift`)
+Actor-based API client with 24-hour caching:
+- `searchNearby(latitude:longitude:radius:types:)` - Find restaurants
+- `searchByText(query:latitude:longitude:radius:)` - Text search
+- `getPlaceDetails(placeId:)` - Full place info
+
+### FirestoreService (`FirestoreService.swift`)
+Firebase Firestore CRUD operations:
+- Restaurant, User, Review, IncidentReport collections
+- `syncLocalDataWithFirebase()` - Sync local SwiftData with cloud
+
+### AnalyticsService (`AnalyticsService.swift`)
+Firebase Analytics wrapper:
+- Event tracking (views, searches, reviews, purchases)
+- User properties
+- Crashlytics integration
 
 ## Dependencies (TCA Pattern)
 
@@ -133,49 +171,37 @@ All external services are wrapped in TCA dependencies:
 | `@Dependency(\.gdprClient)` | Data export and deletion |
 | `@Dependency(\.savedRestaurantClient)` | Saved restaurants CRUD |
 
-## Key Files
+## Models
 
-| File | Purpose |
-|------|---------|
-| `SafeBiteApp.swift` | App entry, root `AppFeature`, GDPR consent flow, onboarding |
-| `Models/Restaurant.swift` | SwiftData model with `SafetyProfile`, `VerificationStatus` |
-| `Models/TrustScore.swift` | Three-tier scoring logic and `TrustScoreBadge` view |
-| `Models/User.swift` | User model, `SubscriptionTier`, `Language`, `Currency` enums |
-| `Services/PersistenceService.swift` | SwiftData container, CRUD, GDPR export |
-| `Services/AuthenticationService.swift` | Firebase Auth wrapper with Apple Sign In |
-| `Services/SubscriptionService.swift` | StoreKit 2 subscription handling |
-| `Services/GooglePlacesService.swift` | Actor-based API client with caching |
-| `Features/Saved/SavedFeature.swift` | Favorites with sort/filter + `SavedRestaurantClient` |
-| `Features/Auth/AuthFeature.swift` | Sign in/up flows + `AuthClient` dependency |
-| `Features/Subscription/SubscriptionFeature.swift` | Paywall + `SubscriptionClient` dependency |
-| `Features/GDPR/GDPRFeature.swift` | Data export/delete + consent settings |
-| `Features/Review/ReviewFeature.swift` | Review submission + `SafetyQuizState` |
+All models in `SafeBite/SafeBite/Models/` are SwiftData `@Model` classes:
 
-## Data Models
+| Model | Purpose |
+|-------|---------|
+| `Restaurant.swift` | Core restaurant with SafetyProfile, VerificationStatus, coordinates |
+| `User.swift` | User profile, subscription, preferences, verification status |
+| `Review.swift` | User reviews with safety ratings, reaction reports |
+| `IncidentReport.swift` | Cross-contamination incident reports |
+| `TrustScore.swift` | Three-tier scoring logic + `TrustScoreBadge` UI component |
 
-### SubscriptionTier
+### Key Enums
+
 ```swift
-enum SubscriptionTier: String {
-    case free
-    case premiumMonthly
-    case premiumYearly
-    case premium  // Legacy, maps to yearly
-}
-```
+// User.swift
+enum SubscriptionTier: String { case free, premiumMonthly, premiumYearly, premium }
+enum GlutenSeverityLevel: String { case coeliac, sensitive, intolerant }
+enum Language: String { case english, german, french, italian, spanish }
+enum Currency: String { case eur, gbp, chf }
 
-### PriceLevel
-```swift
-enum PriceLevel: Int {
-    case budget = 1
-    case moderate = 2
-    case expensive = 3
-    case luxury = 4
-}
+// Restaurant.swift
+enum PriceLevel: Int { case budget = 1, moderate = 2, expensive = 3, luxury = 4 }
+
+// Review.swift
+enum ReactionSeverity: String { case mild, moderate, severe, hospitalized }
 ```
 
 ## Localization
 
-5 languages supported (Resources directory):
+5 languages supported in `SafeBite/SafeBite/Resources/`:
 - English (UK) - Primary (`Localizable.strings`)
 - German (`de.lproj/`)
 - French (`fr.lproj/`)
@@ -195,8 +221,7 @@ Mandatory for EU/UK market:
 - Consent toggles: Analytics, Marketing, Personalization
 
 ### GDPR Views
-- `GDPRConsentView` - Initial consent screen (blocks app)
-- `GDPRConsentBanner` - Cookie-style banner component
+- `GDPRConsentView` - Initial consent screen in `SafeBiteApp.swift`
 - `GDPRView` - Full privacy settings with export/delete
 
 ## Domain Terminology
@@ -212,13 +237,9 @@ Mandatory for EU/UK market:
 Firebase is fully configured:
 - **Bundle ID:** `com.mitch.safebite`
 - **Project ID:** `safebite-production-13ba1`
-- **GoogleService-Info.plist:** Added to SafeBite/SafeBite/
-- **Services:** Auth, Firestore, Crashlytics enabled
+- **GoogleService-Info.plist:** Located in `SafeBite/SafeBite/`
+- **Services:** Auth, Firestore, Analytics, Crashlytics enabled
 - **Region:** Configure Firestore in `europe-west1` or `europe-west2` for GDPR
-
-To enable Analytics in Firebase Console:
-1. Go to Project Settings > Integrations
-2. Enable Google Analytics
 
 ### Mock Data
 Services return mock data for development:
@@ -231,3 +252,32 @@ Google Places API key should be set in environment or config:
 ```swift
 let apiKey = ProcessInfo.processInfo.environment["GOOGLE_PLACES_API_KEY"] ?? ""
 ```
+
+## Known Issues / TODOs
+
+1. **Components directory empty** - `SafeBite/SafeBite/Components/` exists but has no files; reserved for reusable UI components
+
+2. **Missing child features** - `RestaurantDetailFeature` references:
+   - `WriteReviewFeature` - Not implemented
+   - `ReportIncidentFeature` - Not implemented
+   These are referenced in the reducer but the feature files don't exist.
+
+3. **LocationManager** - Custom singleton in `MapFeature.swift` with:
+   - `requestAuthorization()` - async/await wrapped
+   - `locationStream()` - AsyncStream of coordinates
+   - `getCurrentLocation()` - Returns CLLocationCoordinate2D
+
+## File Reference
+
+| File (relative to SafeBite/SafeBite/) | Lines | Purpose |
+|---------------------------------------|-------|---------|
+| `SafeBiteApp.swift` | 451 | App entry, AppFeature, GDPR/Onboarding views |
+| `Features/Map/MapFeature.swift` | 601 | Map reducer + LocationManager |
+| `Features/Map/MapView.swift` | ~400 | Map UI with annotations |
+| `Features/Saved/SavedFeature.swift` | 435 | Favorites with sort/filter |
+| `Services/PersistenceService.swift` | 500 | SwiftData container, CRUD |
+| `Services/AuthenticationService.swift` | 437 | Firebase Auth wrapper |
+| `Services/GooglePlacesService.swift` | 400 | Actor-based API client |
+| `Services/FirestoreService.swift` | 376 | Firestore CRUD |
+| `Models/Restaurant.swift` | 373 | SwiftData model with SafetyProfile |
+| `Models/User.swift` | 313 | User model with preferences |

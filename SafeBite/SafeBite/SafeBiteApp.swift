@@ -109,8 +109,20 @@ struct AppFeature {
                 return .send(.checkAuthStatus)
 
             case .checkAuthStatus:
-                // TODO: Check Firebase auth status
-                return .none
+                return .run { send in
+                    let stream = AsyncStream<User?> { continuation in
+                        let handle = Auth.auth().addStateDidChangeListener { _, user in
+                            continuation.yield(user)
+                        }
+                        continuation.onTermination = { _ in
+                            Auth.auth().removeStateDidChangeListener(handle)
+                        }
+                    }
+                    
+                    for await user in stream {
+                        await send(.authStatusReceived(user != nil))
+                    }
+                }
 
             case .authStatusReceived(let isAuthenticated):
                 state.isAuthenticated = isAuthenticated
