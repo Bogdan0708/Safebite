@@ -266,8 +266,8 @@ struct RestaurantClient {
 }
 
 extension RestaurantClient: DependencyKey {
-    // API Key should be stored securely - using environment variable or config file
-    private static let apiKey = ProcessInfo.processInfo.environment["GOOGLE_PLACES_API_KEY"] ?? ""
+    // API Key from Config
+    private static let apiKey = Config.googlePlacesAPIKey
 
     static let liveValue = RestaurantClient(
         fetchNearby: { lat, lng, filters in
@@ -361,32 +361,35 @@ extension RestaurantClient: DependencyKey {
     }
 
     private static func enrichWithSafeBiteData(_ annotations: [RestaurantAnnotation]) async -> [RestaurantAnnotation] {
-        // TODO: Fetch SafeBite-specific data from Firebase/SwiftData
-        // - Trust scores from our community
-        // - Safety profiles
-        // - Verification status
-        // For now, return with mock enrichment
-        return annotations.map { annotation in
-            // Simulate some restaurants having SafeBite data
-            let hasSafeBiteData = annotation.id.hashValue % 3 == 0
-
-            if hasSafeBiteData {
-                return RestaurantAnnotation(
-                    id: annotation.id,
-                    name: annotation.name,
-                    coordinate: annotation.coordinate,
-                    trustScore: TrustScore(
-                        professionalScore: Int.random(in: 15...35),
-                        communityScore: Int.random(in: 10...30),
-                        freshnessScore: Int.random(in: 10...25)
-                    ),
-                    cuisineType: annotation.cuisineType,
-                    priceLevel: annotation.priceLevel,
-                    isCeliacSafe: Int.random(in: 0...2) == 0,
-                    distance: annotation.distance
-                )
+        let ids = annotations.map { $0.id }
+        
+        do {
+            // Fetch real trust data from Firestore
+            let trustDataMap = try await FirestoreService.shared.fetchTrustData(for: ids)
+            
+            return annotations.map { annotation in
+                if let data = trustDataMap[annotation.id] {
+                    return RestaurantAnnotation(
+                        id: annotation.id,
+                        name: annotation.name,
+                        coordinate: annotation.coordinate,
+                        trustScore: TrustScore(
+                            professionalScore: data.professionalScore,
+                            communityScore: data.communityScore,
+                            freshnessScore: data.freshnessScore
+                        ),
+                        cuisineType: annotation.cuisineType,
+                        priceLevel: annotation.priceLevel,
+                        // Determine if safe based on score
+                        isCeliacSafe: data.totalScore >= 80,
+                        distance: annotation.distance
+                    )
+                }
+                return annotation
             }
-            return annotation
+        } catch {
+            print("Failed to enrich restaurant data: \(error.localizedDescription)")
+            return annotations
         }
     }
 }

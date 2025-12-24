@@ -33,7 +33,16 @@ let package = Package(
                 .product(name: "FirebaseCrashlytics", package: "firebase-ios-sdk"),
                 .product(name: "Kingfisher", package: "Kingfisher"),
             ],
-            path: "SafeBite"
+            path: "SafeBite",
+            resources: [
+                .process("SafeBite/Resources/Assets.xcassets"),
+                .process("SafeBite/Resources/Localizable.strings"),
+                .process("SafeBite/Resources/de.lproj"),
+                .process("SafeBite/Resources/es.lproj"),
+                .process("SafeBite/Resources/fr.lproj"),
+                .process("SafeBite/Resources/it.lproj"),
+                .copy("SafeBite/GoogleService-Info.plist")
+            ]
         ),
         .testTarget(
             name: "SafeBiteTests",

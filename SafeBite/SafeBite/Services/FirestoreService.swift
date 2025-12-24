@@ -210,6 +210,49 @@ actor FirestoreService {
         let doc = try await db.collection("trustScores").document(restaurantId).getDocument()
         return try? doc.data(as: FirestoreTrustData.self)
     }
+
+    /// Fetch trust data for multiple Google Place IDs
+    /// Returns a map of GooglePlaceID -> FirestoreTrustData
+    func fetchTrustData(for googlePlaceIds: [String]) async throws -> [String: FirestoreTrustData] {
+        guard !googlePlaceIds.isEmpty else { return [:] }
+
+        // 1. Resolve Google Place IDs to Restaurant IDs
+        // Firestore 'in' query limit is 30. We assume input is usually ~20 (Google Places page size)
+        // For larger sets, we'd need to chunk this.
+        let uniqueIds = Array(Set(googlePlaceIds).prefix(30))
+        
+        let restaurantSnapshot = try await db.collection("restaurants")
+            .whereField("googlePlaceId", in: uniqueIds)
+            .getDocuments()
+
+        var restaurantIdMap: [String: String] = [:] // RestaurantID -> GooglePlaceID
+        var firestoreIds: [String] = []
+
+        for doc in restaurantSnapshot.documents {
+            if let googleId = doc.data()["googlePlaceId"] as? String {
+                restaurantIdMap[doc.documentID] = googleId
+                firestoreIds.append(doc.documentID)
+            }
+        }
+
+        guard !firestoreIds.isEmpty else { return [:] }
+
+        // 2. Fetch Trust Scores
+        let trustSnapshot = try await db.collection("trustScores")
+            .whereField("restaurantId", in: firestoreIds)
+            .getDocuments()
+
+        var results: [String: FirestoreTrustData] = [:]
+
+        for doc in trustSnapshot.documents {
+            if let trustData = try? doc.data(as: FirestoreTrustData.self),
+               let googleId = restaurantIdMap[trustData.restaurantId] {
+                results[googleId] = trustData
+            }
+        }
+
+        return results
+    }
 }
 
 // MARK: - Firestore Models
