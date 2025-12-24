@@ -279,8 +279,9 @@ extension User {
     /// Whether user has an active premium subscription
     var isPremium: Bool {
         switch subscriptionTier {
-        case .free: return false
-        case .premium, .family:
+        case .free:
+            return false
+        case .premium, .premiumMonthly, .premiumYearly:
             guard let expiresAt = subscriptionExpiresAt else { return false }
             return expiresAt > Date()
         }
