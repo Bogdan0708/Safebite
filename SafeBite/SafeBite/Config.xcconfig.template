@@ -1,0 +1,5 @@
+// Config.xcconfig.template
+// Copy this file to Config.xcconfig and fill in your values
+// DO NOT commit Config.xcconfig to git
+
+GOOGLE_PLACES_API_KEY = your_api_key_here
