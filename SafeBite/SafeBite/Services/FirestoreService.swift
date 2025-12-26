@@ -1,6 +1,7 @@
 import Foundation
 import FirebaseFirestore
 import FirebaseAuth
+import CoreLocation
 
 // MARK: - Firestore Service
 
@@ -26,17 +27,27 @@ actor FirestoreService {
         longitude: Double,
         radiusKm: Double = 10
     ) async throws -> [FirestoreRestaurant] {
-        // Note: Firestore doesn't support native geo queries
-        // For production, consider using GeoFirestore or geohashing
-        // For now, fetch all and filter client-side (only works for small datasets)
+        // Optimize with Geohash (Precision 4 ~= 20-40km box)
+        let geohash = GeohashUtils.encode(latitude: latitude, longitude: longitude, precision: 4)
+        let endHash = geohash + "~"
 
+        // Query by geohash box first
         let snapshot = try await db.collection("restaurants")
             .whereField("isActive", isEqualTo: true)
+            .whereField("geohash", isGreaterThanOrEqualTo: geohash)
+            .whereField("geohash", isLessThanOrEqualTo: endHash)
             .limit(to: 100)
             .getDocuments()
 
+        // Filter by exact distance client-side
+        let center = CLLocation(latitude: latitude, longitude: longitude)
+        let maxDistance = radiusKm * 1000
+
         return snapshot.documents.compactMap { doc in
             try? doc.data(as: FirestoreRestaurant.self)
+        }.filter { restaurant in
+            let loc = CLLocation(latitude: restaurant.latitude, longitude: restaurant.longitude)
+            return loc.distance(from: center) <= maxDistance
         }
     }
 
@@ -266,6 +277,7 @@ struct FirestoreRestaurant: Codable, Identifiable {
     let country: String
     let latitude: Double
     let longitude: Double
+    let geohash: String?
     let cuisineTypes: [String]
     let priceLevel: Int
 

@@ -13,6 +13,7 @@ final class Restaurant {
     var country: String
     var latitude: Double
     var longitude: Double
+    var geohash: String?
     var phoneNumber: String?
     var website: String?
     var cuisineTypes: [String]
@@ -95,6 +96,7 @@ final class Restaurant {
         self.country = country
         self.latitude = latitude
         self.longitude = longitude
+        self.geohash = GeohashUtils.encode(latitude: latitude, longitude: longitude)
         self.phoneNumber = phoneNumber
         self.website = website
         self.cuisineTypes = cuisineTypes
