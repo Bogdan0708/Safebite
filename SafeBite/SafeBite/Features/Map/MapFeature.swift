@@ -57,6 +57,10 @@ struct MapFeature {
 
         // Navigation
         case openDirections(RestaurantAnnotation)
+
+        // External search integration
+        case showSearchResults([RestaurantAnnotation])
+        case focusOnRestaurant(RestaurantAnnotation)
     }
 
     @Dependency(\.restaurantClient) var restaurantClient
@@ -197,6 +201,42 @@ struct MapFeature {
                     MKLaunchOptionsDirectionsModeKey: MKLaunchOptionsDirectionsModeWalking
                 ])
                 return .none
+
+            case .showSearchResults(let restaurants):
+                // Display search results from SearchFeature on the map
+                state.restaurants = IdentifiedArrayOf(uniqueElements: restaurants)
+                state.isLoading = false
+
+                // Fit map to show all results
+                if !restaurants.isEmpty {
+                    let coordinates = restaurants.map { $0.coordinate }
+                    let latitudes = coordinates.map { $0.latitude }
+                    let longitudes = coordinates.map { $0.longitude }
+
+                    let centerLat = (latitudes.min()! + latitudes.max()!) / 2
+                    let centerLng = (longitudes.min()! + longitudes.max()!) / 2
+                    let spanLat = (latitudes.max()! - latitudes.min()!) * 1.3
+                    let spanLng = (longitudes.max()! - longitudes.min()!) * 1.3
+
+                    state.region = MKCoordinateRegion(
+                        center: CLLocationCoordinate2D(latitude: centerLat, longitude: centerLng),
+                        span: MKCoordinateSpan(
+                            latitudeDelta: max(0.01, spanLat),
+                            longitudeDelta: max(0.01, spanLng)
+                        )
+                    )
+                }
+                return .none
+
+            case .focusOnRestaurant(let restaurant):
+                // Center map on specific restaurant and select it
+                state.selectedRestaurant = restaurant
+                state.showRestaurantDetail = true
+                state.region = MKCoordinateRegion(
+                    center: restaurant.coordinate,
+                    span: MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01)
+                )
+                return .none
             }
         }
     }
@@ -213,6 +253,12 @@ struct RestaurantAnnotation: Identifiable, Equatable {
     let priceLevel: PriceLevel
     let isCeliacSafe: Bool
     let distance: Double? // in meters
+
+    // Safety profile fields for filtering
+    var hasDedicatedKitchen: Bool = false
+    var hasSeparateFryer: Bool = false
+    var hasTrainedStaff: Bool = false
+    var isOpenNow: Bool?
 
     static func == (lhs: RestaurantAnnotation, rhs: RestaurantAnnotation) -> Bool {
         lhs.id == rhs.id
@@ -346,14 +392,11 @@ extension RestaurantClient: DependencyKey {
                 case .verifiedOnly:
                     if restaurant.trustScore.total < 60 { return false }
                 case .dedicatedKitchen:
-                    // This would check SafetyProfile - for now check trust score
-                    if restaurant.trustScore.professionalScore < 20 { return false }
+                    if !restaurant.hasDedicatedKitchen { return false }
                 case .separateFryer:
-                    // This would check SafetyProfile - for now check trust score
-                    if restaurant.trustScore.professionalScore < 15 { return false }
+                    if !restaurant.hasSeparateFryer { return false }
                 case .openNow:
-                    // Would need opening hours data - pass through for now
-                    break
+                    if restaurant.isOpenNow != true { return false }
                 }
             }
             return true
@@ -362,14 +405,14 @@ extension RestaurantClient: DependencyKey {
 
     private static func enrichWithSafeBiteData(_ annotations: [RestaurantAnnotation]) async -> [RestaurantAnnotation] {
         let ids = annotations.map { $0.id }
-        
+
         do {
             // Fetch real trust data from Firestore
             let trustDataMap = try await FirestoreService.shared.fetchTrustData(for: ids)
-            
+
             return annotations.map { annotation in
                 if let data = trustDataMap[annotation.id] {
-                    return RestaurantAnnotation(
+                    var enriched = RestaurantAnnotation(
                         id: annotation.id,
                         name: annotation.name,
                         coordinate: annotation.coordinate,
@@ -380,10 +423,15 @@ extension RestaurantClient: DependencyKey {
                         ),
                         cuisineType: annotation.cuisineType,
                         priceLevel: annotation.priceLevel,
-                        // Determine if safe based on score
-                        isCeliacSafe: data.totalScore >= 80,
+                        isCeliacSafe: data.isCeliacSafe ?? (data.totalScore >= 80),
                         distance: annotation.distance
                     )
+                    // Populate safety profile fields
+                    enriched.hasDedicatedKitchen = data.hasDedicatedKitchen ?? false
+                    enriched.hasSeparateFryer = data.hasSeparateFryer ?? false
+                    enriched.hasTrainedStaff = data.hasTrainedStaff ?? false
+                    enriched.isOpenNow = annotation.isOpenNow
+                    return enriched
                 }
                 return annotation
             }
@@ -570,8 +618,8 @@ extension LocationManager: CLLocationManagerDelegate {
 
 // MARK: - Mock Data
 
-private let mockRestaurants: [RestaurantAnnotation] = [
-    RestaurantAnnotation(
+private let mockRestaurants: [RestaurantAnnotation] = {
+    var r1 = RestaurantAnnotation(
         id: "1",
         name: "The Gluten Free Bakery",
         coordinate: CLLocationCoordinate2D(latitude: 51.5074, longitude: -0.1278),
@@ -580,8 +628,13 @@ private let mockRestaurants: [RestaurantAnnotation] = [
         priceLevel: .moderate,
         isCeliacSafe: true,
         distance: 250
-    ),
-    RestaurantAnnotation(
+    )
+    r1.hasDedicatedKitchen = true
+    r1.hasSeparateFryer = true
+    r1.hasTrainedStaff = true
+    r1.isOpenNow = true
+
+    var r2 = RestaurantAnnotation(
         id: "2",
         name: "Celiac Kitchen London",
         coordinate: CLLocationCoordinate2D(latitude: 51.5094, longitude: -0.1300),
@@ -590,8 +643,13 @@ private let mockRestaurants: [RestaurantAnnotation] = [
         priceLevel: .expensive,
         isCeliacSafe: true,
         distance: 450
-    ),
-    RestaurantAnnotation(
+    )
+    r2.hasDedicatedKitchen = true
+    r2.hasSeparateFryer = false
+    r2.hasTrainedStaff = true
+    r2.isOpenNow = true
+
+    var r3 = RestaurantAnnotation(
         id: "3",
         name: "Pizza Express",
         coordinate: CLLocationCoordinate2D(latitude: 51.5054, longitude: -0.1250),
@@ -601,4 +659,10 @@ private let mockRestaurants: [RestaurantAnnotation] = [
         isCeliacSafe: false,
         distance: 600
     )
-]
+    r3.hasDedicatedKitchen = false
+    r3.hasSeparateFryer = false
+    r3.hasTrainedStaff = false
+    r3.isOpenNow = false
+
+    return [r1, r2, r3]
+}()

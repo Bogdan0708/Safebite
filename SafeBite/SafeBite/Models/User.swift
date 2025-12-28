@@ -248,10 +248,9 @@ enum SubscriptionTier: String, Codable, CaseIterable {
         [
             "All Premium features",
             "Up to 5 accounts",
-                "Shared collections",
-                "Priority support"
-            ]
-        }
+            "Shared collections",
+            "Priority support"
+        ]
     }
 }
 

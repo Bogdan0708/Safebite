@@ -351,11 +351,103 @@ extension SavedRestaurantClient: DependencyKey {
             }
         },
         syncWithCloud: {
-            // TODO: Implement Firebase sync
-            // This would:
-            // 1. Fetch user's saved restaurants from Firebase
-            // 2. Merge with local SwiftData
-            // 3. Push local changes to Firebase
+            // 1. Fetch local saved restaurants
+            let localRestaurants = await MainActor.run {
+                PersistenceService.shared.fetchSavedRestaurants()
+            }
+
+            // 2. Fetch cloud saved restaurants
+            let cloudRestaurants: [FirestoreSavedRestaurant]
+            do {
+                cloudRestaurants = try await FirestoreService.shared.fetchSavedRestaurants()
+            } catch FirestoreError.notAuthenticated {
+                // User not logged in, skip cloud sync
+                return
+            } catch {
+                throw error
+            }
+
+            // 3. Merge: Cloud wins for conflicts, but preserve local-only items
+            let cloudIds = Set(cloudRestaurants.map { $0.restaurantId })
+            let localIds = Set(localRestaurants.map { $0.id })
+
+            // Items in cloud but not local -> add to local
+            for cloudItem in cloudRestaurants {
+                if !localIds.contains(cloudItem.restaurantId) {
+                    let entity = SavedRestaurantEntity(
+                        id: cloudItem.restaurantId,
+                        googlePlaceId: nil,
+                        name: cloudItem.restaurantName,
+                        address: "",
+                        city: cloudItem.city,
+                        cuisineType: "",
+                        priceLevel: .moderate,
+                        latitude: 0,
+                        longitude: 0,
+                        trustScore: cloudItem.trustScore,
+                        isCeliacSafe: cloudItem.trustScore >= 80,
+                        hasDedicatedKitchen: false,
+                        hasSeparateFryer: false,
+                        savedAt: cloudItem.savedAt,
+                        hasVisited: cloudItem.hasVisited,
+                        lastVisitedAt: cloudItem.lastVisitedAt,
+                        notes: cloudItem.notes
+                    )
+                    await MainActor.run {
+                        PersistenceService.shared.saveRestaurantToFavorites(entity)
+                    }
+                }
+            }
+
+            // Items in local but not cloud -> push to cloud
+            for localItem in localRestaurants {
+                if !cloudIds.contains(localItem.id) {
+                    let cloudItem = FirestoreSavedRestaurant(
+                        id: nil,
+                        restaurantId: localItem.id,
+                        restaurantName: localItem.name,
+                        city: localItem.city,
+                        trustScore: localItem.trustScore,
+                        savedAt: localItem.savedAt,
+                        hasVisited: localItem.hasVisited,
+                        lastVisitedAt: localItem.lastVisitedAt,
+                        notes: localItem.notes
+                    )
+                    try await FirestoreService.shared.saveRestaurantToFavorites(cloudItem)
+                }
+            }
+
+            // Items in both -> sync visited status (most recent wins)
+            for localItem in localRestaurants {
+                if let cloudItem = cloudRestaurants.first(where: { $0.restaurantId == localItem.id }) {
+                    let localUpdated = localItem.lastVisitedAt ?? localItem.savedAt
+                    let cloudUpdated = cloudItem.lastVisitedAt ?? cloudItem.savedAt
+
+                    if localUpdated > cloudUpdated {
+                        // Local is newer, push to cloud
+                        let updatedCloud = FirestoreSavedRestaurant(
+                            id: cloudItem.id,
+                            restaurantId: localItem.id,
+                            restaurantName: localItem.name,
+                            city: localItem.city,
+                            trustScore: localItem.trustScore,
+                            savedAt: localItem.savedAt,
+                            hasVisited: localItem.hasVisited,
+                            lastVisitedAt: localItem.lastVisitedAt,
+                            notes: localItem.notes
+                        )
+                        try await FirestoreService.shared.saveRestaurantToFavorites(updatedCloud)
+                    } else if cloudUpdated > localUpdated {
+                        // Cloud is newer, update local
+                        await MainActor.run {
+                            localItem.hasVisited = cloudItem.hasVisited
+                            localItem.lastVisitedAt = cloudItem.lastVisitedAt
+                            localItem.notes = cloudItem.notes
+                            PersistenceService.shared.updateSavedRestaurant(localItem)
+                        }
+                    }
+                }
+            }
         }
     )
 

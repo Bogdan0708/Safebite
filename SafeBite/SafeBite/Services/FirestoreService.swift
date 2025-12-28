@@ -400,6 +400,12 @@ struct FirestoreTrustData: Codable, Identifiable {
     let trustLevel: String
     let lastCalculatedAt: Date
 
+    // Safety profile fields
+    var hasDedicatedKitchen: Bool?
+    var hasSeparateFryer: Bool?
+    var hasTrainedStaff: Bool?
+    var isCeliacSafe: Bool?
+
     var nonOptionalId: String {
         id ?? UUID().uuidString
     }

@@ -354,7 +354,7 @@ extension GooglePlace {
             freshnessScore: 0
         )
 
-        return RestaurantAnnotation(
+        var annotation = RestaurantAnnotation(
             id: id,
             name: displayName?.text ?? "Unknown",
             coordinate: coordinate,
@@ -364,6 +364,11 @@ extension GooglePlace {
             isCeliacSafe: false, // Will be determined by our data
             distance: distance
         )
+
+        // Set opening hours status from Google Places data
+        annotation.isOpenNow = regularOpeningHours?.openNow
+
+        return annotation
     }
 
     private func determineCuisineType(from types: [String]) -> String {

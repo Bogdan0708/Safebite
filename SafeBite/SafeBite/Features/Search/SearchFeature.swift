@@ -41,6 +41,16 @@ struct SearchFeature {
 
         case restaurantTapped(RestaurantAnnotation)
         case userLocationUpdated(CLLocationCoordinate2D)
+
+        // Map coordination
+        case showOnMapTapped
+        case delegate(Delegate)
+
+        @CasePathable
+        enum Delegate: Equatable {
+            case showResultsOnMap([RestaurantAnnotation])
+            case focusOnRestaurant(RestaurantAnnotation)
+        }
     }
 
     @Dependency(\.restaurantClient) var restaurantClient
@@ -131,12 +141,22 @@ struct SearchFeature {
                 state.recentSearches = []
                 return .none
 
-            case .restaurantTapped:
-                // Handle navigation to detail
-                return .none
+            case .restaurantTapped(let restaurant):
+                // Notify delegate to focus on restaurant on map
+                return .send(.delegate(.focusOnRestaurant(restaurant)))
 
             case .userLocationUpdated(let location):
                 state.userLocation = location
+                return .none
+
+            case .showOnMapTapped:
+                // Send search results to map
+                let results = Array(state.searchResults)
+                guard !results.isEmpty else { return .none }
+                return .send(.delegate(.showResultsOnMap(results)))
+
+            case .delegate:
+                // Handled by parent
                 return .none
             }
         }

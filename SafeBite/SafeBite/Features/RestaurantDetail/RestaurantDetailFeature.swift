@@ -211,7 +211,7 @@ struct WhatToAskService {
     }
 }
 
-// MARK: - Placeholder Reducers for Child Features
+// MARK: - Write Review Feature
 
 @Reducer
 struct WriteReviewFeature {
@@ -230,6 +230,19 @@ struct WriteReviewFeature {
         // Safety quiz (required for first review)
         var showSafetyQuiz: Bool = false
         var safetyQuizCompleted: Bool = false
+        var isVerifiedReviewer: Bool = false
+
+        // Submission state
+        var isSubmitting: Bool = false
+        var submissionError: String?
+
+        var canSubmit: Bool {
+            safetyRating > 0 &&
+            foodRating > 0 &&
+            staffKnowledgeRating > 0 &&
+            !reviewText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+            hadReaction != nil
+        }
     }
 
     enum Action: Equatable {
@@ -244,12 +257,137 @@ struct WriteReviewFeature {
         case removePhoto(Int)
         case submitTapped
         case submitCompleted
+        case submitFailed(String)
         case cancelTapped
 
         // Safety quiz
+        case showSafetyQuizTapped
         case safetyQuizAnswered(Bool)
+        case dismissSafetyQuiz
+    }
+
+    @Dependency(\.dismiss) var dismiss
+
+    var body: some ReducerOf<Self> {
+        Reduce { state, action in
+            switch action {
+            case .safetyRatingChanged(let rating):
+                state.safetyRating = min(5, max(1, rating))
+                return .none
+
+            case .foodRatingChanged(let rating):
+                state.foodRating = min(5, max(1, rating))
+                return .none
+
+            case .staffKnowledgeChanged(let rating):
+                state.staffKnowledgeRating = min(5, max(1, rating))
+                return .none
+
+            case .reviewTextChanged(let text):
+                state.reviewText = text
+                return .none
+
+            case .hadReactionSelected(let hadReaction):
+                state.hadReaction = hadReaction
+                return .none
+
+            case .itemsOrderedChanged(let items):
+                state.itemsOrdered = items
+                return .none
+
+            case .addPhotoTapped:
+                // Photo picker handled by view
+                return .none
+
+            case .photoAdded(let data):
+                if state.photos.count < 5 { // Max 5 photos
+                    state.photos.append(data)
+                }
+                return .none
+
+            case .removePhoto(let index):
+                if index >= 0 && index < state.photos.count {
+                    state.photos.remove(at: index)
+                }
+                return .none
+
+            case .submitTapped:
+                guard state.canSubmit else { return .none }
+
+                // If not verified and hasn't completed quiz, show quiz first
+                if !state.isVerifiedReviewer && !state.safetyQuizCompleted {
+                    state.showSafetyQuiz = true
+                    return .none
+                }
+
+                state.isSubmitting = true
+                state.submissionError = nil
+
+                let restaurantId = state.restaurantId
+                let review = FirestoreReview(
+                    id: UUID().uuidString,
+                    restaurantId: restaurantId,
+                    userId: "", // Will be set by service
+                    userDisplayName: "", // Will be set by service
+                    isVerifiedReviewer: state.isVerifiedReviewer || state.safetyQuizCompleted,
+                    content: state.reviewText,
+                    safetyRating: state.safetyRating,
+                    foodRating: state.foodRating,
+                    hadReaction: state.hadReaction ?? false,
+                    itemsOrdered: state.itemsOrdered.split(separator: ",").map { String($0).trimmingCharacters(in: .whitespaces) },
+                    photoURLs: [], // Photos uploaded separately
+                    createdAt: Date(),
+                    updatedAt: Date()
+                )
+
+                return .run { send in
+                    do {
+                        try await FirestoreService.shared.submitReview(review)
+                        await send(.submitCompleted)
+                    } catch {
+                        await send(.submitFailed(error.localizedDescription))
+                    }
+                }
+
+            case .submitCompleted:
+                state.isSubmitting = false
+                return .run { _ in
+                    await dismiss()
+                }
+
+            case .submitFailed(let error):
+                state.isSubmitting = false
+                state.submissionError = error
+                return .none
+
+            case .cancelTapped:
+                return .run { _ in
+                    await dismiss()
+                }
+
+            case .showSafetyQuizTapped:
+                state.showSafetyQuiz = true
+                return .none
+
+            case .safetyQuizAnswered(let passed):
+                state.safetyQuizCompleted = true
+                state.isVerifiedReviewer = passed
+                state.showSafetyQuiz = false
+                // If passed and can submit, auto-submit
+                if passed && state.canSubmit {
+                    return .send(.submitTapped)
+                }
+                return .none
+
+            case .dismissSafetyQuiz:
+                state.showSafetyQuiz = false
+                return .none
+            }
+        }
     }
 }
+
+// MARK: - Report Incident Feature
 
 @Reducer
 struct ReportIncidentFeature {
@@ -263,6 +401,16 @@ struct ReportIncidentFeature {
         var suspectedItem: String = ""
         var staffNotified: Bool = false
         var severity: IncidentSeverity = .moderate
+
+        // Submission state
+        var isSubmitting: Bool = false
+        var submissionError: String?
+        var isAnonymous: Bool = false
+
+        var canSubmit: Bool {
+            !description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+            !suspectedItem.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
     }
 
     enum Action: Equatable {
@@ -272,9 +420,91 @@ struct ReportIncidentFeature {
         case suspectedItemChanged(String)
         case staffNotifiedToggled
         case severitySelected(IncidentSeverity)
+        case anonymousToggled
         case submitTapped
         case submitCompleted
+        case submitFailed(String)
         case cancelTapped
+    }
+
+    @Dependency(\.dismiss) var dismiss
+
+    var body: some ReducerOf<Self> {
+        Reduce { state, action in
+            switch action {
+            case .dateChanged(let date):
+                // Don't allow future dates
+                state.incidentDate = min(date, Date())
+                return .none
+
+            case .descriptionChanged(let text):
+                state.description = text
+                return .none
+
+            case .itemsOrderedChanged(let items):
+                state.itemsOrdered = items
+                return .none
+
+            case .suspectedItemChanged(let item):
+                state.suspectedItem = item
+                return .none
+
+            case .staffNotifiedToggled:
+                state.staffNotified.toggle()
+                return .none
+
+            case .severitySelected(let severity):
+                state.severity = severity
+                return .none
+
+            case .anonymousToggled:
+                state.isAnonymous.toggle()
+                return .none
+
+            case .submitTapped:
+                guard state.canSubmit else { return .none }
+
+                state.isSubmitting = true
+                state.submissionError = nil
+
+                let incident = FirestoreIncidentReport(
+                    id: UUID().uuidString,
+                    restaurantId: state.restaurantId,
+                    userId: "", // Will be set by service, or empty if anonymous
+                    description: state.description,
+                    suspectedItems: state.itemsOrdered.split(separator: ",").map { String($0).trimmingCharacters(in: .whitespaces) },
+                    incidentDate: state.incidentDate,
+                    wasStaffNotified: state.staffNotified,
+                    severity: state.severity.rawValue.lowercased(),
+                    createdAt: Date()
+                )
+
+                return .run { send in
+                    do {
+                        try await FirestoreService.shared.submitIncidentReport(incident)
+                        await send(.submitCompleted)
+                    } catch {
+                        await send(.submitFailed(error.localizedDescription))
+                    }
+                }
+
+            case .submitCompleted:
+                state.isSubmitting = false
+                return .run { _ in
+                    await dismiss()
+                }
+
+            case .submitFailed(let error):
+                state.isSubmitting = false
+                state.submissionError = error
+                return .none
+
+            case .cancelTapped:
+                return .run { _ in
+                    await dismiss()
+                }
+            }
+        }
     }
 }
 

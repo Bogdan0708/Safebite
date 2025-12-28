@@ -82,6 +82,8 @@ struct AppFeature {
         case completeOnboarding
     }
 
+    private enum CancelID { case authListener }
+
     var body: some ReducerOf<Self> {
         Scope(state: \.map, action: \.map) {
             MapFeature()
@@ -114,15 +116,16 @@ struct AppFeature {
                         let handle = Auth.auth().addStateDidChangeListener { _, user in
                             continuation.yield(user)
                         }
-                        continuation.onTermination = { _ in
+                        continuation.onTermination = { @Sendable _ in
                             Auth.auth().removeStateDidChangeListener(handle)
                         }
                     }
-                    
+
                     for await user in stream {
                         await send(.authStatusReceived(user != nil))
                     }
                 }
+                .cancellable(id: CancelID.authListener, cancelInFlight: true)
 
             case .authStatusReceived(let isAuthenticated):
                 state.isAuthenticated = isAuthenticated
@@ -138,7 +141,21 @@ struct AppFeature {
                 UserDefaults.standard.set(true, forKey: "hasCompletedOnboarding")
                 return .none
 
-            case .map, .search, .saved, .profile:
+            case .map, .saved, .profile:
+                return .none
+
+            // Coordinate search results with map
+            case .search(.delegate(.showResultsOnMap(let restaurants))):
+                // Switch to map tab and show results
+                state.selectedTab = .map
+                return .send(.map(.showSearchResults(restaurants)))
+
+            case .search(.delegate(.focusOnRestaurant(let restaurant))):
+                // Switch to map tab and focus on restaurant
+                state.selectedTab = .map
+                return .send(.map(.focusOnRestaurant(restaurant)))
+
+            case .search:
                 return .none
             }
         }

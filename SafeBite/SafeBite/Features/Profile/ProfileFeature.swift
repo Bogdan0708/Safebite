@@ -73,7 +73,11 @@ struct ProfileFeature {
 
         // Premium
         case upgradeToPremium
+        case purchaseCompleted(SubscriptionTier)
+        case purchaseFailed(String)
         case restorePurchases
+        case restoreCompleted(SubscriptionTier)
+        case restoreFailed(String)
 
         // GDPR
         case exportDataTapped
@@ -86,6 +90,7 @@ struct ProfileFeature {
     }
 
     @Dependency(\.authClient) var authClient
+    @Dependency(\.subscriptionClient) var subscriptionClient
 
     var body: some ReducerOf<Self> {
         Reduce { state, action in
@@ -256,11 +261,60 @@ struct ProfileFeature {
                 return .none
 
             case .upgradeToPremium:
-                // TODO: StoreKit purchase flow
+                state.showPremiumPaywall = true
+                return .none
+
+            case .purchaseCompleted(let tier):
+                state.subscriptionTier = tier
+                state.user?.subscriptionTier = tier
+                state.showPremiumPaywall = false
+                // Persist to user profile
+                return .run { _ in
+                    await MainActor.run {
+                        if let user = PersistenceService.shared.fetchCurrentUser() {
+                            user.subscriptionTier = tier
+                            user.subscriptionExpiresAt = Calendar.current.date(
+                                byAdding: tier == .premiumMonthly ? .month : .year,
+                                value: 1,
+                                to: Date()
+                            )
+                            PersistenceService.shared.saveUser(user)
+                        }
+                    }
+                }
+
+            case .purchaseFailed(let message):
+                state.errorMessage = message
+                state.showPremiumPaywall = false
                 return .none
 
             case .restorePurchases:
-                // TODO: Restore purchases
+                state.isLoading = true
+                return .run { send in
+                    do {
+                        let tier = try await subscriptionClient.restorePurchases()
+                        await send(.restoreCompleted(tier))
+                    } catch {
+                        await send(.restoreFailed(error.localizedDescription))
+                    }
+                }
+
+            case .restoreCompleted(let tier):
+                state.isLoading = false
+                state.subscriptionTier = tier
+                state.user?.subscriptionTier = tier
+                if tier.isPremium {
+                    state.subscriptionExpiresAt = Calendar.current.date(
+                        byAdding: tier == .premiumMonthly ? .month : .year,
+                        value: 1,
+                        to: Date()
+                    )
+                }
+                return .none
+
+            case .restoreFailed(let message):
+                state.isLoading = false
+                state.errorMessage = message
                 return .none
 
             case .exportDataTapped:
