@@ -104,21 +104,25 @@ enum AppError: LocalizedError {
             return NSLocalizedString("error_quota_exceeded", comment: "Service quota exceeded. Please try again later.")
 
         // General
-        case .unknown(let message):
-            return message
+        case .unknown:
+            return NSLocalizedString("error_unknown", comment: "An unexpected error occurred.")
         }
     }
 
     var recoverySuggestion: String? {
         switch self {
         case .networkUnavailable:
-            return "Check your Wi-Fi or mobile data connection."
+            return NSLocalizedString("recovery_network", comment: "Check your Wi-Fi or mobile data connection.")
         case .notAuthenticated, .sessionExpired:
-            return "Sign in to continue."
+            return NSLocalizedString("recovery_sign_in", comment: "Sign in to continue.")
         case .locationDenied:
-            return "Go to Settings > SafeBite > Location to enable location access."
+            return NSLocalizedString("recovery_location", comment: "Go to Settings > SafeBite > Location to enable location access.")
         case .purchaseFailed, .purchaseCancelled:
-            return "You can try again or contact Apple Support if the issue persists."
+            return NSLocalizedString("recovery_purchase", comment: "You can try again or contact Apple Support if the issue persists.")
+        case .timeout, .serverError(_):
+            return NSLocalizedString("recovery_retry", comment: "Please wait a moment and try again.")
+        case .syncFailed, .saveFailed:
+            return NSLocalizedString("recovery_sync", comment: "Check your connection and try again.")
         default:
             return nil
         }
@@ -126,12 +130,64 @@ enum AppError: LocalizedError {
 
     var isRetryable: Bool {
         switch self {
-        case .networkUnavailable, .timeout, .serverError, .syncFailed, .saveFailed:
+        case .networkUnavailable, .timeout, .serverError(_), .syncFailed, .saveFailed:
             return true
         default:
             return false
         }
     }
+
+    /// Debug description for logging (not shown to users)
+    var debugDescription: String {
+        switch self {
+        case .unknown(let message):
+            return "Unknown error: \(message)"
+        case .serverError(let code):
+            return "Server error with code: \(code)"
+        default:
+            return String(describing: self)
+        }
+    }
+}
+
+// MARK: - Firebase Auth Error Codes
+
+/// Self-documenting Firebase Auth error codes
+/// Reference: https://firebase.google.com/docs/auth/admin/errors
+private enum FirebaseAuthErrorCode: Int {
+    case wrongPassword = 17009
+    case userNotFound = 17011
+    case emailAlreadyInUse = 17007
+    case weakPassword = 17026
+    case networkError = 17020
+    case userDisabled = 17005
+    case invalidEmail = 17008
+    case operationNotAllowed = 17006
+    case tooManyRequests = 17010
+    case requiresRecentLogin = 17014
+}
+
+// MARK: - Firestore Error Codes
+
+/// Self-documenting Firestore error codes
+/// Reference: https://firebase.google.com/docs/firestore/troubleshoot
+private enum FirestoreErrorCode: Int {
+    case cancelled = 1
+    case unknown = 2
+    case invalidArgument = 3
+    case deadlineExceeded = 4
+    case notFound = 5
+    case alreadyExists = 6
+    case permissionDenied = 7
+    case resourceExhausted = 8
+    case failedPrecondition = 9
+    case aborted = 10
+    case outOfRange = 11
+    case unimplemented = 12
+    case `internal` = 13
+    case unavailable = 14
+    case dataLoss = 15
+    case unauthenticated = 16
 }
 
 // MARK: - Error Mapping Extensions
@@ -141,15 +197,31 @@ extension AppError {
     static func from(authError: Error) -> AppError {
         let nsError = authError as NSError
 
-        // Firebase Auth error codes
-        switch nsError.code {
-        case 17009: return .invalidCredentials // wrongPassword
-        case 17011: return .accountNotFound // userNotFound
-        case 17007: return .emailAlreadyInUse
-        case 17026: return .weakPassword
-        case 17020: return .networkUnavailable
-        case 17005: return .permissionDenied // userDisabled
-        default: return .unknown(authError.localizedDescription)
+        guard let code = FirebaseAuthErrorCode(rawValue: nsError.code) else {
+            return .unknown(authError.localizedDescription)
+        }
+
+        switch code {
+        case .wrongPassword:
+            return .invalidCredentials
+        case .userNotFound:
+            return .accountNotFound
+        case .emailAlreadyInUse:
+            return .emailAlreadyInUse
+        case .weakPassword:
+            return .weakPassword
+        case .networkError:
+            return .networkUnavailable
+        case .userDisabled:
+            return .permissionDenied
+        case .invalidEmail:
+            return .invalidCredentials
+        case .operationNotAllowed:
+            return .permissionDenied
+        case .tooManyRequests:
+            return .rateLimitExceeded
+        case .requiresRecentLogin:
+            return .sessionExpired
         }
     }
 
@@ -157,13 +229,35 @@ extension AppError {
     static func from(firestoreError: Error) -> AppError {
         let nsError = firestoreError as NSError
 
-        // Firestore error codes
-        switch nsError.code {
-        case 7: return .permissionDenied
-        case 5: return .dataNotFound
-        case 14: return .networkUnavailable
-        case 8: return .quotaExceeded
-        default: return .unknown(firestoreError.localizedDescription)
+        guard let code = FirestoreErrorCode(rawValue: nsError.code) else {
+            return .unknown(firestoreError.localizedDescription)
+        }
+
+        switch code {
+        case .permissionDenied:
+            return .permissionDenied
+        case .notFound:
+            return .dataNotFound
+        case .unavailable:
+            return .networkUnavailable
+        case .resourceExhausted:
+            return .quotaExceeded
+        case .unauthenticated:
+            return .notAuthenticated
+        case .deadlineExceeded:
+            return .timeout
+        case .cancelled:
+            return .unknown(NSLocalizedString("error_cancelled", comment: "Operation was cancelled."))
+        case .alreadyExists:
+            return .invalidData
+        case .invalidArgument, .failedPrecondition, .outOfRange:
+            return .invalidData
+        case .aborted:
+            return .syncFailed
+        case .dataLoss:
+            return .saveFailed
+        case .unknown, .unimplemented, .internal:
+            return .unknown(firestoreError.localizedDescription)
         }
     }
 
@@ -176,6 +270,8 @@ extension AppError {
             return .networkUnavailable
         case NSURLErrorTimedOut:
             return .timeout
+        case NSURLErrorCannotFindHost, NSURLErrorCannotConnectToHost:
+            return .serverError(nsError.code)
         default:
             return .unknown(networkError.localizedDescription)
         }
@@ -190,23 +286,23 @@ struct ErrorPresenter {
         let title: String
 
         switch error {
-        case .networkUnavailable, .timeout, .serverError:
-            title = "Connection Error"
+        case .networkUnavailable, .timeout, .serverError(_):
+            title = NSLocalizedString("error_title_connection", comment: "Connection Error")
         case .notAuthenticated, .invalidCredentials, .accountNotFound, .emailAlreadyInUse, .weakPassword, .sessionExpired:
-            title = "Sign In Error"
+            title = NSLocalizedString("error_title_auth", comment: "Sign In Error")
         case .dataNotFound, .invalidData, .saveFailed, .deleteFailed, .syncFailed:
-            title = "Data Error"
+            title = NSLocalizedString("error_title_data", comment: "Data Error")
         case .permissionDenied, .locationDenied, .cameraNotAvailable:
-            title = "Permission Required"
+            title = NSLocalizedString("error_title_permission", comment: "Permission Required")
         case .productNotFound, .purchaseFailed, .purchaseCancelled, .receiptValidationFailed:
-            title = "Purchase Error"
+            title = NSLocalizedString("error_title_purchase", comment: "Purchase Error")
         case .apiKeyMissing, .rateLimitExceeded, .quotaExceeded:
-            title = "Service Error"
+            title = NSLocalizedString("error_title_service", comment: "Service Error")
         case .unknown:
-            title = "Error"
+            title = NSLocalizedString("error_title_generic", comment: "Error")
         }
 
-        var message = error.errorDescription ?? "An unexpected error occurred."
+        var message = error.errorDescription ?? NSLocalizedString("error_unknown", comment: "An unexpected error occurred.")
         if let suggestion = error.recoverySuggestion {
             message += "\n\n" + suggestion
         }

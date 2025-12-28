@@ -213,10 +213,18 @@ struct MapFeature {
                     let latitudes = coordinates.map { $0.latitude }
                     let longitudes = coordinates.map { $0.longitude }
 
-                    let centerLat = (latitudes.min()! + latitudes.max()!) / 2
-                    let centerLng = (longitudes.min()! + longitudes.max()!) / 2
-                    let spanLat = (latitudes.max()! - latitudes.min()!) * 1.3
-                    let spanLng = (longitudes.max()! - longitudes.min()!) * 1.3
+                    // Safe unwrapping to avoid crashes
+                    guard let minLat = latitudes.min(),
+                          let maxLat = latitudes.max(),
+                          let minLng = longitudes.min(),
+                          let maxLng = longitudes.max() else {
+                        return .none
+                    }
+
+                    let centerLat = (minLat + maxLat) / 2
+                    let centerLng = (minLng + maxLng) / 2
+                    let spanLat = (maxLat - minLat) * 1.3
+                    let spanLng = (maxLng - minLng) * 1.3
 
                     state.region = MKCoordinateRegion(
                         center: CLLocationCoordinate2D(latitude: centerLat, longitude: centerLng),
