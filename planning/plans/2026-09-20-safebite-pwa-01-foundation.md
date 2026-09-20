@@ -823,7 +823,8 @@ describe("seedEmulator", () => {
     try {
       await expect(seedEmulator()).rejects.toThrow(/emulator/i);
     } finally {
-      process.env.FIRESTORE_EMULATOR_HOST = saved;
+      if (saved === undefined) delete process.env.FIRESTORE_EMULATOR_HOST;
+      else process.env.FIRESTORE_EMULATOR_HOST = saved;
     }
   });
 });
@@ -873,11 +874,20 @@ export async function seedEmulator(): Promise<void> {
   const auth = getAuth();
   const db = getFirestore();
 
-  for (const account of SEED_ACCOUNTS) {
+  async function userExists(uid: string): Promise<boolean> {
     try {
-      await auth.getUser(account.uid);
+      await auth.getUser(uid);
+      return true;
+    } catch (err) {
+      if ((err as { code?: string }).code === "auth/user-not-found") return false;
+      throw err; // any other failure must surface, not be masked as "create"
+    }
+  }
+
+  for (const account of SEED_ACCOUNTS) {
+    if (await userExists(account.uid)) {
       await auth.updateUser(account.uid, { email: account.email, password: SEED_PASSWORD, displayName: account.displayName });
-    } catch {
+    } else {
       await auth.createUser({
         uid: account.uid,
         email: account.email,
