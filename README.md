@@ -168,3 +168,43 @@ For questions or support, please open an issue on GitHub.
 ---
 
 **SafeBite** - Eat safely, anywhere in Europe.
+
+## Web app (PWA) — private pilot
+
+The active codebase is the web app in `web/` with callable functions in
+`functions/`. The Swift project under `SafeBite/` is kept as a reference only.
+
+### Prerequisites
+
+- Node 22, npm 10
+- Java 21+ (Firebase emulators)
+- `npm ci` in `./`, `web/`, and `functions/`
+- On WSL, keep the checkout on the Linux filesystem (for example `~/dev/AvaGF`), not `/mnt/c`: Windows-mounted paths make emulator cold starts take over a minute.
+
+### Local development (emulators only)
+
+```bash
+npm run emu:start            # terminal 1: Auth, Firestore, Functions emulators (project demo-safebite)
+npm run emu:seed             # terminal 2, once: creates ava@safebite.test / bogdan@safebite.test (members)
+                             #                and stranger@safebite.test (not a member); password pilot-password-1
+npm --prefix web run dev     # terminal 2: http://127.0.0.1:5173
+```
+
+Emulator UI: http://127.0.0.1:4000
+
+### Tests
+
+```bash
+npm run typecheck   # both packages
+npm run test:unit   # web unit tests (no emulator)
+npm run emu:test    # functions + Firestore rules tests (starts emulators)
+npm run emu:e2e     # Playwright browser tests (starts emulators, seeds, runs Vite)
+```
+
+`npm run test:unit` currently reports 11 tests.
+
+### Guardrails
+
+- Local work targets the emulator-only project `demo-safebite`. Nothing here deploys.
+- Membership (`users/{uid}`, `households/{hid}`) is written only with the Admin SDK; there is no sign-up.
+- Never reuse the legacy seed data from git history; its safety claims were invented.
