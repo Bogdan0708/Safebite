@@ -52,7 +52,7 @@
 | `web/src/auth/NotInvitedScreen.tsx` | refusal screen with sign-out |
 | `web/src/AppShell.tsx` | nav + placeholder routes; Settings shows `whoami` |
 | `web/src/App.tsx`, `web/src/main.tsx` | composition |
-| `web/e2e/auth.spec.ts`, `web/playwright.config.ts` | browser tests |
+| `web/e2e/auth.spec.ts`, `web/e2e/global-setup.ts`, `web/playwright.config.ts` | browser tests |
 | `.github/workflows/ci.yml` | CI |
 | `README.md` | add "Web app (PWA)" dev section |
 
@@ -1732,7 +1732,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ### Task 8: Playwright browser tests against the emulators
 
 **Files:**
-- Create: `web/playwright.config.ts`, `web/e2e/auth.spec.ts`
+- Create: `web/playwright.config.ts`, `web/e2e/global-setup.ts`, `web/e2e/auth.spec.ts`
 
 **Interfaces:**
 - Consumes: seeded accounts from Task 5; `data-testid`s from Task 7; root script `emu:e2e` from Task 2.
@@ -1753,10 +1753,17 @@ import { defineConfig, devices } from "@playwright/test";
 export default defineConfig({
   testDir: "./e2e",
   timeout: 30_000,
+  // React 19 StrictMode (main.tsx) double-invokes SettingsPage's effect in dev mode, firing
+  // two concurrent `whoami` calls on first mount. The Functions emulator can route the second,
+  // concurrent call to a fresh instance that cold-starts even after the global warm-up below
+  // has warmed the first instance (observed ~14s vs. the default 5s assertion timeout). Raise
+  // the expect timeout rather than touching the assertions themselves.
+  expect: { timeout: 15_000 },
   fullyParallel: false,
   workers: 1,
   retries: process.env.CI ? 1 : 0,
   reporter: process.env.CI ? [["github"], ["html", { open: "never" }]] : "list",
+  globalSetup: "./e2e/global-setup.ts",
   use: {
     baseURL: "http://127.0.0.1:5173",
     trace: "retain-on-failure",
@@ -1771,6 +1778,61 @@ export default defineConfig({
     timeout: 60_000,
   },
 });
+```
+
+- [ ] **Step 2b: Write `web/e2e/global-setup.ts`** (warms the Functions emulator before any timed test)
+
+```ts
+// The Functions emulator spawns its runtime worker lazily on the first request, and
+// that worker's cold require() of functions/lib + firebase-admin can take well over a
+// minute on a Windows-mounted path (WSL's /mnt/c). Warm it up here, before any test's
+// 30s timeout budget starts, so the Settings-page `whoami` call in auth.spec.ts only
+// ever pays for a warm invocation. Mirrors functions/test/emulator-helpers.ts's
+// warmUpFunctions().
+//
+// One extra wrinkle found while running this suite: React 19 StrictMode (see
+// web/src/main.tsx) double-invokes SettingsPage's effect on mount in dev, firing two
+// near-simultaneous `whoami` calls. `whoami` allows maxInstances: 2 (functions/src/index.ts),
+// and the emulator can route the second, concurrent call to a second instance that still
+// has to cold-require the module -- even though a single warm-up call above already warmed
+// instance #1. Observed: 13-14.5s for that second-instance cold start, enough to blow past
+// even a generous single-digit-second assertion timeout. So we fire two concurrent
+// warm-up calls (after the initial one confirms the emulator is reachable at all) to make
+// the emulator spin up both instances before any test starts.
+const WHOAMI_URL = "http://127.0.0.1:5001/demo-safebite/europe-west2/whoami";
+const MAX_ELAPSED_MS = 240_000;
+const RETRY_DELAY_MS = 2_000;
+
+function callWhoami(): Promise<Response> {
+  // Any HTTP response counts as "warm" -- a 401 (unauthenticated) is expected.
+  return fetch(WHOAMI_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ data: {} }),
+  });
+}
+
+async function waitUntilReachable(): Promise<void> {
+  const start = Date.now();
+  for (;;) {
+    try {
+      await callWhoami();
+      return;
+    } catch {
+      // Emulator worker not accepting connections yet (still spinning up / cold require in progress).
+      if (Date.now() - start > MAX_ELAPSED_MS) {
+        throw new Error(`Functions emulator did not answer whoami within ${MAX_ELAPSED_MS} ms`);
+      }
+      await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS));
+    }
+  }
+}
+
+export default async function globalSetup(): Promise<void> {
+  await waitUntilReachable();
+  // Warm a second, concurrent instance so StrictMode's double-fetch never hits a cold one.
+  await Promise.all([callWhoami(), callWhoami()]);
+}
 ```
 
 - [ ] **Step 3: Write `web/e2e/auth.spec.ts`**
