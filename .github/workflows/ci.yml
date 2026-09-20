@@ -38,6 +38,12 @@ jobs:
           npm ci --prefix web
           npm ci --prefix functions
 
+      - name: Guardrail — no production project id in tracked files
+        run: |
+          if git grep -n "safebite-production-13ba1" -- ':!SafeBite/**' ':!*.md' ':!docs/**' ':!.github/workflows/ci.yml'; then
+            echo "Production project id found in tracked files"; exit 1
+          fi
+
       - name: Typecheck
         run: npm run typecheck
 

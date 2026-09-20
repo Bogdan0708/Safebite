@@ -41,4 +41,18 @@ describe("whoami callable", () => {
     expect(res.status).toBe(403);
     expect(res.body.error?.status).toBe("PERMISSION_DENIED");
   });
+
+  it("ignores a spoofed identity in request.data from a non-member", async () => {
+    const strangerToken = await signInForIdToken("stranger@safebite.test", PASSWORD);
+    const res = await callFunction("whoami", { uid: "ava-uid", householdId: "home" }, strangerToken);
+    expect(res.status).toBe(403);
+    expect(res.body.error?.status).toBe("PERMISSION_DENIED");
+  });
+
+  it("ignores a spoofed identity in request.data from the real member", async () => {
+    const avaToken = await signInForIdToken("ava@safebite.test", PASSWORD);
+    const res = await callFunction("whoami", { uid: "ava-uid", householdId: "home" }, avaToken);
+    expect(res.status).toBe(200);
+    expect(res.body.result).toEqual({ uid: "ava-uid", householdId: "home", displayName: "Ava" });
+  });
 });

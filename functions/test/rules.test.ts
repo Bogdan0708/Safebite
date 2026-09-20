@@ -102,3 +102,25 @@ describe("households/{hid}", () => {
     await assertFails(setDoc(doc(db, "households/mine"), { name: "Mine", memberIds: ["ava"], createdAt: new Date() }));
   });
 });
+
+describe("default-deny", () => {
+  it("denies reads under an unmatched subcollection", async () => {
+    const db = env.authenticatedContext("ava").firestore();
+    await assertFails(getDoc(doc(db, "households/home/restaurants/x")));
+  });
+
+  it("denies reads of an unmatched top-level collection", async () => {
+    const db = env.authenticatedContext("ava").firestore();
+    await assertFails(getDoc(doc(db, "config/discovery")));
+  });
+
+  it("fails closed for a member reading a household that does not exist", async () => {
+    const db = env.authenticatedContext("ava").firestore();
+    await assertFails(getDoc(doc(db, "households/ghost")));
+  });
+
+  it("denies unauthenticated reads of an unmatched top-level collection", async () => {
+    const db = env.unauthenticatedContext().firestore();
+    await assertFails(getDoc(doc(db, "config/discovery")));
+  });
+});

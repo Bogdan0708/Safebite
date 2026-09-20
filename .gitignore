@@ -67,7 +67,6 @@ node_modules/
 .clang-module-cache/
 
 # Web app / functions
-node_modules/
 web/dist/
 web/test-results/
 web/playwright-report/
@@ -77,6 +76,4 @@ firebase-debug.log
 firestore-debug.log
 ui-debug.log
 *.log
-.env
-.env.*
-!.env.development
+!/web/.env.development

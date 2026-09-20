@@ -2,14 +2,16 @@
   "hosting": {
     "public": "web/dist",
     "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
-    "rewrites": [{ "source": "**", "destination": "/index.html" }]
+    "rewrites": [{ "source": "**", "destination": "/index.html" }],
+    "predeploy": ["npm --prefix web run build"]
   },
   "functions": [
     {
       "source": "functions",
       "codebase": "default",
       "runtime": "nodejs22",
-      "ignore": ["node_modules", ".git", "test", "*.log"]
+      "ignore": ["node_modules", ".git", "test", "*.log"],
+      "predeploy": ["npm --prefix functions run build"]
     }
   ],
   "firestore": {

@@ -12,6 +12,10 @@ const firebaseConfig = {
   appId: import.meta.env.VITE_FIREBASE_APP_ID ?? "demo-app-id",
 };
 
+if (import.meta.env.PROD && !import.meta.env.VITE_FIREBASE_PROJECT_ID) {
+  throw new Error("Production build without VITE_FIREBASE_PROJECT_ID: refusing to start against the demo project.");
+}
+
 export const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 export const db = getFirestore(app);
@@ -19,7 +23,7 @@ export const functions = getFunctions(app, "europe-west2");
 
 export const usingEmulators = import.meta.env.VITE_USE_EMULATORS === "true";
 
-if (usingEmulators) {
+if (import.meta.env.DEV && usingEmulators) {
   connectAuthEmulator(auth, "http://127.0.0.1:9099", { disableWarnings: true });
   connectFirestoreEmulator(db, "127.0.0.1", 8080);
   connectFunctionsEmulator(functions, "127.0.0.1", 5001);

@@ -18,7 +18,7 @@ export async function requireMember(request: CallableRequest<unknown>): Promise<
   }
   const db = getFirestore();
   const userSnap = await db.doc(`users/${uid}`).get();
-  const householdId = userSnap.get("householdId");
+  const householdId: unknown = userSnap.get("householdId");
   if (typeof householdId !== "string" || householdId.length === 0) {
     throw new HttpsError("permission-denied", "This account is not a household member.");
   }
@@ -27,7 +27,7 @@ export async function requireMember(request: CallableRequest<unknown>): Promise<
   if (!Array.isArray(memberIds) || !memberIds.includes(uid)) {
     throw new HttpsError("permission-denied", "This account is not a household member.");
   }
-  const displayName = userSnap.get("displayName");
+  const displayName: unknown = userSnap.get("displayName");
   return {
     uid,
     householdId,
