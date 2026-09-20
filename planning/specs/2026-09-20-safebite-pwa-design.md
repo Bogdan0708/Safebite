@@ -257,13 +257,26 @@ branch/worktree, reviewed, then merged before the next begins.
 | Plan | Deliverable (independently testable) | Depends on |
 |------|--------------------------------------|-----------|
 | **1. Foundation and household auth** — `planning/plans/2026-09-20-safebite-pwa-01-foundation.md` | Repo hygiene; `web/` + `functions/` scaffolds; emulator-only config; new rules for `users`/`households`; `requireMember` + `whoami` callable; sign-in / not-invited / member shell; emulator seed; Playwright + CI. A member signs in and sees the shell; a non-member is refused; rules tests prove isolation | O1, O2 |
-| **2. Restaurant records and evidence** | `restaurants` + `claims` model, rules with accreditation validation and version checks, private editing form, evidence display with checked/expired states, "call ahead" prompts, unit + rules + e2e tests | Plan 1 |
+| **2. Restaurant records and evidence** | **PWA app shell first** (`vite-plugin-pwa` manifest, real icon set replacing the Vite logo, `apple-touch-icon`, `apple-mobile-web-app-capable`, `theme-color`, standalone display — a plan gap found in the Plan 1 final review); then `restaurants` + `claims` model, rules with accreditation validation and version checks, private editing form, evidence display with checked/expired states, "call ahead" prompts, unit + rules + e2e tests | Plan 1 |
 | **3. Discovery through functions** | `searchDestination`, `searchNearby`, `placeDetails` callables with secret key, kill switch, caps, attribution; discover UI with all failure states; search cancellation; external directions links; "add to our records" from a result (stores place ID only) | Plan 2 |
 | **4. Shared collection and notes** | `collection` + `notes` model and rules, save/unsave/visited, authored notes, optimistic concurrency with reload prompt, account-switch cache clearing, e2e | Plan 2 (Plan 3 optional) |
 | **5. Privacy, offline, operations** | Opt-in offline download to IndexedDB, clear-on-signout, export callable, account-deletion callable, settings page, privacy/terms content, staging config files, cost-control checklist, real-iPhone acceptance script | Plans 1–4, O3–O6 |
 
 Plans 2–5 are written after Plan 1 is executed and reviewed, so they can name
 the real interfaces that landed rather than predicted ones.
+
+**Plan 2 pre-work carried from the Plan 1 final review (2026-09-20):**
+
+- Dedupe the Settings page's `whoami` call (ref/AbortController) so React StrictMode's
+  double effect issues one request; then drop the global 15 s Playwright `expect` timeout
+  and the doubled emulator warm-up in `web/e2e/global-setup.ts`.
+- Switch the household read rule to `request.auth.uid in resource.data.memberIds` (no
+  extra `get()`), keeping `isMember(hid)` for subcollections.
+- Type-check `functions/test/**` (a `tsconfig.test.json`), add `.gitattributes`
+  (`* text=auto eol=lf`), make the 60 s vitest timeouts conditional on `CI`.
+- Unit-test the auth provider's generation-counter race and unsubscribe-on-unmount.
+- Before staging: supply `VITE_FIREBASE_*` build-time values, add the `staging` alias,
+  confirm `europe-west2`, set the £10 budget alert (owner actions O3–O6).
 
 ### 3.4 Decisions taken without owner input (override if wrong)
 
