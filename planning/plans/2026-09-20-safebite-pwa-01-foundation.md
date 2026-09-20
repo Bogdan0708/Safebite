@@ -972,7 +972,7 @@ cd /mnt/c/Dev/AvaGF && npm create vite@latest web -- --template react-ts
 cd web && npm install
 ```
 If the scaffolder asks extra questions (experimental rolldown-vite, install-and-start), answer **No** to each.
-Expected: `web/` contains `index.html`, `src/App.tsx`, `src/main.tsx`, `vite.config.ts`, `tsconfig*.json`, `package.json`. Delete `web/src/App.css`, `web/src/assets/react.svg`, and `web/public/vite.svg` (they are replaced in Task 7).
+Expected: `web/` contains `index.html`, `src/App.tsx`, `src/main.tsx`, `vite.config.ts`, `tsconfig*.json`, `package.json`. Delete `web/src/App.css`, `web/src/assets/react.svg`, and `web/public/vite.svg` (they are replaced in Task 7). `web/src/index.css` is deleted in Task 7 when `styles.css` replaces it.
 
 - [ ] **Step 2: Add dependencies**
 
@@ -1014,9 +1014,15 @@ export default defineConfig({
 });
 ```
 
-Create `web/src/test-setup.ts`:
+Create `web/src/test-setup.ts` (Testing Library only auto-cleans when vitest `globals` is on, so register cleanup explicitly):
 ```ts
 import "@testing-library/jest-dom/vitest";
+import { cleanup } from "@testing-library/react";
+import { afterEach } from "vitest";
+
+afterEach(() => {
+  cleanup();
+});
 ```
 
 - [ ] **Step 5: Write `web/src/vite-env.d.ts`**
