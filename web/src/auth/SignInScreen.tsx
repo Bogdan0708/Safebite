@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useState, type SubmitEvent } from "react";
 import { useAuth } from "./AuthProvider";
 
 function messageFor(code: string | undefined): string {
@@ -23,7 +23,7 @@ export function SignInScreen() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  async function onSubmit(event: FormEvent) {
+  async function onSubmit(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
     setBusy(true);

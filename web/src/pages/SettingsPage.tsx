@@ -15,10 +15,18 @@ export function SettingsPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    let active = true;
     const call = httpsCallable<unknown, WhoAmI>(functions, "whoami");
     call({})
-      .then((res) => setWhoami(res.data))
-      .catch(() => setError("Could not confirm membership with the server."));
+      .then((res) => {
+        if (active) setWhoami(res.data);
+      })
+      .catch(() => {
+        if (active) setError("Could not confirm membership with the server.");
+      });
+    return () => {
+      active = false;
+    };
   }, []);
 
   return (

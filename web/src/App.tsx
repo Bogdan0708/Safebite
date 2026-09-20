@@ -2,6 +2,7 @@ import { BrowserRouter } from "react-router";
 import { AuthProvider, useAuth } from "./auth/AuthProvider";
 import { SignInScreen } from "./auth/SignInScreen";
 import { NotInvitedScreen } from "./auth/NotInvitedScreen";
+import { MembershipErrorScreen } from "./auth/MembershipErrorScreen";
 import { AppShell } from "./AppShell";
 
 function Gate() {
@@ -13,6 +14,8 @@ function Gate() {
       return <SignInScreen />;
     case "notMember":
       return <NotInvitedScreen />;
+    case "error":
+      return <MembershipErrorScreen />;
     case "member":
       return <AppShell />;
   }

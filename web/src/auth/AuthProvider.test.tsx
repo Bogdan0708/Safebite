@@ -72,4 +72,13 @@ describe("AuthProvider", () => {
     listeners[0]({ uid: "x", email: null });
     await waitFor(() => expect(screen.getByTestId("state")).toHaveTextContent('"notMember"'));
   });
+
+  it("reports an error when checking membership fails for a reason other than permission", async () => {
+    getDocMock.mockImplementation(async () => {
+      throw Object.assign(new Error("unavailable"), { code: "unavailable" });
+    });
+    render(<AuthProvider><Probe /></AuthProvider>);
+    listeners[0]({ uid: "y", email: "y@safebite.test" });
+    await waitFor(() => expect(screen.getByTestId("state")).toHaveTextContent('"status":"error"'));
+  });
 });

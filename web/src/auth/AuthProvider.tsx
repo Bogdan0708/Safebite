@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { onAuthStateChanged, signInWithEmailAndPassword, signOut as firebaseSignOut, type User } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
 import { auth, db } from "../firebase";
@@ -8,12 +8,14 @@ export type AuthState =
   | { status: "loading" }
   | { status: "signedOut" }
   | { status: "notMember"; email: string | null }
-  | { status: "member"; uid: string; email: string | null; householdId: string; displayName: string };
+  | { status: "member"; uid: string; email: string | null; householdId: string; displayName: string }
+  | { status: "error"; email: string | null; message: string };
 
 interface AuthContextValue {
   state: AuthState;
   signIn: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
+  retry: () => void;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -22,10 +24,14 @@ async function readDoc(path: string): Promise<Record<string, unknown> | undefine
   try {
     const snapshot = await getDoc(doc(db, path));
     return snapshot.exists() ? (snapshot.data() as Record<string, unknown>) : undefined;
-  } catch {
-    // A permission-denied read is the rules saying "not a member". Any other read failure is
-    // treated the same way for safety; the user can sign out and retry.
-    return undefined;
+  } catch (err) {
+    if ((err as { code?: string }).code === "permission-denied") {
+      // The rules deny this read precisely when the caller is not a member; treat that as "no document".
+      return undefined;
+    }
+    // Any other failure (offline, outage, etc.) is not evidence of non-membership; let it propagate
+    // so the caller can distinguish "not a member" from "couldn't find out".
+    throw err;
   }
 }
 
@@ -42,22 +48,33 @@ async function stateForUser(user: User): Promise<AuthState> {
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AuthState>({ status: "loading" });
+  const generationRef = useRef(0);
+
+  const resolveForUser = useCallback((user: User) => {
+    const mine = ++generationRef.current;
+    setState({ status: "loading" });
+    void stateForUser(user)
+      .then((next) => {
+        if (mine === generationRef.current) setState(next);
+      })
+      .catch(() => {
+        if (mine === generationRef.current) {
+          setState({ status: "error", email: user.email, message: "Couldn't check your membership. Check your connection and try again." });
+        }
+      });
+  }, []);
 
   useEffect(() => {
-    let generation = 0;
     const unsubscribe = onAuthStateChanged(auth, (user) => {
-      const mine = ++generation;
       if (!user) {
+        generationRef.current += 1;
         setState({ status: "signedOut" });
         return;
       }
-      setState({ status: "loading" });
-      void stateForUser(user).then((next) => {
-        if (mine === generation) setState(next);
-      });
+      resolveForUser(user);
     });
     return unsubscribe;
-  }, []);
+  }, [resolveForUser]);
 
   const signIn = useCallback(async (email: string, password: string) => {
     await signInWithEmailAndPassword(auth, email, password);
@@ -67,7 +84,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await firebaseSignOut(auth);
   }, []);
 
-  const value = useMemo(() => ({ state, signIn, signOut }), [state, signIn, signOut]);
+  const retry = useCallback(() => {
+    const user = auth.currentUser;
+    if (!user) {
+      generationRef.current += 1;
+      setState({ status: "signedOut" });
+      return;
+    }
+    resolveForUser(user);
+  }, [resolveForUser]);
+
+  const value = useMemo(() => ({ state, signIn, signOut, retry }), [state, signIn, signOut, retry]);
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
