@@ -1180,8 +1180,9 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ### Task 7: Auth provider, sign-in, not-invited, and app shell
 
 **Files:**
-- Create: `web/src/auth/AuthProvider.tsx`, `web/src/auth/AuthProvider.test.tsx`, `web/src/auth/SignInScreen.tsx`, `web/src/auth/NotInvitedScreen.tsx`, `web/src/AppShell.tsx`, `web/src/pages/DiscoverPage.tsx`, `web/src/pages/SavedPage.tsx`, `web/src/pages/SettingsPage.tsx`, `web/src/styles.css`
+- Create: `web/src/auth/AuthProvider.tsx`, `web/src/auth/AuthProvider.test.tsx`, `web/src/auth/SignInScreen.tsx`, `web/src/auth/NotInvitedScreen.tsx`, `web/src/auth/MembershipErrorScreen.tsx`, `web/src/AppShell.tsx`, `web/src/pages/DiscoverPage.tsx`, `web/src/pages/SavedPage.tsx`, `web/src/pages/SettingsPage.tsx`, `web/src/styles.css`
 - Modify: `web/src/App.tsx`, `web/src/main.tsx`, `web/index.html`
+- Delete: `web/src/index.css` (scaffold stylesheet superseded by `styles.css`)
 
 **Interfaces:**
 - Consumes: `auth`, `db`, `functions` from `web/src/firebase.ts`; `resolveMembership` from Task 6; callable `whoami` from Task 4.
@@ -1191,10 +1192,11 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
     | { status: "loading" }
     | { status: "signedOut" }
     | { status: "notMember"; email: string | null }
-    | { status: "member"; uid: string; email: string | null; householdId: string; displayName: string };
-  export function useAuth(): { state: AuthState; signIn(email: string, password: string): Promise<void>; signOut(): Promise<void> };
+    | { status: "member"; uid: string; email: string | null; householdId: string; displayName: string }
+    | { status: "error"; email: string | null; message: string };
+  export function useAuth(): { state: AuthState; signIn(email: string, password: string): Promise<void>; signOut(): Promise<void>; retry(): void };
   ```
-  Routes: `/discover`, `/saved`, `/settings`; `/` redirects to `/discover`. `data-testid`s: `signin-form`, `signin-email`, `signin-password`, `signin-submit`, `signin-error`, `not-invited`, `signout`, `nav-discover`, `nav-saved`, `nav-settings`, `whoami`.
+  Routes: `/discover`, `/saved`, `/settings`; `/` redirects to `/discover`. `data-testid`s: `signin-form`, `signin-email`, `signin-password`, `signin-submit`, `signin-error`, `not-invited`, `membership-error`, `retry`, `signout`, `nav-discover`, `nav-saved`, `nav-settings`, `whoami`.
 
 - [ ] **Step 1: Write the failing provider test `web/src/auth/AuthProvider.test.tsx`**
 
@@ -1275,6 +1277,15 @@ describe("AuthProvider", () => {
     listeners[0]({ uid: "x", email: null });
     await waitFor(() => expect(screen.getByTestId("state")).toHaveTextContent('"notMember"'));
   });
+
+  it("reports an error when checking membership fails for a reason other than permission", async () => {
+    getDocMock.mockImplementation(async () => {
+      throw Object.assign(new Error("unavailable"), { code: "unavailable" });
+    });
+    render(<AuthProvider><Probe /></AuthProvider>);
+    listeners[0]({ uid: "y", email: "y@safebite.test" });
+    await waitFor(() => expect(screen.getByTestId("state")).toHaveTextContent('"status":"error"'));
+  });
 });
 ```
 
@@ -1288,7 +1299,7 @@ Expected: FAIL, cannot resolve `./AuthProvider`.
 - [ ] **Step 3: Write `web/src/auth/AuthProvider.tsx`**
 
 ```tsx
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { onAuthStateChanged, signInWithEmailAndPassword, signOut as firebaseSignOut, type User } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
 import { auth, db } from "../firebase";
@@ -1298,12 +1309,14 @@ export type AuthState =
   | { status: "loading" }
   | { status: "signedOut" }
   | { status: "notMember"; email: string | null }
-  | { status: "member"; uid: string; email: string | null; householdId: string; displayName: string };
+  | { status: "member"; uid: string; email: string | null; householdId: string; displayName: string }
+  | { status: "error"; email: string | null; message: string };
 
 interface AuthContextValue {
   state: AuthState;
   signIn: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
+  retry: () => void;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -1312,10 +1325,14 @@ async function readDoc(path: string): Promise<Record<string, unknown> | undefine
   try {
     const snapshot = await getDoc(doc(db, path));
     return snapshot.exists() ? (snapshot.data() as Record<string, unknown>) : undefined;
-  } catch {
-    // A permission-denied read is the rules saying "not a member". Any other read failure is
-    // treated the same way for safety; the user can sign out and retry.
-    return undefined;
+  } catch (err) {
+    if ((err as { code?: string }).code === "permission-denied") {
+      // The rules deny this read precisely when the caller is not a member; treat that as "no document".
+      return undefined;
+    }
+    // Any other failure (offline, outage, etc.) is not evidence of non-membership; let it propagate
+    // so the caller can distinguish "not a member" from "couldn't find out".
+    throw err;
   }
 }
 
@@ -1332,22 +1349,33 @@ async function stateForUser(user: User): Promise<AuthState> {
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AuthState>({ status: "loading" });
+  const generationRef = useRef(0);
+
+  const resolveForUser = useCallback((user: User) => {
+    const mine = ++generationRef.current;
+    setState({ status: "loading" });
+    void stateForUser(user)
+      .then((next) => {
+        if (mine === generationRef.current) setState(next);
+      })
+      .catch(() => {
+        if (mine === generationRef.current) {
+          setState({ status: "error", email: user.email, message: "Couldn't check your membership. Check your connection and try again." });
+        }
+      });
+  }, []);
 
   useEffect(() => {
-    let generation = 0;
     const unsubscribe = onAuthStateChanged(auth, (user) => {
-      const mine = ++generation;
       if (!user) {
+        generationRef.current += 1;
         setState({ status: "signedOut" });
         return;
       }
-      setState({ status: "loading" });
-      void stateForUser(user).then((next) => {
-        if (mine === generation) setState(next);
-      });
+      resolveForUser(user);
     });
     return unsubscribe;
-  }, []);
+  }, [resolveForUser]);
 
   const signIn = useCallback(async (email: string, password: string) => {
     await signInWithEmailAndPassword(auth, email, password);
@@ -1357,7 +1385,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await firebaseSignOut(auth);
   }, []);
 
-  const value = useMemo(() => ({ state, signIn, signOut }), [state, signIn, signOut]);
+  const retry = useCallback(() => {
+    const user = auth.currentUser;
+    if (!user) {
+      generationRef.current += 1;
+      setState({ status: "signedOut" });
+      return;
+    }
+    resolveForUser(user);
+  }, [resolveForUser]);
+
+  const value = useMemo(() => ({ state, signIn, signOut, retry }), [state, signIn, signOut, retry]);
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
@@ -1373,12 +1411,12 @@ export function useAuth(): AuthContextValue {
 ```bash
 cd /mnt/c/Dev/AvaGF/web && npm test
 ```
-Expected: `10 passed` (6 membership + 4 provider).
+Expected: `11 passed` (6 membership + 5 provider).
 
 - [ ] **Step 5: Write `web/src/auth/SignInScreen.tsx`**
 
 ```tsx
-import { useState, type FormEvent } from "react";
+import { useState, type SubmitEvent } from "react";
 import { useAuth } from "./AuthProvider";
 
 function messageFor(code: string | undefined): string {
@@ -1403,7 +1441,7 @@ export function SignInScreen() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  async function onSubmit(event: FormEvent) {
+  async function onSubmit(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
     setBusy(true);
@@ -1460,6 +1498,27 @@ export function NotInvitedScreen() {
 }
 ```
 
+- [ ] **Step 6b: Write `web/src/auth/MembershipErrorScreen.tsx`**
+
+Shown when membership could not be checked (offline, outage). It is distinct from "not invited": the user can retry or sign out.
+
+```tsx
+import { useAuth } from "./AuthProvider";
+
+export function MembershipErrorScreen() {
+  const { state, retry, signOut } = useAuth();
+  const message = state.status === "error" ? state.message : "Couldn't check your membership. Check your connection and try again.";
+  return (
+    <main className="screen" data-testid="membership-error">
+      <h1>Couldn't check your membership</h1>
+      <p>{message}</p>
+      <button data-testid="retry" type="button" onClick={() => retry()}>Try again</button>
+      <button data-testid="signout" type="button" onClick={() => void signOut()}>Sign out</button>
+    </main>
+  );
+}
+```
+
 - [ ] **Step 7: Write the three placeholder pages**
 
 `web/src/pages/DiscoverPage.tsx`:
@@ -1505,10 +1564,18 @@ export function SettingsPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    let active = true;
     const call = httpsCallable<unknown, WhoAmI>(functions, "whoami");
     call({})
-      .then((res) => setWhoami(res.data))
-      .catch(() => setError("Could not confirm membership with the server."));
+      .then((res) => {
+        if (active) setWhoami(res.data);
+      })
+      .catch(() => {
+        if (active) setError("Could not confirm membership with the server.");
+      });
+    return () => {
+      active = false;
+    };
   }, []);
 
   return (
@@ -1568,6 +1635,7 @@ import { BrowserRouter } from "react-router";
 import { AuthProvider, useAuth } from "./auth/AuthProvider";
 import { SignInScreen } from "./auth/SignInScreen";
 import { NotInvitedScreen } from "./auth/NotInvitedScreen";
+import { MembershipErrorScreen } from "./auth/MembershipErrorScreen";
 import { AppShell } from "./AppShell";
 
 function Gate() {
@@ -1579,6 +1647,8 @@ function Gate() {
       return <SignInScreen />;
     case "notMember":
       return <NotInvitedScreen />;
+    case "error":
+      return <MembershipErrorScreen />;
     case "member":
       return <AppShell />;
   }
@@ -1646,7 +1716,7 @@ body { margin: 0; }
 ```bash
 cd /mnt/c/Dev/AvaGF/web && npm run typecheck && npm test && npm run build
 ```
-Expected: clean typecheck, `10 passed`, build succeeds.
+Expected: clean typecheck, `11 passed`, build succeeds.
 
 - [ ] **Step 12: Commit**
 
@@ -1929,7 +1999,7 @@ npm run emu:e2e     # Playwright browser tests (starts emulators, seeds, runs Vi
 ```bash
 cd /mnt/c/Dev/AvaGF && npm run typecheck && npm run test:unit && npm run emu:test && npm run emu:e2e && npm run build
 ```
-Expected: all green: typecheck clean; web `10 passed`; functions `20 passed`; Playwright `5 passed`; `web/dist/` and `functions/lib/` built.
+Expected: all green: typecheck clean; web `11 passed`; functions `20 passed`; Playwright `5 passed`; `web/dist/` and `functions/lib/` built.
 
 - [ ] **Step 5: Commit**
 
