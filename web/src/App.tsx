@@ -1,19 +1,29 @@
-import { useState } from "react";
+import { BrowserRouter } from "react-router";
+import { AuthProvider, useAuth } from "./auth/AuthProvider";
+import { SignInScreen } from "./auth/SignInScreen";
+import { NotInvitedScreen } from "./auth/NotInvitedScreen";
+import { AppShell } from "./AppShell";
 
-function App() {
-  const [count, setCount] = useState(0);
-
-  return (
-    <>
-      <h1>Get started</h1>
-      <p>
-        Edit <code>src/App.tsx</code> and save to test <code>HMR</code>
-      </p>
-      <button type="button" onClick={() => setCount((count) => count + 1)}>
-        Count is {count}
-      </button>
-    </>
-  );
+function Gate() {
+  const { state } = useAuth();
+  switch (state.status) {
+    case "loading":
+      return <main className="screen"><p>Loading…</p></main>;
+    case "signedOut":
+      return <SignInScreen />;
+    case "notMember":
+      return <NotInvitedScreen />;
+    case "member":
+      return <AppShell />;
+  }
 }
 
-export default App;
+export default function App() {
+  return (
+    <BrowserRouter>
+      <AuthProvider>
+        <Gate />
+      </AuthProvider>
+    </BrowserRouter>
+  );
+}
