@@ -494,7 +494,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
   - `export interface Member { uid: string; householdId: string; displayName: string }`
   - `export async function requireMember(request: CallableRequest<unknown>): Promise<Member>` — throws `HttpsError('unauthenticated')` when no auth, `HttpsError('permission-denied')` when not a member.
   - Callable `whoami` (region `europe-west2`, no input) returning `Member`.
-  - Test helpers `createEmulatorUser(uid, email, password)`, `signInForIdToken(email, password)`, `callFunction(name, data, idToken?)` used by every later callable test.
+  - Test helpers `createEmulatorUser(uid, email, password)`, `signInForIdToken(email, password)`, `callFunction(name, data, idToken?)`, `warmUpFunctions(name?)` used by every later callable test (call `warmUpFunctions` first in each callable test file's `beforeAll`, hook timeout 300000).
 
 - [ ] **Step 1: Write the failing unit test `functions/test/membership.test.ts`**
 
@@ -689,17 +689,42 @@ export async function callFunction(name: string, data: unknown, idToken?: string
   });
   return { status: res.status, body: (await res.json()) as CallResult["body"] };
 }
+
+/**
+ * Pings a callable once so the Functions emulator's runtime worker finishes its
+ * cold `require()` of `functions/lib` + `firebase-admin` before timed tests run.
+ * On a Windows-mounted path (WSL's /mnt/c) that cold require can take over a minute.
+ * Retries on connection errors every 2 s; resolves on any HTTP response.
+ */
+export async function warmUpFunctions(name = "whoami"): Promise<void> {
+  const url = `http://${FUNCTIONS_HOST}/${PROJECT_ID}/${REGION}/${name}`;
+  for (;;) {
+    try {
+      await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ data: {} }),
+      });
+      return;
+    } catch {
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+    }
+  }
+}
 ```
 - [ ] **Step 7: Write the failing callable test `functions/test/whoami.test.ts`**
 
 ```ts
 import { beforeAll, describe, expect, it } from "vitest";
 import { getFirestore } from "firebase-admin/firestore";
-import { callFunction, createEmulatorUser, ensureAdminApp, signInForIdToken } from "./emulator-helpers";
+import { callFunction, createEmulatorUser, ensureAdminApp, signInForIdToken, warmUpFunctions } from "./emulator-helpers";
 
 const PASSWORD = "pilot-password-1";
 
 beforeAll(async () => {
+  // Pay the emulator's cold worker start here, outside any single test's timeout budget.
+  await warmUpFunctions("whoami");
+
   ensureAdminApp();
   const db = getFirestore();
   await db.recursiveDelete(db.collection("users"));
@@ -708,7 +733,7 @@ beforeAll(async () => {
   await db.doc("users/ava-uid").set({ householdId: "home", displayName: "Ava" });
   await createEmulatorUser("ava-uid", "ava@safebite.test", PASSWORD);
   await createEmulatorUser("stranger-uid", "stranger@safebite.test", PASSWORD);
-});
+}, 300000);
 
 describe("whoami callable", () => {
   it("returns membership for a member", async () => {
