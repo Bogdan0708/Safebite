@@ -1,5 +1,5 @@
 import { getApps, initializeApp } from "firebase-admin/app";
-import { getAuth } from "firebase-admin/auth";
+import { getAuth, type Auth } from "firebase-admin/auth";
 import { getFirestore } from "firebase-admin/firestore";
 
 export interface SeedAccount {
@@ -25,6 +25,16 @@ function assertEmulator(): void {
   }
 }
 
+async function userExists(auth: Auth, uid: string): Promise<boolean> {
+  try {
+    await auth.getUser(uid);
+    return true;
+  } catch (err) {
+    if ((err as { code?: string }).code === "auth/user-not-found") return false;
+    throw err;
+  }
+}
+
 /** Seed emulator-only accounts and household membership. Safe to run repeatedly. */
 export async function seedEmulator(): Promise<void> {
   assertEmulator();
@@ -33,10 +43,9 @@ export async function seedEmulator(): Promise<void> {
   const db = getFirestore();
 
   for (const account of SEED_ACCOUNTS) {
-    try {
-      await auth.getUser(account.uid);
+    if (await userExists(auth, account.uid)) {
       await auth.updateUser(account.uid, { email: account.email, password: SEED_PASSWORD, displayName: account.displayName });
-    } catch {
+    } else {
       await auth.createUser({
         uid: account.uid,
         email: account.email,

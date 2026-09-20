@@ -30,7 +30,8 @@ describe("seedEmulator", () => {
     try {
       await expect(seedEmulator()).rejects.toThrow(/emulator/i);
     } finally {
-      process.env.FIRESTORE_EMULATOR_HOST = saved;
+      if (saved === undefined) delete process.env.FIRESTORE_EMULATOR_HOST;
+      else process.env.FIRESTORE_EMULATOR_HOST = saved;
     }
   });
 });
