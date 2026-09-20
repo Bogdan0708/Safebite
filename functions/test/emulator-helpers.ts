@@ -59,9 +59,13 @@ export async function callFunction(name: string, data: unknown, idToken?: string
  * over a minute, which otherwise eats the first test's own timeout budget.
  * Retries on connection errors (the worker isn't listening yet) every 2s, and
  * resolves as soon as any HTTP response arrives — the status code doesn't matter.
+ * Bounded by `maxElapsedMs`: if the worker still isn't answering once that much
+ * time has elapsed, throws rather than retrying forever — a vitest hook timeout
+ * does not cancel this loop on its own, so the bound has to be self-enforced.
  */
-export async function warmUpFunctions(name = "whoami"): Promise<void> {
+export async function warmUpFunctions(name: string, maxElapsedMs = 240000): Promise<void> {
   const url = `http://${FUNCTIONS_HOST}/${PROJECT_ID}/${REGION}/${name}`;
+  const start = Date.now();
   for (;;) {
     try {
       await fetch(url, {
@@ -72,6 +76,9 @@ export async function warmUpFunctions(name = "whoami"): Promise<void> {
       return;
     } catch {
       // Emulator worker not accepting connections yet (still spinning up / cold require in progress).
+      if (Date.now() - start > maxElapsedMs) {
+        throw new Error(`Functions emulator did not answer ${name} within ${maxElapsedMs} ms`);
+      }
       await new Promise((resolve) => setTimeout(resolve, 2000));
     }
   }
