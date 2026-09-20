@@ -994,7 +994,7 @@ Replace the `scripts` block with:
   "e2e": "playwright test"
 }
 ```
-Remove the `lint` script and ESLint devDependencies if the scaffold added them (keep the toolchain minimal; linting is not part of this plan).
+Remove the `lint` script and any ESLint/oxlint devDependencies and config files the scaffold added (keep the toolchain minimal; linting is not part of this plan). Add `"engines": { "node": ">=22" }`. Ensure `web/tsconfig.app.json` and `web/tsconfig.node.json` both contain `"strict": true` explicitly (newer scaffolds omit it). Delete any unreferenced scaffold assets (e.g. `public/icons.svg`) and replace the scaffold `web/README.md` with a one-line pointer to the root README.
 
 - [ ] **Step 4: Write `web/vite.config.ts`**
 
