@@ -1,18 +1,26 @@
 {
+  "hosting": {
+    "public": "web/dist",
+    "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
+    "rewrites": [{ "source": "**", "destination": "/index.html" }]
+  },
+  "functions": [
+    {
+      "source": "functions",
+      "codebase": "default",
+      "runtime": "nodejs22",
+      "ignore": ["node_modules", ".git", "test", "*.log"]
+    }
+  ],
   "firestore": {
     "rules": "firestore.rules",
     "indexes": "firestore.indexes.json"
   },
   "emulators": {
-    "firestore": {
-      "port": 8080
-    },
-    "auth": {
-      "port": 9099
-    },
-    "ui": {
-      "enabled": true,
-      "port": 4000
-    }
+    "auth": { "port": 9099 },
+    "firestore": { "port": 8080 },
+    "functions": { "port": 5001 },
+    "ui": { "enabled": true, "port": 4000 },
+    "singleProjectMode": true
   }
 }
