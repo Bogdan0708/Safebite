@@ -494,7 +494,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
   - `export interface Member { uid: string; householdId: string; displayName: string }`
   - `export async function requireMember(request: CallableRequest<unknown>): Promise<Member>` — throws `HttpsError('unauthenticated')` when no auth, `HttpsError('permission-denied')` when not a member.
   - Callable `whoami` (region `europe-west2`, no input) returning `Member`.
-  - Test helpers `createEmulatorUser(uid, email, password)`, `signInForIdToken(email, password)`, `callFunction(name, data, idToken?)`, `warmUpFunctions(name?)` used by every later callable test (call `warmUpFunctions` first in each callable test file's `beforeAll`, hook timeout 300000).
+  - Test helpers `createEmulatorUser(uid, email, password)`, `signInForIdToken(email, password)`, `callFunction(name, data, idToken?)`, `warmUpFunctions(name, maxElapsedMs?)` used by every later callable test (call `warmUpFunctions` first in each callable test file's `beforeAll`, hook timeout 300000).
 
 - [ ] **Step 1: Write the failing unit test `functions/test/membership.test.ts`**
 
@@ -694,10 +694,12 @@ export async function callFunction(name: string, data: unknown, idToken?: string
  * Pings a callable once so the Functions emulator's runtime worker finishes its
  * cold `require()` of `functions/lib` + `firebase-admin` before timed tests run.
  * On a Windows-mounted path (WSL's /mnt/c) that cold require can take over a minute.
- * Retries on connection errors every 2 s; resolves on any HTTP response.
+ * Retries on connection errors every 2 s; resolves on any HTTP response. Bounded by
+ * `maxElapsedMs` because a vitest hook timeout does not cancel an in-flight loop.
  */
-export async function warmUpFunctions(name = "whoami"): Promise<void> {
+export async function warmUpFunctions(name: string, maxElapsedMs = 240000): Promise<void> {
   const url = `http://${FUNCTIONS_HOST}/${PROJECT_ID}/${REGION}/${name}`;
+  const start = Date.now();
   for (;;) {
     try {
       await fetch(url, {
@@ -707,6 +709,9 @@ export async function warmUpFunctions(name = "whoami"): Promise<void> {
       });
       return;
     } catch {
+      if (Date.now() - start > maxElapsedMs) {
+        throw new Error(`Functions emulator did not answer ${name} within ${maxElapsedMs} ms`);
+      }
       await new Promise((resolve) => setTimeout(resolve, 2000));
     }
   }
