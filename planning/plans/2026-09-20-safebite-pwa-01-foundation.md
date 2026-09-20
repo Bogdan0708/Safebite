@@ -36,7 +36,7 @@
 | `firestore.rules` | rewritten: `users`, `households` default-deny model |
 | `firestore.indexes.json` | empty index set |
 | `package.json` (root) | orchestration scripts; devDependency `firebase-tools` |
-| `functions/package.json`, `tsconfig.json`, `vitest.config.ts` | functions package |
+| `functions/package.json`, `tsconfig.json`, `vitest.config.mts` | functions package |
 | `functions/src/membership.ts` | `requireMember(request)` → `Member` |
 | `functions/src/index.ts` | admin init, global options, `whoami` callable |
 | `functions/src/seed-emulator.ts` | emulator-only seed of 3 auth users + household docs |
@@ -271,7 +271,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ### Task 3: Functions package scaffold with rules tests
 
 **Files:**
-- Create: `functions/package.json`, `functions/tsconfig.json`, `functions/vitest.config.ts`, `functions/src/index.ts` (placeholder export), `functions/test/rules.test.ts`
+- Create: `functions/package.json`, `functions/tsconfig.json`, `functions/vitest.config.mts`, `functions/src/index.ts` (placeholder export), `functions/test/rules.test.ts`
 
 **Interfaces:**
 - Consumes: `firestore.rules` and root scripts from Task 2.
@@ -327,7 +327,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 }
 ```
 
-- [ ] **Step 3: Write `functions/vitest.config.ts`**
+- [ ] **Step 3: Write `functions/vitest.config.mts`** (the `.mts` extension makes Node load it as ESM without a `"type"` field in package.json)
 
 ```ts
 import { defineConfig } from "vitest/config";
@@ -355,7 +355,7 @@ export const SAFEBITE_FUNCTIONS_VERSION = "0.1.0";
 ```ts
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, it } from "vitest";
 import {
   assertFails,
   assertSucceeds,
@@ -473,7 +473,7 @@ Edit `firestore.rules` to change the `users` read rule to `allow read: if signed
 - [ ] **Step 8: Commit**
 
 ```bash
-git add functions/package.json functions/package-lock.json functions/tsconfig.json functions/vitest.config.ts functions/src/index.ts functions/test/rules.test.ts
+git add functions/package.json functions/package-lock.json functions/tsconfig.json functions/vitest.config.mts functions/src/index.ts functions/test/rules.test.ts
 git commit -m "test: functions package scaffold and Firestore rules tests for household membership
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
