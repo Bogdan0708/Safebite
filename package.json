@@ -10,7 +10,8 @@
     "emu:start": "npm --prefix functions run build && FUNCTIONS_DISCOVERY_TIMEOUT=90 firebase emulators:start --only auth,firestore,functions --project demo-safebite",
     "emu:seed": "FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 FIREBASE_AUTH_EMULATOR_HOST=127.0.0.1:9099 node functions/lib/seed-emulator.js",
     "emu:test": "npm --prefix functions run build && FUNCTIONS_DISCOVERY_TIMEOUT=90 firebase emulators:exec --only auth,firestore,functions --project demo-safebite \"npm --prefix functions test\"",
-    "emu:e2e": "npm --prefix functions run build && FUNCTIONS_DISCOVERY_TIMEOUT=90 firebase emulators:exec --only auth,firestore,functions --project demo-safebite \"node functions/lib/seed-emulator.js && npm --prefix web run e2e\""
+    "emu:e2e": "npm --prefix functions run build && FUNCTIONS_DISCOVERY_TIMEOUT=90 firebase emulators:exec --only auth,firestore,functions --project demo-safebite \"node functions/lib/seed-emulator.js && npm --prefix web run e2e\"",
+    "emu:e2e:stress": "npm --prefix functions run build && FUNCTIONS_DISCOVERY_TIMEOUT=90 firebase emulators:exec --only auth,firestore,functions --project demo-safebite \"node functions/lib/seed-emulator.js && npm --prefix web run e2e -- --repeat-each=3 --retries=0\""
   },
   "devDependencies": {
     "firebase-tools": "^15.30.2"

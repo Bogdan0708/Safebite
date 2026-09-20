@@ -17,6 +17,8 @@ export default defineConfig({
   use: {
     baseURL: "http://127.0.0.1:5173",
     trace: "retain-on-failure",
+    screenshot: "only-on-failure",
+    video: "retain-on-failure",
   },
   // Pixel 7 is a Chromium mobile profile; only Chromium is installed in this plan.
   // Real iPhone/Safari behaviour is checked manually in the acceptance pass (Plan 5).
