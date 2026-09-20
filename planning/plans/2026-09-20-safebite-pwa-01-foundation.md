@@ -232,10 +232,10 @@ service cloud.firestore {
     "typecheck": "npm --prefix functions run typecheck && npm --prefix web run typecheck",
     "build": "npm --prefix functions run build && npm --prefix web run build",
     "test:unit": "npm --prefix web test",
-    "emu:start": "npm --prefix functions run build && firebase emulators:start --only auth,firestore,functions --project demo-safebite",
+    "emu:start": "npm --prefix functions run build && FUNCTIONS_DISCOVERY_TIMEOUT=90 firebase emulators:start --only auth,firestore,functions --project demo-safebite",
     "emu:seed": "FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 FIREBASE_AUTH_EMULATOR_HOST=127.0.0.1:9099 node functions/lib/seed-emulator.js",
-    "emu:test": "npm --prefix functions run build && firebase emulators:exec --only auth,firestore,functions --project demo-safebite \"npm --prefix functions test\"",
-    "emu:e2e": "npm --prefix functions run build && firebase emulators:exec --only auth,firestore,functions --project demo-safebite \"node functions/lib/seed-emulator.js && npm --prefix web run e2e\""
+    "emu:test": "npm --prefix functions run build && FUNCTIONS_DISCOVERY_TIMEOUT=90 firebase emulators:exec --only auth,firestore,functions --project demo-safebite \"npm --prefix functions test\"",
+    "emu:e2e": "npm --prefix functions run build && FUNCTIONS_DISCOVERY_TIMEOUT=90 firebase emulators:exec --only auth,firestore,functions --project demo-safebite \"node functions/lib/seed-emulator.js && npm --prefix web run e2e\""
   },
   "devDependencies": {
     "firebase-tools": "^15.30.2"
@@ -335,8 +335,10 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   test: {
     include: ["test/**/*.test.ts"],
-    testTimeout: 20000,
-    hookTimeout: 30000,
+    // Generous: first callable invocation pays a 10-20 s cold-require cost when the repo
+    // lives on a Windows-mounted path (/mnt/c). Real work still fails fast on assertion.
+    testTimeout: 60000,
+    hookTimeout: 60000,
     fileParallelism: false,
   },
 });
@@ -615,7 +617,7 @@ Expected: `15 passed` (10 rules + 5 membership).
 
 ```ts
 import { initializeApp } from "firebase-admin/app";
-import { setGlobalOptions } from "firebase-functions/v2";
+import { setGlobalOptions } from "firebase-functions/v2/options";
 import { onCall } from "firebase-functions/v2/https";
 import { requireMember, type Member } from "./membership";
 
