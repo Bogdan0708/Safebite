@@ -312,8 +312,8 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 {
   "compilerOptions": {
     "target": "es2022",
-    "module": "commonjs",
-    "moduleResolution": "node",
+    "module": "node16",
+    "moduleResolution": "node16",
     "lib": ["es2022"],
     "outDir": "lib",
     "rootDir": "src",
