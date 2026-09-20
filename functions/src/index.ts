@@ -1,3 +1,16 @@
-// Callables are added in later tasks. This file must export at least one symbol
-// so the functions emulator loads the codebase without error.
-export const SAFEBITE_FUNCTIONS_VERSION = "0.1.0";
+import { initializeApp } from "firebase-admin/app";
+import { setGlobalOptions } from "firebase-functions/v2";
+import { onCall } from "firebase-functions/v2/https";
+import { requireMember, type Member } from "./membership";
+
+initializeApp();
+
+setGlobalOptions({
+  region: "europe-west2",
+  maxInstances: 2,
+});
+
+/** Returns the caller's household membership. Used by the web app's Settings screen. */
+export const whoami = onCall<unknown, Promise<Member>>(async (request) => {
+  return requireMember(request);
+});
