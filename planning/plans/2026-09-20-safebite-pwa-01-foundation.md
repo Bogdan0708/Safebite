@@ -2028,6 +2028,7 @@ The active codebase is the web app in `web/` with callable functions in
 - Node 22, npm 10
 - Java 21+ (Firebase emulators)
 - `npm ci` in `./`, `web/`, and `functions/`
+- On WSL, keep the checkout on the Linux filesystem (for example `~/dev/AvaGF`), not `/mnt/c`: Windows-mounted paths make emulator cold starts take over a minute.
 
 ### Local development (emulators only)
 
@@ -2044,7 +2045,7 @@ Emulator UI: http://127.0.0.1:4000
 
 ```bash
 npm run typecheck   # both packages
-npm run test:unit   # web unit tests (no emulator)
+npm run test:unit   # web unit tests (no emulator) — 11 tests
 npm run emu:test    # functions + Firestore rules tests (starts emulators)
 npm run emu:e2e     # Playwright browser tests (starts emulators, seeds, runs Vite)
 ```
