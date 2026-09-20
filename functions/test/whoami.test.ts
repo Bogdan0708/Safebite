@@ -1,10 +1,16 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { getFirestore } from "firebase-admin/firestore";
-import { callFunction, createEmulatorUser, ensureAdminApp, signInForIdToken } from "./emulator-helpers";
+import { callFunction, createEmulatorUser, ensureAdminApp, signInForIdToken, warmUpFunctions } from "./emulator-helpers";
 
 const PASSWORD = "pilot-password-1";
 
 beforeAll(async () => {
+  // The Functions emulator spawns its runtime worker lazily on the first request, and
+  // that worker's cold require() of functions/lib + firebase-admin can take well over a
+  // minute on a Windows-mounted path (WSL's /mnt/c). Warm it up here, outside any single
+  // test's timeout budget, so the timed tests below only pay for a warm invocation.
+  await warmUpFunctions("whoami");
+
   ensureAdminApp();
   const db = getFirestore();
   await db.recursiveDelete(db.collection("users"));
@@ -13,7 +19,7 @@ beforeAll(async () => {
   await db.doc("users/ava-uid").set({ householdId: "home", displayName: "Ava" });
   await createEmulatorUser("ava-uid", "ava@safebite.test", PASSWORD);
   await createEmulatorUser("stranger-uid", "stranger@safebite.test", PASSWORD);
-});
+}, 300000);
 
 describe("whoami callable", () => {
   it("returns membership for a member", async () => {

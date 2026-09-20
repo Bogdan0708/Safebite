@@ -51,3 +51,28 @@ export async function callFunction(name: string, data: unknown, idToken?: string
   });
   return { status: res.status, body: (await res.json()) as CallResult["body"] };
 }
+
+/**
+ * Pings a callable once so the Functions emulator's runtime worker finishes its
+ * cold `require()` of `functions/lib` + `firebase-admin` before timed tests run.
+ * On a Windows-mounted path (e.g. WSL's /mnt/c) that cold require can take well
+ * over a minute, which otherwise eats the first test's own timeout budget.
+ * Retries on connection errors (the worker isn't listening yet) every 2s, and
+ * resolves as soon as any HTTP response arrives — the status code doesn't matter.
+ */
+export async function warmUpFunctions(name = "whoami"): Promise<void> {
+  const url = `http://${FUNCTIONS_HOST}/${PROJECT_ID}/${REGION}/${name}`;
+  for (;;) {
+    try {
+      await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ data: {} }),
+      });
+      return;
+    } catch {
+      // Emulator worker not accepting connections yet (still spinning up / cold require in progress).
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+    }
+  }
+}
