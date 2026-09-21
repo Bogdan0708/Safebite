@@ -22,7 +22,8 @@ service cloud.firestore {
     }
 
     match /households/{hid} {
-      allow read: if isMember(hid);
+      // Read the membership list off the document itself: no second get() per read.
+      allow read: if signedIn() && request.auth.uid in resource.data.memberIds;
       allow write: if false;
     }
   }

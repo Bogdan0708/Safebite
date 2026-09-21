@@ -101,6 +101,14 @@ describe("households/{hid}", () => {
     const db = env.authenticatedContext("ava").firestore();
     await assertFails(setDoc(doc(db, "households/mine"), { name: "Mine", memberIds: ["ava"], createdAt: new Date() }));
   });
+
+  it("fails closed for a household document without memberIds", async () => {
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), "households/broken"), { name: "Broken", createdAt: new Date() });
+    });
+    const db = env.authenticatedContext("ava").firestore();
+    await assertFails(getDoc(doc(db, "households/broken")));
+  });
 });
 
 describe("default-deny", () => {
