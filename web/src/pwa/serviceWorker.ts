@@ -1,4 +1,5 @@
 import { registerSW } from "virtual:pwa-register";
+import { updateAvailable, workerActivated } from "./updates";
 
 export interface PurgeResult {
   /** Count of registrations successfully unregistered. Exists for tests and diagnostics. */
@@ -53,11 +54,40 @@ export function alreadyReloadedForPurge(): boolean {
 }
 
 /**
- * Registers the generated service worker. Only src/main.tsx calls this, and only after
- * startupProblems() returned nothing, so a misconfigured bundle is never precached.
+ * Registers the generated service worker in prompt mode. Only src/main.tsx calls this, and only
+ * after startupProblems() returned nothing, so a misconfigured bundle is never precached.
+ * A waiting worker surfaces as the update banner; `onNeedReload` fires in every tab once the new
+ * worker controls it, and the store decides per tab whether to reload (see updates.ts).
  * Outside a built bundle there is no worker to register.
  */
 export function registerServiceWorker(): void {
   if (!__SAFEBITE_BUILD__ || !("serviceWorker" in navigator)) return;
-  registerSW({ immediate: true });
+  const update = registerSW({
+    immediate: true,
+    onNeedRefresh: () => {
+      updateAvailable(() => update());
+      // Belt-and-braces alongside onNeedReload below: the installed plugin (vite-plugin-pwa
+      // 1.3.0) only calls onNeedReload when workbox-window's `isUpdate` bookkeeping is true, and
+      // that flag is frozen at whatever `navigator.serviceWorker.controller` was at THIS PAGE'S
+      // OWN first-ever registerSW() call (see
+      // node_modules/vite-plugin-pwa/dist/client/build/register.js and
+      // node_modules/workbox-window/Workbox.js:294) — it is never updated afterwards. A tab
+      // whose first-ever visit installs the worker (no prior controller) therefore never gets
+      // onNeedReload called for its own later, self-approved update (verified with a standalone
+      // reproduction: onNeedReload never fired even though the new worker did take control). The
+      // native `controllerchange` event is not subject to that bookkeeping and always fires when
+      // this document's controller changes, so listen for it directly as the reliable signal.
+      // Attached only here (once a real update is confirmed waiting), not unconditionally at
+      // registration time, because the very first install's OWN claim of this page also fires a
+      // native controllerchange, which is not an update. `{ once: true }` self-removes it so a
+      // later update cycle in the same tab gets a fresh listener instead of stacking duplicates.
+      // Calling `workerActivated()` twice (once from here, once from onNeedReload when the
+      // plugin's flag happens to already be true) is harmless — see the early-returns in
+      // updates.ts's `setState` and in `workerActivated`'s `requestedHere` branch.
+      if (typeof navigator.serviceWorker.addEventListener === "function") {
+        navigator.serviceWorker.addEventListener("controllerchange", () => workerActivated(), { once: true });
+      }
+    },
+    onNeedReload: () => workerActivated(),
+  });
 }

@@ -4,6 +4,7 @@ import { SignInScreen } from "./auth/SignInScreen";
 import { NotInvitedScreen } from "./auth/NotInvitedScreen";
 import { MembershipErrorScreen } from "./auth/MembershipErrorScreen";
 import { AppShell } from "./AppShell";
+import { UpdateBanner } from "./pwa/UpdateBanner";
 
 function Gate() {
   const { state } = useAuth();
@@ -24,6 +25,7 @@ function Gate() {
 export default function App() {
   return (
     <BrowserRouter>
+      <UpdateBanner />
       <AuthProvider>
         <Gate />
       </AuthProvider>

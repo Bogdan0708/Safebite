@@ -4,12 +4,14 @@ const { registerSWMock } = vi.hoisted(() => ({ registerSWMock: vi.fn() }));
 vi.mock("virtual:pwa-register", () => ({ registerSW: registerSWMock }));
 
 import { alreadyReloadedForPurge, purgeServiceWorkerState, registerServiceWorker } from "./serviceWorker";
+import { applyUpdate, getUpdateState, resetUpdatesForTests } from "./updates";
 
 afterEach(() => {
   // jsdom has no navigator.serviceWorker; each test installs and removes its own fake.
   delete (navigator as { serviceWorker?: unknown }).serviceWorker;
   registerSWMock.mockClear();
   vi.unstubAllGlobals();
+  resetUpdatesForTests();
 });
 
 function fakeServiceWorker(registrations: Array<{ unregister: () => Promise<boolean> }>, controller: unknown = null) {
@@ -96,14 +98,28 @@ describe("registerServiceWorker", () => {
     expect(registerSWMock).not.toHaveBeenCalled();
   });
 
-  it("calls registerSW once with { immediate: true } in a built bundle with service worker support", () => {
+  it("registers once in prompt mode and routes the plugin callbacks into the update store", async () => {
     vi.stubGlobal("__SAFEBITE_BUILD__", true);
-    Object.defineProperty(navigator, "serviceWorker", {
-      configurable: true,
-      value: {},
-    });
+    Object.defineProperty(navigator, "serviceWorker", { configurable: true, value: {} });
+    const updateServiceWorker = vi.fn(async () => {});
+    registerSWMock.mockReturnValue(updateServiceWorker);
     registerServiceWorker();
     expect(registerSWMock).toHaveBeenCalledTimes(1);
-    expect(registerSWMock).toHaveBeenCalledWith({ immediate: true });
+    const options = registerSWMock.mock.calls[0]![0] as { immediate: boolean; onNeedRefresh: () => void; onNeedReload: () => void };
+    expect(options.immediate).toBe(true);
+
+    options.onNeedRefresh();
+    expect(getUpdateState()).toBe("available");
+    applyUpdate(vi.fn());
+    expect(updateServiceWorker).toHaveBeenCalledTimes(1);
+
+    // Another tab's activation, in a tab that did not ask: no reload, state becomes "activated".
+    resetUpdatesForTests();
+    options.onNeedRefresh();
+    const reloadSpy = vi.fn();
+    vi.stubGlobal("location", { ...window.location, reload: reloadSpy });
+    options.onNeedReload();
+    expect(reloadSpy).not.toHaveBeenCalled();
+    expect(getUpdateState()).toBe("activated");
   });
 });

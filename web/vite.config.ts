@@ -87,7 +87,9 @@ function buildStamp(mode: string, projectId: string): Plugin {
 // Firebase configuration passed startupProblems(); see src/pwa/serviceWorker.ts. Non-deployable
 // builds swap in a self-destroying worker (see below).
 const pwaOptions: Parameters<typeof VitePWA>[0] = {
-  registerType: "autoUpdate",
+  // prompt: a new worker waits until a tab taps Reload (src/pwa/updates.ts). autoUpdate reloaded
+  // every tab unannounced, discarding typed input (Plan 2a final review; audit F5).
+  registerType: "prompt",
   injectRegister: null,
   // The glob below already matches the PNG icons; the plugin would otherwise add them a second time.
   includeManifestIcons: false,
@@ -117,6 +119,13 @@ const pwaOptions: Parameters<typeof VitePWA>[0] = {
     // release's precache entries on their own. That eviction is the precache controller's job on
     // activate (proven by the valid→valid upgrade test in e2e-upgrade, not by this option).
     cleanupOutdatedCaches: true,
+    // The plugin only defaults clientsClaim to true for registerType "autoUpdate"; prompt mode
+    // needs it set explicitly so a fresh install claims the open tab without a reload, and so an
+    // update — once skipWaiting is requested — claims every open tab (the onNeedReload fan-out
+    // the store in src/pwa/updates.ts relies on). skipWaiting itself stays unset (false): the
+    // plugin's default template then waits for the SKIP_WAITING postMessage that
+    // updateServiceWorker() sends, so an update never activates until a tab taps Reload.
+    clientsClaim: true,
   },
 };
 

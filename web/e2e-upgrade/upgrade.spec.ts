@@ -126,7 +126,7 @@ test("an installed worker that picks up an invalid release cleans the device ins
   expect(invalidRequests.filter((r) => /^\/assets\/App-/.test(r.path)), "the invalid app chunk was never fetched").toEqual([]);
 });
 
-test("a misconfigured page reached under a still-controlling worker purges and reloads exactly once", async ({ page, context }) => {
+test("a misconfigured page reached under a still-controlling worker purges, sets the one-shot reload flag and ends uncontrolled", async ({ page, context }) => {
   await blockExternalNetwork(context);
   await serve(page, "v1");
   await installValidRelease(page);
@@ -155,8 +155,8 @@ test("a misconfigured page reached under a still-controlling worker purges and r
   await expect.poll(() => registrations(page), { timeout: 15_000 }).toBe(0);
   await expect.poll(() => cacheNames(page), { timeout: 15_000 }).toEqual([]);
   await expect.poll(() => controlled(page), { timeout: 15_000 }).toBe(false);
-  // The reload was driven by the page's own purge, not a worker-side update: the flag it sets is
-  // proof the controlled-reload branch (not a worker-forced navigate) is what ran.
+  // The one-shot flag proves the page's own controlled-reload branch ran (this test does not
+  // count navigations; the unit test for alreadyReloadedForPurge covers the one-shot guard).
   await expect
     .poll(() => page.evaluate(() => sessionStorage.getItem("safebite-purge-reloaded")), { timeout: 15_000 })
     .toBe("1");
@@ -172,7 +172,7 @@ test("a misconfigured page reached under a still-controlling worker purges and r
   ).toBe(true);
 });
 
-test("a valid update replaces the installed worker and its cached release", async ({ page, context }) => {
+test("a valid update waits for the user: banner shown, typed input kept, reload only on tap", async ({ page, context }) => {
   await blockExternalNetwork(context);
   const v1Assets = await assetsOf(page, "v1");
   const v2Assets = await assetsOf(page, "v2");
@@ -183,15 +183,56 @@ test("a valid update replaces the installed worker and its cached release", asyn
   await serve(page, "v1");
   await installValidRelease(page);
   expect(await entryScript(page)).toBe(`/assets/${v1Index}`);
+  await page.getByTestId("signin-email").fill("draft@example.test");
 
   await serve(page, "v2");
   await triggerUpdateCheck(page);
 
-  // autoUpdate reloads the page once the new worker activates; the new entry chunk proves it.
+  // Prompt mode: the new worker waits; the banner appears; nothing reloads on its own.
+  const banner = page.getByTestId("update-banner");
+  await expect(banner).toBeVisible({ timeout: 20_000 });
+  await expect(banner).toHaveAttribute("data-state", "available");
+  await page.waitForTimeout(2_000); // an autoUpdate-style reload would have happened by now
+  expect(await entryScript(page)).toBe(`/assets/${v1Index}`);
+  await expect(page.getByTestId("signin-email")).toHaveValue("draft@example.test");
+
+  await page.getByTestId("update-reload").click();
   await expect.poll(() => entryScript(page), { timeout: 20_000 }).toBe(`/assets/${v2Index}`);
   await expect(page.getByTestId("signin-form")).toBeVisible();
+  await expect(page.getByTestId("update-banner")).toHaveCount(0);
   await expect.poll(() => registrations(page)).toBe(1);
   await expect.poll(() => controlled(page)).toBe(true);
   await expect.poll(() => cachedPaths(page), { timeout: 15_000 }).toContain(`/assets/${v2Index}`);
   await expect.poll(() => cachedPaths(page), { timeout: 15_000 }).not.toContain(`/assets/${v1Index}`);
+});
+
+test("Reload in one tab never reloads another tab: it keeps its draft and gets its own banner", async ({ page, context }) => {
+  await blockExternalNetwork(context);
+  const v1Index = (await assetsOf(page, "v1")).find((f) => f.startsWith("index-") && f.endsWith(".js"))!;
+  const v2Index = (await assetsOf(page, "v2")).find((f) => f.startsWith("index-") && f.endsWith(".js"))!;
+
+  await serve(page, "v1");
+  await installValidRelease(page);
+  const other = await context.newPage();
+  await other.goto("/");
+  await expect(other.getByTestId("signin-form")).toBeVisible();
+  await other.getByTestId("signin-email").fill("unsaved restaurant edit");
+
+  await serve(page, "v2");
+  await triggerUpdateCheck(page);
+  await expect(page.getByTestId("update-banner")).toHaveAttribute("data-state", "available", { timeout: 20_000 });
+  await expect(other.getByTestId("update-banner")).toHaveAttribute("data-state", "available", { timeout: 20_000 });
+
+  await page.getByTestId("update-reload").click();
+  await expect.poll(() => entryScript(page), { timeout: 20_000 }).toBe(`/assets/${v2Index}`);
+
+  // The other tab: same worker now controls it, but it did not ask — it stays on v1 with its draft.
+  await expect(other.getByTestId("update-banner")).toHaveAttribute("data-state", "activated", { timeout: 20_000 });
+  expect(await entryScript(other)).toBe(`/assets/${v1Index}`);
+  await expect(other.getByTestId("signin-email")).toHaveValue("unsaved restaurant edit");
+  await expect.poll(() => controlled(other)).toBe(true);
+
+  await other.getByTestId("update-reload").click();
+  await expect.poll(() => entryScript(other), { timeout: 20_000 }).toBe(`/assets/${v2Index}`);
+  await other.close();
 });
