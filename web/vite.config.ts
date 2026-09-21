@@ -1,8 +1,8 @@
 /// <reference types="vitest/config" />
-import { defineConfig, type Plugin } from "vite";
+import { defineConfig, loadEnv, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import { VitePWA } from "vite-plugin-pwa";
-import { guardViteBuild } from "./src/config/firebaseEnv.ts";
+import { guardViteBuild, validateFirebaseEnv } from "./src/config/firebaseEnv.ts";
 
 /**
  * Refuses to produce a deployable bundle with missing, blank, or demo Firebase values, and
@@ -35,7 +35,8 @@ function requireDeployableFirebaseEnv(mode: string): Plugin {
 // The manifest and Workbox service worker are generated at build time only (devOptions stay
 // disabled: the dev server and the emulator-backed browser tests run without a worker).
 // injectRegister: null — registration is done by src/main.tsx, and only when the bundle's
-// Firebase configuration passed startupProblems(); see src/pwa/serviceWorker.ts.
+// Firebase configuration passed startupProblems(); see src/pwa/serviceWorker.ts. Non-deployable
+// builds swap in a self-destroying worker (see below).
 const pwaOptions: Parameters<typeof VitePWA>[0] = {
   registerType: "autoUpdate",
   injectRegister: null,
@@ -64,15 +65,29 @@ const pwaOptions: Parameters<typeof VitePWA>[0] = {
   },
 };
 
-export default defineConfig(({ mode, command }) => ({
-  // True in every built bundle, false for the dev server and Vitest. Unlike import.meta.env.PROD
-  // it cannot be flipped by NODE_ENV, so src/firebase.ts can rely on it for the startup guard.
-  define: { __SAFEBITE_BUILD__: JSON.stringify(command === "build") },
-  plugins: [react(), requireDeployableFirebaseEnv(mode), VitePWA(pwaOptions)],
-  server: { port: 5173, strictPort: true },
-  test: {
-    environment: "jsdom",
-    include: ["src/**/*.test.{ts,tsx}"],
-    setupFiles: ["src/test-setup.ts"],
-  },
-}));
+export default defineConfig(({ mode, command }) => {
+  // The same validator the app uses at startup decides, at build time, which worker to emit.
+  // A compile-only build carrying non-deployable values (SAFEBITE_UNVALIDATED_BUILD=1) gets the
+  // plugin's self-destroying worker: it precaches nothing and, if an installed valid worker ever
+  // picks it up as an update, it unregisters itself, navigates open pages and deletes every cache.
+  // Deployable builds get the normal precaching worker. (guardViteBuild, below in the plugin
+  // chain, still refuses non-production builds and un-bypassed invalid ones.)
+  const firebaseEnv = loadEnv(mode, process.cwd(), "VITE_");
+  const deployable = validateFirebaseEnv(firebaseEnv).length === 0;
+  return {
+    // True in every built bundle, false for the dev server and Vitest. Unlike import.meta.env.PROD
+    // it cannot be flipped by NODE_ENV, so src/firebase.ts can rely on it for the startup guard.
+    define: { __SAFEBITE_BUILD__: JSON.stringify(command === "build") },
+    plugins: [
+      react(),
+      requireDeployableFirebaseEnv(mode),
+      VitePWA({ ...pwaOptions, selfDestroying: command === "build" && !deployable }),
+    ],
+    server: { port: 5173, strictPort: true },
+    test: {
+      environment: "jsdom",
+      include: ["src/**/*.test.{ts,tsx}"],
+      setupFiles: ["src/test-setup.ts"],
+    },
+  };
+});
