@@ -318,6 +318,19 @@ the real interfaces that landed rather than predicted ones.
 - `navigateFallbackDenylist: [/^\/__\//]` is set; confirm on staging (Plan 5) that
   `/__/auth/handler` is reachable if `authDomain` ever shares the app's origin.
 
+**Carried from the Plan 2a-h final review (2026-09-21), for Plan 2b:**
+
+- The `onNeedRefresh` update prompt (above) is now the only remaining worker item and must land
+  before the first editable form; when it does, the valid→valid test in `web/e2e-upgrade` (which
+  assumes autoUpdate reloads on activation) must be updated in the same task.
+- `e2e:upgrade` rebuilds `dist-preview` that `e2e:preview` already built; factor the synthetic
+  `VITE_*` sets (which are shape-valid fake keys) into a committed `web/.env.e2e`-style file
+  loaded by the scripts, so they stop being inlined in `package.json` and rebuilt twice.
+- A non-deployable build still emits `manifest.webmanifest` and the manifest link, so a
+  misconfigured artefact is nominally installable; suppress the manifest for self-destroying
+  builds if such builds are ever served deliberately.
+- The precache manifest lists four icon/manifest URLs twice (same revision; harmless); cleanup.
+
 **Plan 2 rulings (owner, 2026-09-21):**
 
 - Plan 2 is split: **2a** = the pre-work list above, the PWA app shell (manifest, icon set,
