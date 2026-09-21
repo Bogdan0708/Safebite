@@ -112,9 +112,9 @@ describe("households/{hid}", () => {
 });
 
 describe("default-deny", () => {
-  it("denies reads under an unmatched subcollection", async () => {
+  it("denies reads under another household's subcollection", async () => {
     const db = env.authenticatedContext("ava").firestore();
-    await assertFails(getDoc(doc(db, "households/home/restaurants/x")));
+    await assertFails(getDoc(doc(db, "households/other/restaurants/x")));
   });
 
   it("denies reads of an unmatched top-level collection", async () => {

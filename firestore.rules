@@ -6,7 +6,6 @@ service cloud.firestore {
       return request.auth != null;
     }
 
-    // household() and isMember() are unused until Plan 2b adds the subcollection rules; keep them.
     function household(hid) {
       return get(/databases/$(database)/documents/households/$(hid));
     }
@@ -15,6 +14,50 @@ service cloud.firestore {
     // memberIds is written only by the Admin SDK (seed script / owner), never by clients.
     function isMember(hid) {
       return signedIn() && request.auth.uid in household(hid).data.memberIds;
+    }
+
+    // ---- field validators (limits mirror web/src/records/validation.ts LIMITS) ----
+    function nonBlankString(v, max) {
+      return v is string && v.trim() != '' && v.size() <= max;
+    }
+    // Optional strings must be absent or non-empty (the client drops blanks before writing).
+    function optionalString(data, key, max) {
+      return !(key in data) || nonBlankString(data[key], max);
+    }
+    function httpUrl(v, max) {
+      return v is string && v.size() <= max && v.matches('https?://.+');
+    }
+    function optionalHttpUrl(data, key, max) {
+      return !(key in data) || httpUrl(data[key], max);
+    }
+    // Coordinates come as a pair or not at all; optional until Plan 3 fills them from Places.
+    function validCoordinates(data) {
+      return (!('lat' in data) && !('lng' in data))
+        || (('lat' in data) && ('lng' in data)
+            && data.lat is number && data.lng is number
+            && data.lat >= -90 && data.lat <= 90 && data.lng >= -180 && data.lng <= 180);
+    }
+
+    function validRestaurant(data) {
+      return data.keys().hasOnly(['name', 'address', 'phone', 'website', 'lat', 'lng', 'googlePlaceId', 'createdBy', 'createdAt', 'updatedAt', 'version', 'deleting'])
+        && data.keys().hasAll(['name', 'address', 'createdBy', 'createdAt', 'updatedAt', 'version', 'deleting'])
+        && nonBlankString(data.name, 120)
+        && nonBlankString(data.address, 300)
+        && optionalString(data, 'phone', 40)
+        && optionalHttpUrl(data, 'website', 300)
+        && optionalString(data, 'googlePlaceId', 200)
+        && validCoordinates(data)
+        && data.createdBy is string
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp
+        && data.version is int
+        && data.deleting is bool;
+    }
+
+    // Deletion protocol step 1 (spec §3.5): the mark changes only these keys.
+    function isMarkingDeleting() {
+      return request.resource.data.deleting == true
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['deleting', 'version', 'updatedAt']);
     }
 
     match /users/{uid} {
@@ -26,6 +69,32 @@ service cloud.firestore {
       // Read the membership list off the document itself: no second get() per read.
       allow read: if signedIn() && request.auth.uid in resource.data.memberIds;
       allow write: if false;
+
+      match /restaurants/{rid} {
+        allow read: if isMember(hid);
+
+        allow create: if isMember(hid)
+          && validRestaurant(request.resource.data)
+          && request.resource.data.createdBy == request.auth.uid
+          && request.resource.data.version == 1
+          && request.resource.data.deleting == false
+          && request.resource.data.createdAt == request.time
+          && request.resource.data.updatedAt == request.time;
+
+        // Optimistic concurrency: exactly the next version, server-stamped. Once deleting is true
+        // nothing may change until the document is removed (so a claim sweep cannot be undercut).
+        allow update: if isMember(hid)
+          && validRestaurant(request.resource.data)
+          && resource.data.deleting == false
+          && request.resource.data.createdBy == resource.data.createdBy
+          && request.resource.data.createdAt == resource.data.createdAt
+          && request.resource.data.updatedAt == request.time
+          && request.resource.data.version == resource.data.version + 1
+          && (request.resource.data.deleting == false || isMarkingDeleting());
+
+        // Step 3 of the protocol: only a marked restaurant can go.
+        allow delete: if isMember(hid) && resource.data.deleting == true;
+      }
     }
   }
 }
