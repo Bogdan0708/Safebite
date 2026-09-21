@@ -73,24 +73,27 @@ export async function callFunction(name: string, data: unknown, idToken?: string
 export async function warmUpFunctions(name: string, maxElapsedMs = 240000, perRequestMs = 90000): Promise<void> {
   const url = `http://${FUNCTIONS_HOST}/${PROJECT_ID}/${REGION}/${name}`;
   const start = Date.now();
+  let lastError: unknown;
   for (;;) {
     const remaining = maxElapsedMs - (Date.now() - start);
     if (remaining <= 0) {
-      throw new Error(`Functions emulator did not answer ${name} within ${maxElapsedMs} ms`);
+      throw new Error(`Functions emulator did not answer ${name} within ${maxElapsedMs} ms`, { cause: lastError });
     }
     try {
       // A cold worker legitimately takes tens of seconds; a request that exceeds perRequestMs is
       // aborted and retried so a stalled emulator cannot hold the hook until its own timeout. The
       // signal is clamped to whatever remains of maxElapsedMs so the last attempt cannot itself
       // overshoot the overall bound.
-      await fetch(url, {
+      const res = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ data: {} }),
         signal: AbortSignal.timeout(Math.min(perRequestMs, remaining)),
       });
+      await res.arrayBuffer();
       return;
-    } catch {
+    } catch (err) {
+      lastError = err;
       await new Promise((resolve) => setTimeout(resolve, 2000));
     }
   }

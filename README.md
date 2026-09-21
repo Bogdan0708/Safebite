@@ -199,6 +199,7 @@ npm run typecheck   # both packages
 npm run test:unit   # web unit tests (no emulator)
 npm run emu:test    # functions + Firestore rules tests (starts emulators)
 npm run emu:e2e     # Playwright browser tests (starts emulators, seeds, runs Vite)
+npm run emu:e2e:stress   # 5 browser scenarios × 3 repeats, retries disabled (flakiness gate)
 npm --prefix web run build:check   # compile-only build (no Firebase config needed)
 ```
 

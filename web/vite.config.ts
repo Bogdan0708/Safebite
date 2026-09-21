@@ -1,5 +1,5 @@
 /// <reference types="vitest/config" />
-import { defineConfig, loadEnv, type Plugin } from "vite";
+import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import { assertDeployableFirebaseEnv } from "./src/config/firebaseEnv.ts";
 
@@ -19,8 +19,7 @@ function requireDeployableFirebaseEnv(mode: string): Plugin {
         );
         return;
       }
-      const env = loadEnv(mode, config.root, "VITE_");
-      assertDeployableFirebaseEnv(env, `vite build --mode ${mode}`);
+      assertDeployableFirebaseEnv(config.env, `vite build --mode ${mode}`);
     },
   };
 }

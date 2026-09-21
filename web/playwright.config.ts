@@ -3,6 +3,8 @@ import { defineConfig, devices } from "@playwright/test";
 export default defineConfig({
   testDir: "./e2e",
   timeout: 30_000,
+  // Caps global setup (the emulator warm-up) plus the whole suite run.
+  globalTimeout: 300_000,
   // React 19 StrictMode (main.tsx) double-invokes SettingsPage's effect in dev mode, firing
   // two concurrent `whoami` calls on first mount. The Functions emulator can route the second,
   // concurrent call to a fresh instance that cold-starts even after the global warm-up below

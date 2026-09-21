@@ -24,7 +24,7 @@ const DEMO_PLACEHOLDERS: Partial<Record<(typeof REQUIRED_FIREBASE_VARS)[number],
   VITE_FIREBASE_APP_ID: "demo-app-id",
 };
 
-function blank(value: string | undefined): value is undefined {
+function blank(value: string | undefined): boolean {
   return value === undefined || value.trim().length === 0;
 }
 
@@ -43,7 +43,7 @@ export function validateFirebaseEnv(env: FirebaseEnvLike): string[] {
     }
   }
   const projectId = env.VITE_FIREBASE_PROJECT_ID;
-  if (!blank(projectId)) {
+  if (projectId !== undefined && !blank(projectId)) {
     if (projectId.startsWith("demo-")) {
       problems.push(`VITE_FIREBASE_PROJECT_ID must not be an emulator-only demo- project (got ${projectId})`);
     } else if (projectId === LEGACY_PRODUCTION_PROJECT) {

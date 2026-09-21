@@ -19,14 +19,15 @@ const MAX_ELAPSED_MS = 240_000;
 const RETRY_DELAY_MS = 2_000;
 const PER_REQUEST_MS = 90_000;
 
-function callWhoami(timeoutMs = PER_REQUEST_MS): Promise<Response> {
+async function callWhoami(timeoutMs = PER_REQUEST_MS): Promise<void> {
   // Any HTTP response counts as "warm" -- a 401 (unauthenticated) is expected.
-  return fetch(WHOAMI_URL, {
+  const res = await fetch(WHOAMI_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ data: {} }),
     signal: AbortSignal.timeout(timeoutMs),
   });
+  await res.arrayBuffer();
 }
 
 // Clamps each attempt's own timeout to whatever remains of MAX_ELAPSED_MS, so a late attempt
@@ -34,15 +35,17 @@ function callWhoami(timeoutMs = PER_REQUEST_MS): Promise<Response> {
 // finishes would let a single PER_REQUEST_MS-long attempt push the total past MAX_ELAPSED_MS).
 async function waitUntilReachable(): Promise<void> {
   const start = Date.now();
+  let lastError: unknown;
   for (;;) {
     const remaining = MAX_ELAPSED_MS - (Date.now() - start);
     if (remaining <= 0) {
-      throw new Error(`Functions emulator did not answer whoami within ${MAX_ELAPSED_MS} ms`);
+      throw new Error(`Functions emulator did not answer whoami within ${MAX_ELAPSED_MS} ms`, { cause: lastError });
     }
     try {
       await callWhoami(Math.min(PER_REQUEST_MS, remaining));
       return;
-    } catch {
+    } catch (err) {
+      lastError = err;
       // Emulator worker not accepting connections yet (still spinning up / cold require in progress).
       await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS));
     }
