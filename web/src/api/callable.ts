@@ -13,7 +13,12 @@ export function callable<Req, Res>(name: string): (data: Req) => Promise<Res> {
  * AbortError and the underlying promise's later outcome is ignored.
  */
 export function abortable<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
-  if (signal.aborted) return Promise.reject(new DOMException("Aborted", "AbortError"));
+  if (signal.aborted) {
+    // Drain the underlying promise so its later rejection (if any) doesn't surface as an
+    // unhandled promise rejection now that nothing else is attached to it.
+    promise.catch(() => {});
+    return Promise.reject(new DOMException("Aborted", "AbortError"));
+  }
   return new Promise<T>((resolve, reject) => {
     const onAbort = () => reject(new DOMException("Aborted", "AbortError"));
     signal.addEventListener("abort", onAbort, { once: true });

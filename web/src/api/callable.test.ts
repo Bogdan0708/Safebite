@@ -1,3 +1,4 @@
+/// <reference types="node" />
 import { describe, expect, it, vi } from "vitest";
 
 const { httpsCallableMock } = vi.hoisted(() => ({ httpsCallableMock: vi.fn() }));
@@ -43,6 +44,25 @@ describe("abortable", () => {
     controller.abort();
     fail(new Error("late network failure"));
     await expect(pending).rejects.toSatisfy(isAbortError);
+  });
+
+  it("drains a promise that rejects after an already-aborted signal", async () => {
+    const unhandled = vi.fn();
+    process.on("unhandledRejection", unhandled);
+    try {
+      const controller = new AbortController();
+      controller.abort();
+      let fail!: (err: Error) => void;
+      const failing = new Promise<number>((_, reject) => (fail = reject));
+      const pending = abortable(failing, controller.signal);
+      fail(new Error("late network failure"));
+      await expect(pending).rejects.toSatisfy(isAbortError);
+      await new Promise((r) => setTimeout(r, 0));
+      await new Promise((r) => setTimeout(r, 0));
+      expect(unhandled).not.toHaveBeenCalled();
+    } finally {
+      process.off("unhandledRejection", unhandled);
+    }
   });
 });
 
