@@ -409,7 +409,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
 - Modify: `web/e2e/global-setup.ts`, `functions/test/emulator-helpers.ts`, `.github/workflows/ci.yml`
 
 **Interfaces:**
-- Produces: `warmUpFunctions(name, maxElapsedMs = 240000, perRequestMs = 90000)` in the functions helpers; `signInForIdToken`/`callFunction` fetches time out after 30 s; global-setup uses per-request aborts; CI always uploads `web/playwright-report` and `web/test-results`.
+- Produces: `warmUpFunctions(name, maxElapsedMs = 240000, perRequestMs = 90000)` in the functions helpers (remaining budget checked before each attempt; per-request abort clamped to it); `signInForIdToken`/`callFunction` fetches time out after 30 s; global-setup uses per-request aborts; CI always uploads `web/playwright-report` and `web/test-results`.
 
 - [ ] **Step 1: `functions/test/emulator-helpers.ts` — abort stalled requests**
 
@@ -423,30 +423,64 @@ export async function warmUpFunctions(name: string, maxElapsedMs = 240000, perRe
   const url = `http://${FUNCTIONS_HOST}/${PROJECT_ID}/${REGION}/${name}`;
   const start = Date.now();
   for (;;) {
+    const remaining = maxElapsedMs - (Date.now() - start);
+    if (remaining <= 0) {
+      throw new Error(`Functions emulator did not answer ${name} within ${maxElapsedMs} ms`);
+    }
     try {
       // A cold worker legitimately takes tens of seconds; a request that exceeds perRequestMs is
-      // aborted and retried so a stalled emulator cannot hold the hook until its own timeout.
+      // aborted and retried so a stalled emulator cannot hold the hook until its own timeout. The
+      // signal is clamped to whatever remains of maxElapsedMs so the last attempt cannot itself
+      // overshoot the overall bound.
       await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ data: {} }),
-        signal: AbortSignal.timeout(perRequestMs),
+        signal: AbortSignal.timeout(Math.min(perRequestMs, remaining)),
       });
       return;
     } catch {
-      if (Date.now() - start > maxElapsedMs) {
-        throw new Error(`Functions emulator did not answer ${name} within ${maxElapsedMs} ms`);
-      }
       await new Promise((resolve) => setTimeout(resolve, 2000));
     }
   }
 }
 ```
 
-- [ ] **Step 2: `web/e2e/global-setup.ts` — per-request aborts**
+- [ ] **Step 2: `web/e2e/global-setup.ts` — per-request aborts clamped to the remaining budget**
 
-Add `const PER_REQUEST_MS = 90_000;` next to the other constants, and pass `signal: AbortSignal.timeout(PER_REQUEST_MS)` in `callWhoami`'s fetch options. Wrap the final concurrent pair so an abort is reported clearly:
+Add `const PER_REQUEST_MS = 90_000;` next to the other constants. `callWhoami` takes a `timeoutMs = PER_REQUEST_MS` parameter; `waitUntilReachable` checks the remaining budget before every attempt and clamps the attempt's timeout to it, so the overall bound is never exceeded:
+
 ```ts
+function callWhoami(timeoutMs = PER_REQUEST_MS): Promise<Response> {
+  // Any HTTP response counts as "warm" -- a 401 (unauthenticated) is expected.
+  return fetch(WHOAMI_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ data: {} }),
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+}
+
+// Clamps each attempt's own timeout to whatever remains of MAX_ELAPSED_MS, so a late attempt
+// cannot itself overshoot the overall bound (checking elapsed time only after an attempt
+// finishes would let a single PER_REQUEST_MS-long attempt push the total past MAX_ELAPSED_MS).
+async function waitUntilReachable(): Promise<void> {
+  const start = Date.now();
+  for (;;) {
+    const remaining = MAX_ELAPSED_MS - (Date.now() - start);
+    if (remaining <= 0) {
+      throw new Error(`Functions emulator did not answer whoami within ${MAX_ELAPSED_MS} ms`);
+    }
+    try {
+      await callWhoami(Math.min(PER_REQUEST_MS, remaining));
+      return;
+    } catch {
+      // Emulator worker not accepting connections yet (still spinning up / cold require in progress).
+      await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS));
+    }
+  }
+}
+
 export default async function globalSetup(): Promise<void> {
   await waitUntilReachable();
   // Warm a second, concurrent instance so StrictMode's double-fetch never hits a cold one.
