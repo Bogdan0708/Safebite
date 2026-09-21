@@ -266,7 +266,9 @@ describe("claims — create, rejected", () => {
     ["detail not a string", { detail: 42 }],
     ["checkedAt not at UTC midnight", { checkedAt: Timestamp.fromDate(new Date("2026-09-20T10:00:00.000Z")) }],
     ["checkedAt is 'now' (not midnight)", { checkedAt: new Date() }],
-    ["checkedAt two days ahead", { checkedAt: utcDate(daysAhead(2)) }],
+    // three, not two: two days ahead is only rejected when request.time is on the same UTC day as
+    // `now`, which is false within δ of midnight
+    ["checkedAt three days ahead", { checkedAt: utcDate(daysAhead(3)) }],
     ["checkedAt a string", { checkedAt: "2026-09-20" }],
     ["expiresAt equal to checkedAt", { expiresAt: utcDate("2026-09-20") }],
     ["expiresAt before checkedAt", { expiresAt: utcDate("2026-09-19") }],
