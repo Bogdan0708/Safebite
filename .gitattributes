@@ -1,0 +1,21 @@
+# Line endings. Everything the PWA touches is LF. The legacy Swift tree (SafeBite/,
+# SafeBiteTests/, Package.swift, Config.xcconfig.template, docs/) is deliberately not
+# listed: it stays byte-for-byte as it is in history.
+web/**            text eol=lf
+functions/**      text eol=lf
+planning/**       text eol=lf
+.github/**        text eol=lf
+/README.md         text eol=lf
+/CLAUDE.md         text eol=lf
+/AGENTS.md         text eol=lf
+/firebase.json     text eol=lf
+/.firebaserc       text eol=lf
+/firestore.rules   text eol=lf
+/firestore.indexes.json text eol=lf
+/package.json      text eol=lf
+/package-lock.json text eol=lf
+/.gitignore        text eol=lf
+/.gitattributes    text eol=lf
+*.png             binary
+*.ico             binary
+*.webp            binary
