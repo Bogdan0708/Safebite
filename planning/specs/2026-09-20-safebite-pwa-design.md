@@ -300,6 +300,21 @@ the real interfaces that landed rather than predicted ones.
 - Establish request cancellation (`AbortController`) on the Settings page's callable before
   Plan 3 adds paid discovery calls (spec 2.5 requires cancellation).
 
+**Plan 2 rulings (owner, 2026-09-21):**
+
+- Plan 2 is split: **2a** = the pre-work list above, the PWA app shell (manifest, icon set,
+  Apple meta tags, standalone display), a plain "this build is misconfigured" screen in place
+  of the module-scope throw, and service-worker safeguards; **2b** = `restaurants` + `claims`
+  model, rules, private editing form, evidence display. Each is reviewed and audited on its own.
+- `restaurants.lat`/`lng` and `googlePlaceId` are optional until Plan 3 fills them from Places;
+  the Plan 2b form asks only for name and address (phone/website optional). Rules accept absent
+  coordinates and validate them as numbers in range when present.
+- Evidence expiry: a claim with no `expiresAt` is shown as "needs rechecking" 12 months after
+  `checkedAt`. An explicit `expiresAt` (for example from an accrediting body) takes precedence.
+  Computed in one pure function shared by the UI and its tests; never stored.
+- App icon: a simple monochrome SafeBite mark kept as SVG in the repo and rasterised to the
+  required PNG sizes by a script, so the owner can replace the artwork later without code changes.
+
 ### 3.4 Decisions taken without owner input (override if wrong)
 
 | Decision | Reason | Cost if wrong |
