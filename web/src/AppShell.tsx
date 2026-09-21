@@ -1,5 +1,7 @@
 import { NavLink, Navigate, Route, Routes } from "react-router";
 import { DiscoverPage } from "./pages/DiscoverPage";
+import { ClaimFormPage } from "./records/ClaimFormPage";
+import { RestaurantDetailPage } from "./records/RestaurantDetailPage";
 import { RestaurantFormPage } from "./records/RestaurantFormPage";
 import { RestaurantsPage } from "./records/RestaurantsPage";
 import { SettingsPage } from "./pages/SettingsPage";
@@ -18,6 +20,8 @@ export function AppShell() {
           <Route path="/restaurants" element={<RestaurantsPage />} />
           <Route path="/restaurants/new" element={<RestaurantFormPage mode="create" />} />
           <Route path="/restaurants/:rid/edit" element={<RestaurantFormPage mode="edit" />} />
+          <Route path="/restaurants/:rid" element={<RestaurantDetailPage />} />
+          <Route path="/restaurants/:rid/evidence/new" element={<ClaimFormPage />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="*" element={<Navigate to="/discover" replace />} />
         </Routes>
