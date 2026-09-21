@@ -301,8 +301,9 @@ the real interfaces that landed rather than predicted ones.
 
 **Carried from the Plan 2a final review (2026-09-21), for Plan 2b/3/5:**
 
-- `unregisterServiceWorkers()` leaves the Workbox precache in Cache Storage; delete
-  `workbox-precache-*` caches alongside the registrations (Plan 2b).
+- Done in Plan 2a-h (audit P2): non-deployable builds emit the plugin's self-destroying worker;
+  the misconfigured page purges registrations and all caches and reloads once if it was still
+  controlled; `web/e2e-upgrade` proves valid→invalid and valid→valid same-origin upgrades.
 - `abortable()` discards `signal.reason`, so an `AbortSignal.timeout()` reports as a user abort;
   preserve the reason and add a timeout companion before Plan 3 adds per-request timeouts.
 - The service worker is `registerType: "autoUpdate"`, which reloads the page unannounced when a

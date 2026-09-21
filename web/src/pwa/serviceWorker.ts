@@ -1,14 +1,33 @@
 import { registerSW } from "virtual:pwa-register";
 
+export interface PurgeResult {
+  registrations: number;
+  caches: number;
+  /** True when a worker controlled this document at the time of the purge (unregistering does not end that). */
+  wasControlled: boolean;
+}
+
 /**
- * Removes every service worker registration for this origin. Called when the bundle is
- * misconfigured so a previously installed worker cannot keep serving a stale shell.
+ * Removes every service worker registration and every Cache Storage cache for this origin.
+ * Called when the bundle is misconfigured, so neither a previously installed worker nor its
+ * precached release can keep serving a stale shell. Unregistering leaves the current document
+ * under the old worker's control until the next navigation; the caller reloads once if
+ * `wasControlled` is true. SafeBite owns this origin, so deleting all caches is correct.
  */
-export async function unregisterServiceWorkers(): Promise<number> {
-  if (!("serviceWorker" in navigator)) return 0;
-  const registrations = await navigator.serviceWorker.getRegistrations();
-  await Promise.all(registrations.map((registration) => registration.unregister()));
-  return registrations.length;
+export async function purgeServiceWorkerState(): Promise<PurgeResult> {
+  const result: PurgeResult = { registrations: 0, caches: 0, wasControlled: false };
+  if ("serviceWorker" in navigator) {
+    result.wasControlled = navigator.serviceWorker.controller !== null;
+    const registrations = await navigator.serviceWorker.getRegistrations();
+    await Promise.all(registrations.map((registration) => registration.unregister()));
+    result.registrations = registrations.length;
+  }
+  if ("caches" in globalThis) {
+    const names = await caches.keys();
+    await Promise.all(names.map((name) => caches.delete(name)));
+    result.caches = names.length;
+  }
+  return result;
 }
 
 /**

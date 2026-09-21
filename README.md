@@ -203,10 +203,11 @@ npm run emu:e2e:stress   # 5 browser scenarios × 3 repeats, retries disabled (f
 npm --prefix web run build:check   # compile-only build (no Firebase config needed)
 npm --prefix web run e2e:boot-guard   # builds a compile-only bundle with demo values and proves it refuses to start (Chromium, no emulators)
 npm --prefix web run e2e:preview      # validated build with synthetic values → manifest, service worker, offline shell (Chromium, no emulators)
+npm --prefix web run e2e:upgrade      # same-origin release upgrades: invalid release self-destructs, valid release replaces (Chromium, no emulators)
 npm --prefix web run icons            # re-render the PNG icon set from web/assets/safebite-mark.svg
 ```
 
-`npm run test:unit` currently reports 51 tests.
+`npm run test:unit` currently reports 54 tests.
 
 ### Guardrails
 
@@ -215,5 +216,5 @@ npm --prefix web run icons            # re-render the PNG icon set from web/asse
 - Never reuse the legacy seed data from git history; its safety claims were invented.
 - `npm --prefix web run build` (used by `firebase deploy`) refuses missing, blank, demo-, or legacy-project Firebase values; the resulting bundle also refuses to start against them.
 - Any `vite build` refuses to run with `NODE_ENV` set to anything but `production` (including via `.env` files), even for `build:check`. A built bundle's startup guard keys on the `__SAFEBITE_BUILD__` marker from `vite.config.ts`, not on `import.meta.env.PROD`, so `NODE_ENV` cannot switch it off.
-- A misconfigured built bundle shows a plain "this build is misconfigured" screen, loads no Firebase code, and unregisters any service worker; a clean bundle registers the Workbox worker only after that check.
+- A misconfigured built bundle shows a plain "this build is misconfigured" screen, loads no Firebase code, unregisters every service worker, deletes every cache and leaves the old worker's control; a clean bundle registers the Workbox worker only after that check. A non-deployable build ships a self-destroying worker (no precache), so an installed worker that picks it up as an update cleans the device instead of caching it (`npm --prefix web run e2e:upgrade` proves both paths).
 - The PWA icon set is generated, never hand-edited: change `web/assets/safebite-mark.svg` and run `npm --prefix web run icons`.

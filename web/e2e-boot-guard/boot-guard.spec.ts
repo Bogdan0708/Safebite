@@ -2,7 +2,8 @@ import { expect, test } from "@playwright/test";
 
 // Regression for the Plan 1b re-audit finding: a compile-only bundle (SAFEBITE_UNVALIDATED_BUILD=1)
 // carrying demo Firebase values must refuse to start in a real browser. Since Plan 2a it refuses
-// with a plain screen instead of a blank page, and must never register a service worker.
+// with a plain screen instead of a blank page, and must never register a service worker or
+// leave a cache behind.
 // The bundle is built by `npm run e2e:boot-guard` and served by `vite preview`.
 test("a compile-only bundle with demo Firebase values shows the misconfiguration screen", async ({ page }) => {
   const pageErrors: string[] = [];
@@ -22,4 +23,6 @@ test("a compile-only bundle with demo Firebase values shows the misconfiguration
     "serviceWorker" in navigator ? (await navigator.serviceWorker.getRegistrations()).length : 0,
   );
   expect(registrations).toBe(0);
+  const cacheCount = await page.evaluate(async () => (await caches.keys()).length);
+  expect(cacheCount).toBe(0);
 });
