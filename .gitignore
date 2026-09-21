@@ -68,6 +68,7 @@ node_modules/
 
 # Web app / functions
 web/dist/
+web/dist-boot-guard/
 web/test-results/
 web/playwright-report/
 functions/lib/

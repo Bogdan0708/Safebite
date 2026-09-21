@@ -12,8 +12,10 @@
     "build:check": "SAFEBITE_UNVALIDATED_BUILD=1 npm run build",
     "typecheck": "tsc -b",
     "preview": "vite preview",
+    "preview:boot-guard": "vite preview --outDir dist-boot-guard --host 127.0.0.1 --port 4173 --strictPort",
     "test": "vitest run",
-    "e2e": "playwright test"
+    "e2e": "playwright test",
+    "e2e:boot-guard": "SAFEBITE_UNVALIDATED_BUILD=1 VITE_FIREBASE_API_KEY=demo-api-key VITE_FIREBASE_AUTH_DOMAIN=localhost VITE_FIREBASE_PROJECT_ID=demo-safebite VITE_FIREBASE_APP_ID=demo-app-id VITE_USE_EMULATORS=true vite build --outDir dist-boot-guard && playwright test -c playwright.boot-guard.config.ts"
   },
   "dependencies": {
     "firebase": "^12.19.0",

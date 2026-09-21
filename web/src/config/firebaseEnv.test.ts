@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { assertDeployableFirebaseEnv, validateFirebaseEnv } from "./firebaseEnv";
+import { assertDeployableFirebaseEnv, guardViteBuild, validateFirebaseEnv } from "./firebaseEnv";
 
 const good = {
   VITE_FIREBASE_API_KEY: "AIzaSyExampleKey",
@@ -58,6 +58,33 @@ describe("assertDeployableFirebaseEnv", () => {
   it("throws a message that names the context and every problem", () => {
     expect(() => assertDeployableFirebaseEnv({ ...good, VITE_FIREBASE_PROJECT_ID: "" }, "production startup")).toThrow(
       /production startup.*VITE_FIREBASE_PROJECT_ID is missing or blank/s,
+    );
+  });
+});
+
+describe("guardViteBuild", () => {
+  const production = { isProduction: true, nodeEnv: "production" };
+
+  it("rejects a non-production build even when validation is skipped", () => {
+    expect(() =>
+      guardViteBuild({ isProduction: false, nodeEnv: "development", unvalidated: true, env: good, context: "vite build" }),
+    ).toThrow(/non-production Vite build \(vite build\).*NODE_ENV=development/s);
+  });
+
+  it("rejects a non-production build before validating the Firebase values", () => {
+    expect(() =>
+      guardViteBuild({ isProduction: false, nodeEnv: undefined, unvalidated: false, env: {}, context: "vite build" }),
+    ).toThrow(/NODE_ENV/);
+  });
+
+  it("skips validation for a production compile-only build", () => {
+    expect(guardViteBuild({ ...production, unvalidated: true, env: {}, context: "vite build" })).toBe("skipped");
+  });
+
+  it("validates a production deployable build", () => {
+    expect(guardViteBuild({ ...production, unvalidated: false, env: good, context: "vite build" })).toBe("validated");
+    expect(() => guardViteBuild({ ...production, unvalidated: false, env: {}, context: "vite build" })).toThrow(
+      /Firebase configuration is not deployable \(vite build\)/,
     );
   });
 });

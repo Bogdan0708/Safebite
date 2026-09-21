@@ -1,5 +1,8 @@
 /// <reference types="vite/client" />
 
+/** Defined by vite.config.ts: true in a built bundle, false for the dev server and Vitest. */
+declare const __SAFEBITE_BUILD__: boolean;
+
 interface ImportMetaEnv {
   readonly VITE_USE_EMULATORS?: string;
   readonly VITE_FIREBASE_API_KEY?: string;

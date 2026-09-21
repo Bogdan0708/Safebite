@@ -13,9 +13,11 @@ const firebaseConfig = {
   appId: import.meta.env.VITE_FIREBASE_APP_ID ?? "demo-app-id",
 };
 
-// A production bundle must never start against the emulator-only demo project or placeholders.
-if (import.meta.env.PROD) {
-  assertDeployableFirebaseEnv(import.meta.env, "production startup");
+// A built bundle must never start against the emulator-only demo project or placeholders.
+// Keyed on the build marker (vite.config.ts), not on import.meta.env.PROD, which a
+// NODE_ENV=development build would turn off.
+if (__SAFEBITE_BUILD__) {
+  assertDeployableFirebaseEnv(import.meta.env, "bundle startup");
 }
 
 export const app = initializeApp(firebaseConfig);

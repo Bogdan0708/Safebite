@@ -245,6 +245,11 @@ Real-iPhone acceptance (owner + Ava) happens after staging deploy, outside CI.
   path-scoped exception (ruling 2026-09-21): the deployability validator
   `web/src/config/firebaseEnv.ts` and its test name it only as a **rejected**
   value, and the CI guardrail grep excludes exactly those two files.
+- A `vite build` must run with `NODE_ENV=production` (Vite's default); any other value,
+  from the shell or a `.env` file, is refused before the compile-only bypass (re-audit fix,
+  2026-09-21). A built bundle's startup guard keys on the `__SAFEBITE_BUILD__` define from
+  `web/vite.config.ts`, never on `import.meta.env.PROD`, and `npm --prefix web run e2e:boot-guard`
+  boots a compile-only bundle with demo values in Chromium to prove it refuses to start.
 - No `firebase deploy`, no `git push`, no billing or console changes by agents.
 - No API keys, service-account JSON or `.env.*` with real values committed.
 - Never import the legacy `scripts/seed-firestore.js` data; its safety claims are invented.

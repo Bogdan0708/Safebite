@@ -87,6 +87,31 @@ jobs:
           fi
           echo "Validator rejected the unconfigured deployable build as expected"
 
+      - name: Non-production build is rejected (NODE_ENV=development, compile-only)
+        env:
+          NODE_ENV: development
+          SAFEBITE_UNVALIDATED_BUILD: "1"
+          VITE_FIREBASE_API_KEY: demo-api-key
+          VITE_FIREBASE_AUTH_DOMAIN: localhost
+          VITE_FIREBASE_PROJECT_ID: demo-safebite
+          VITE_FIREBASE_APP_ID: demo-app-id
+          VITE_USE_EMULATORS: "true"
+        run: |
+          set +e
+          out=$(npm --prefix web run build 2>&1)
+          status=$?
+          set -e
+          if [ "$status" -eq 0 ]; then
+            echo "$out"; echo "NODE_ENV=development compile-only build succeeded — the non-production guard is broken"; exit 1
+          fi
+          if ! echo "$out" | grep -q "Refusing a non-production Vite build"; then
+            echo "$out"; echo "Build failed, but not because of the non-production guard"; exit 1
+          fi
+          echo "Non-production build rejected as expected"
+
+      - name: Compile-only bundle refuses to start in a browser
+        run: npm --prefix web run e2e:boot-guard
+
       - name: Upload Playwright artifacts (report, traces, screenshots, videos)
         if: always()
         uses: actions/upload-artifact@v4

@@ -68,3 +68,35 @@ export function assertDeployableFirebaseEnv(env: FirebaseEnvLike, context: strin
     );
   }
 }
+
+export interface ViteBuildGuardInput {
+  /** Vite's resolved `config.isProduction` (false when NODE_ENV is overridden to something else). */
+  isProduction: boolean;
+  /** `process.env.NODE_ENV` as seen by the build, for the error message only. */
+  nodeEnv: string | undefined;
+  /** `SAFEBITE_UNVALIDATED_BUILD=1`: compile-only build, Firebase values are not validated. */
+  unvalidated: boolean;
+  env: FirebaseEnvLike;
+  context: string;
+}
+
+/**
+ * Decides what a `vite build` may do. A non-production build is refused outright, before the
+ * compile-only bypass: with NODE_ENV=development Vite strips `import.meta.env.PROD` guards and
+ * keeps dev-only code, so the bundle could run against demo values. Returns "skipped" for a
+ * compile-only build and "validated" once the Firebase values passed.
+ */
+export function guardViteBuild(input: ViteBuildGuardInput): "skipped" | "validated" {
+  if (!input.isProduction) {
+    throw new Error(
+      `Refusing a non-production Vite build (${input.context}): NODE_ENV=${input.nodeEnv ?? "<unset>"} ` +
+        "resolved to a development bundle. Unset NODE_ENV (or set it to production); " +
+        "use `npm run dev` for the emulator-backed development server.",
+    );
+  }
+  if (input.unvalidated) {
+    return "skipped";
+  }
+  assertDeployableFirebaseEnv(input.env, input.context);
+  return "validated";
+}
