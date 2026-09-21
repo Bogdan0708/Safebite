@@ -191,6 +191,7 @@ npm --prefix web run dev     # terminal 2: http://127.0.0.1:5173
 ```
 
 Emulator UI: http://127.0.0.1:4000
+Records live under households/home/restaurants in the emulator; `npm run emu:e2e` clears them before each scenario via the emulator's REST API.
 
 ### Tests
 
@@ -199,7 +200,7 @@ npm run typecheck   # both packages
 npm run test:unit   # web unit tests (no emulator)
 npm run emu:test    # functions + Firestore rules tests (starts emulators)
 npm run emu:e2e     # Playwright browser tests (starts emulators, seeds, runs Vite)
-npm run emu:e2e:stress   # 5 browser scenarios × 3 repeats, retries disabled (flakiness gate)
+npm run emu:e2e:stress   # 12 browser scenarios × 3 repeats, retries disabled (flakiness gate)
 npm --prefix web run build:check   # compile-only build (no Firebase config needed)
 npm --prefix web run build:e2e        # builds the three synthetic bundles: dist-preview, dist-preview-v2, dist-boot-guard (fixtures in web/.env.preview, .env.preview-v2, .env.boot-guard)
 npm --prefix web run e2e:boot-guard   # compile-only bundle with demo values refuses to start (Chromium, no emulators)
@@ -208,7 +209,7 @@ npm --prefix web run e2e:upgrade      # same-origin release upgrades and the upd
 npm --prefix web run icons            # re-render the PNG icon set from web/assets/safebite-mark.svg
 ```
 
-`npm run test:unit` currently reports 59 tests.
+`npm run test:unit` currently reports 170 tests.
 
 ### Guardrails
 
@@ -221,3 +222,5 @@ npm --prefix web run icons            # re-render the PNG icon set from web/asse
 - Updates are prompted, never forced: a new release shows a "new version ready" banner and only the tab whose Reload is tapped reloads; other open tabs get an "updated in another tab" banner and keep their typed input until they reload (`e2e:upgrade` proves both).
 - The PWA icon set is generated, never hand-edited: change `web/assets/safebite-mark.svg` and run `npm --prefix web run icons`.
 - The three synthetic test bundles are built only from the committed `web/.env.<mode>` fixtures: `vite build --mode preview|preview-v2|boot-guard` refuses to run if an exported `VITE_*` variable differs from the file, and every build writes `safebite-build.json` (mode, project id, source hash) that the `e2e:*` scripts verify, so a stale or wrong-mode dist is refused with the `build:<mode>` command to run.
+- Records are member-only and written only through Firestore transactions (online-only; a save is reported as saved only after the server accepted it). Restaurants carry a `version` the rules require to increase by exactly one; claims are immutable (add/delete only); deleting a restaurant marks it, sweeps its claims, then removes it, and an interrupted deletion is resumed from the list.
+- Evidence dates are UTC calendar days stored at 00:00 UTC; a claim needs rechecking 12 months after it was checked unless it carries its own expiry. Same-day contradicting claims are shown as "Conflicting evidence". No numerical score anywhere.

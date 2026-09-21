@@ -265,7 +265,7 @@ branch/worktree, reviewed, then merged before the next begins.
 | Plan | Deliverable (independently testable) | Depends on |
 |------|--------------------------------------|-----------|
 | **1. Foundation and household auth** — `planning/plans/2026-09-20-safebite-pwa-01-foundation.md` | Repo hygiene; `web/` + `functions/` scaffolds; emulator-only config; new rules for `users`/`households`; `requireMember` + `whoami` callable; sign-in / not-invited / member shell; emulator seed; Playwright + CI. A member signs in and sees the shell; a non-member is refused; rules tests prove isolation | O1, O2 |
-| **2. Restaurant records and evidence** | **PWA app shell first** (`vite-plugin-pwa` manifest, real icon set replacing the Vite logo, `apple-touch-icon`, `apple-mobile-web-app-capable`, `theme-color`, standalone display — a plan gap found in the Plan 1 final review); then `restaurants` + `claims` model, rules with accreditation validation and version checks, private editing form, evidence display with checked/expired states, "call ahead" prompts, unit + rules + e2e tests | Plan 1 |
+| **2. Restaurant records and evidence** | **PWA app shell first** (`vite-plugin-pwa` manifest, real icon set replacing the Vite logo, `apple-touch-icon`, `apple-mobile-web-app-capable`, `theme-color`, standalone display — a plan gap found in the Plan 1 final review); then `restaurants` + `claims` model, rules with accreditation validation and version checks, private editing form, evidence display with checked/expired states, "call ahead" prompts, unit + rules + e2e tests | Plan 1 — 2a, 2a-h and 2b executed 2026-09-21 (see §3.5 and `planning/plans/2026-09-21-safebite-pwa-02b-records.md`) |
 | **3. Discovery through functions** | `searchDestination`, `searchNearby`, `placeDetails` callables with secret key, kill switch, caps, attribution; discover UI with all failure states; search cancellation; external directions links; "add to our records" from a result (stores place ID only) | Plan 2 |
 | **4. Shared collection and notes** | `collection` + `notes` model and rules, save/unsave/visited, authored notes, optimistic concurrency with reload prompt, account-switch cache clearing, e2e | Plan 2 (Plan 3 optional) |
 | **5. Privacy, offline, operations** | Opt-in offline download to IndexedDB, clear-on-signout, export callable, account-deletion callable, settings page, privacy/terms content, staging config files, cost-control checklist, real-iPhone acceptance script | Plans 1–4, O3–O6 |
@@ -306,30 +306,34 @@ the real interfaces that landed rather than predicted ones.
   controlled; `web/e2e-upgrade` proves valid→invalid and valid→valid same-origin upgrades.
 - `abortable()` discards `signal.reason`, so an `AbortSignal.timeout()` reports as a user abort;
   preserve the reason and add a timeout companion before Plan 3 adds per-request timeouts.
-- The service worker is `registerType: "autoUpdate"`, which reloads the page unannounced when a
-  new version activates. Add an `onNeedRefresh` "new version — reload" prompt when the first
-  real form lands (Plan 2b's editing form), so an update never discards half-typed input.
+- Done in Plan 2b: The service worker is `registerType: "autoUpdate"`, which reloads the page
+  unannounced when a new version activates. Add an `onNeedRefresh` "new version — reload" prompt
+  when the first real form lands (Plan 2b's editing form), so an update never discards
+  half-typed input.
 - `pwa-192.png`/`pwa-512.png` (purpose `any`) bake rounded corners in; the maskable variant is
   correct. Decide with the owner whether the `any` icons should be square before Plan 5.
-- CI now runs six `vite build`s and four Playwright configurations in one 25-minute job with
-  `retries: 0` on the preview suite; if it starts timing out or flaking, those are the dials. The
-  `e2e:upgrade` script rebuilds `dist-preview`; factoring the synthetic env sets into a committed
-  `.env.e2e`-style file is Plan 2b pre-work.
+- Done in Plan 2b: CI now runs six `vite build`s and four Playwright configurations in one
+  25-minute job with `retries: 0` on the preview suite; if it starts timing out or flaking, those
+  are the dials. The `e2e:upgrade` script rebuilds `dist-preview`; factoring the synthetic env
+  sets into a committed `.env.e2e`-style file is Plan 2b pre-work.
 - `navigateFallbackDenylist: [/^\/__\//]` is set; confirm on staging (Plan 5) that
   `/__/auth/handler` is reachable if `authDomain` ever shares the app's origin.
 
 **Carried from the Plan 2a-h final review (2026-09-21), for Plan 2b:**
 
-- The `onNeedRefresh` update prompt (above) is now the only remaining worker item and must land
-  before the first editable form; when it does, the valid→valid test in `web/e2e-upgrade` (which
-  assumes autoUpdate reloads on activation) must be updated in the same task.
-- `e2e:upgrade` rebuilds `dist-preview` that `e2e:preview` already built; factor the synthetic
-  `VITE_*` sets (which are shape-valid fake keys) into a committed `web/.env.e2e`-style file
-  loaded by the scripts, so they stop being inlined in `package.json` and rebuilt twice.
-- A non-deployable build still emits `manifest.webmanifest` and the manifest link, so a
-  misconfigured artefact is nominally installable; suppress the manifest for self-destroying
-  builds if such builds are ever served deliberately.
-- The precache manifest lists four icon/manifest URLs twice (same revision; harmless); cleanup.
+- Done in Plan 2b: The `onNeedRefresh` update prompt (above) is now the only remaining worker item
+  and must land before the first editable form; when it does, the valid→valid test in
+  `web/e2e-upgrade` (which assumes autoUpdate reloads on activation) must be updated in the same
+  task.
+- Done in Plan 2b: `e2e:upgrade` rebuilds `dist-preview` that `e2e:preview` already built; factor
+  the synthetic `VITE_*` sets (which are shape-valid fake keys) into a committed
+  `web/.env.e2e`-style file loaded by the scripts, so they stop being inlined in `package.json`
+  and rebuilt twice.
+- Done in Plan 2b: A non-deployable build still emits `manifest.webmanifest` and the manifest
+  link, so a misconfigured artefact is nominally installable; suppress the manifest for
+  self-destroying builds if such builds are ever served deliberately.
+- Done in Plan 2b: The precache manifest lists four icon/manifest URLs twice (same revision;
+  harmless); cleanup.
 
 **Plan 2 rulings (owner, 2026-09-21):**
 
