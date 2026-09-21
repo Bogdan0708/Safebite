@@ -241,7 +241,10 @@ Real-iPhone acceptance (owner + Ava) happens after staging deploy, outside CI.
 ### 3.2 Guardrails carried into every plan's Global Constraints
 
 - Firebase project ID for all local work is `demo-safebite`. The string
-  `safebite-production-13ba1` must not appear in any new file.
+  `safebite-production-13ba1` must not appear in any new file, with one
+  path-scoped exception (ruling 2026-09-21): the deployability validator
+  `web/src/config/firebaseEnv.ts` and its test name it only as a **rejected**
+  value, and the CI guardrail grep excludes exactly those two files.
 - No `firebase deploy`, no `git push`, no billing or console changes by agents.
 - No API keys, service-account JSON or `.env.*` with real values committed.
 - Never import the legacy `scripts/seed-firestore.js` data; its safety claims are invented.
