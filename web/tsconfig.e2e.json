@@ -16,5 +16,5 @@
     "erasableSyntaxOnly": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["e2e", "e2e-boot-guard", "e2e-preview", "playwright.config.ts", "playwright.boot-guard.config.ts", "playwright.preview.config.ts"]
+  "include": ["e2e", "e2e-boot-guard", "e2e-preview", "e2e-upgrade", "playwright.config.ts", "playwright.boot-guard.config.ts", "playwright.preview.config.ts", "playwright.upgrade.config.ts"]
 }

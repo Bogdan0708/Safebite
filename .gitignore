@@ -70,6 +70,7 @@ node_modules/
 web/dist/
 web/dist-boot-guard/
 web/dist-preview/
+web/dist-preview-v2/
 web/test-results/
 web/playwright-report/
 functions/lib/
