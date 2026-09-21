@@ -1,10 +1,14 @@
 import { registerSW } from "virtual:pwa-register";
 
 export interface PurgeResult {
+  /** Count of registrations successfully unregistered. Exists for tests and diagnostics. */
   registrations: number;
+  /** Count of caches successfully deleted. Exists for tests and diagnostics. */
   caches: number;
   /** True when a worker controlled this document at the time of the purge (unregistering does not end that). */
   wasControlled: boolean;
+  /** Count of rejected unregister()/delete() operations. Production only reads this and `wasControlled`. */
+  failed: number;
 }
 
 /**
@@ -19,19 +23,33 @@ export interface PurgeResult {
  * the caller.
  */
 export async function purgeServiceWorkerState(): Promise<PurgeResult> {
-  const result: PurgeResult = { registrations: 0, caches: 0, wasControlled: false };
+  const result: PurgeResult = { registrations: 0, caches: 0, wasControlled: false, failed: 0 };
   if ("serviceWorker" in navigator) {
     result.wasControlled = navigator.serviceWorker.controller !== null;
     const registrations = await navigator.serviceWorker.getRegistrations();
     const outcomes = await Promise.allSettled(registrations.map((registration) => registration.unregister()));
     result.registrations = outcomes.filter((outcome) => outcome.status === "fulfilled").length;
+    result.failed += outcomes.filter((outcome) => outcome.status === "rejected").length;
   }
   if ("caches" in globalThis) {
     const names = await caches.keys();
     const outcomes = await Promise.allSettled(names.map((name) => caches.delete(name)));
     result.caches = outcomes.filter((outcome) => outcome.status === "fulfilled").length;
+    result.failed += outcomes.filter((outcome) => outcome.status === "rejected").length;
   }
   return result;
+}
+
+const RELOAD_FLAG = "safebite-purge-reloaded";
+/** True the second time it is asked in a tab session: the purge reload happens at most once. */
+export function alreadyReloadedForPurge(): boolean {
+  try {
+    if (sessionStorage.getItem(RELOAD_FLAG) === "1") return true;
+    sessionStorage.setItem(RELOAD_FLAG, "1");
+    return false;
+  } catch {
+    return true; // no storage → never reload rather than risk a loop
+  }
 }
 
 /**

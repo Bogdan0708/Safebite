@@ -11,7 +11,7 @@ import { guardViteBuild, validateFirebaseEnv } from "./src/config/firebaseEnv.ts
  * smoke); such bundles still refuse to start at runtime (see src/firebase.ts, keyed on the
  * `__SAFEBITE_BUILD__` marker defined below, which is independent of NODE_ENV).
  */
-function requireDeployableFirebaseEnv(mode: string): Plugin {
+function requireDeployableFirebaseEnv(mode: string, expectedDeployable: boolean): Plugin {
   return {
     name: "safebite-require-deployable-firebase-env",
     apply: "build",
@@ -22,6 +22,7 @@ function requireDeployableFirebaseEnv(mode: string): Plugin {
         unvalidated: process.env.SAFEBITE_UNVALIDATED_BUILD === "1",
         env: config.env,
         context: `vite build --mode ${mode}`,
+        expectedDeployable,
       });
       if (outcome === "skipped") {
         config.logger.warn(
@@ -61,6 +62,9 @@ const pwaOptions: Parameters<typeof VitePWA>[0] = {
     navigateFallback: "/index.html",
     // Firebase Hosting reserves /__/ (auth handler, init.js); never answer those with the shell.
     navigateFallbackDenylist: [/^\/__\//],
+    // Only removes caches left by a previous Workbox major version; it does not evict a prior
+    // release's precache entries on their own. That eviction is the precache controller's job on
+    // activate (proven by the valid→valid upgrade test in e2e-upgrade, not by this option).
     cleanupOutdatedCaches: true,
   },
 };
@@ -70,8 +74,12 @@ export default defineConfig(({ mode, command }) => {
   // A compile-only build carrying non-deployable values (SAFEBITE_UNVALIDATED_BUILD=1) gets the
   // plugin's self-destroying worker: it precaches nothing and, if an installed valid worker ever
   // picks it up as an update, it unregisters itself, navigates open pages and deletes every cache.
-  // Deployable builds get the normal precaching worker. (guardViteBuild, below in the plugin
-  // chain, still refuses non-production builds and un-bypassed invalid ones.)
+  // That cache purge is best-effort (the plugin does not run it inside a `waitUntil`, so it can be
+  // cut short); the authoritative purge is `purgeServiceWorkerState()` in src/main.tsx, run by the
+  // misconfigured page itself while it is still reachable. Deployable builds get the normal
+  // precaching worker. (guardViteBuild, below in the plugin chain, still refuses non-production
+  // builds and un-bypassed invalid ones, and now also refuses if `deployable` here disagrees with
+  // its own resolved env — see firebaseEnv.ts's `expectedDeployable`.)
   const firebaseEnv = loadEnv(mode, process.cwd(), "VITE_");
   const deployable = validateFirebaseEnv(firebaseEnv).length === 0;
   return {
@@ -80,7 +88,7 @@ export default defineConfig(({ mode, command }) => {
     define: { __SAFEBITE_BUILD__: JSON.stringify(command === "build") },
     plugins: [
       react(),
-      requireDeployableFirebaseEnv(mode),
+      requireDeployableFirebaseEnv(mode, deployable),
       VitePWA({ ...pwaOptions, selfDestroying: command === "build" && !deployable }),
     ],
     server: { port: 5173, strictPort: true },

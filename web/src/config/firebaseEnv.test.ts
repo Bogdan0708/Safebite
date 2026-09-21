@@ -112,6 +112,24 @@ describe("guardViteBuild", () => {
       /Firebase configuration is not deployable \(vite build\)/,
     );
   });
+
+  it("is unaffected by a matching expectedDeployable", () => {
+    expect(
+      guardViteBuild({ ...production, unvalidated: false, env: good, context: "vite build", expectedDeployable: true }),
+    ).toBe("validated");
+    expect(
+      guardViteBuild({ ...production, unvalidated: true, env: {}, context: "vite build", expectedDeployable: false }),
+    ).toBe("skipped");
+  });
+
+  it("throws when expectedDeployable disagrees with the resolved env, even for an unvalidated build", () => {
+    expect(() =>
+      guardViteBuild({ ...production, unvalidated: true, env: good, context: "vite build", expectedDeployable: false }),
+    ).toThrow(/worker decision disagrees with Vite's resolved env \(vite build\)/);
+    expect(() =>
+      guardViteBuild({ ...production, unvalidated: true, env: {}, context: "vite build", expectedDeployable: true }),
+    ).toThrow(/worker decision disagrees with Vite's resolved env \(vite build\)/);
+  });
 });
 
 describe("startupProblems", () => {

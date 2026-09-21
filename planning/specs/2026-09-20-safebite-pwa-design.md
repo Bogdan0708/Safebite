@@ -311,8 +311,10 @@ the real interfaces that landed rather than predicted ones.
   real form lands (Plan 2b's editing form), so an update never discards half-typed input.
 - `pwa-192.png`/`pwa-512.png` (purpose `any`) bake rounded corners in; the maskable variant is
   correct. Decide with the owner whether the `any` icons should be square before Plan 5.
-- CI now runs four `vite build`s and three Playwright configurations in one 25-minute job with
-  `retries: 0` on the preview suite; if it starts timing out or flaking, those are the dials.
+- CI now runs six `vite build`s and four Playwright configurations in one 25-minute job with
+  `retries: 0` on the preview suite; if it starts timing out or flaking, those are the dials. The
+  `e2e:upgrade` script rebuilds `dist-preview`; factoring the synthetic env sets into a committed
+  `.env.e2e`-style file is Plan 2b pre-work.
 - `navigateFallbackDenylist: [/^\/__\//]` is set; confirm on staging (Plan 5) that
   `/__/auth/handler` is reachable if `authDomain` ever shares the app's origin.
 

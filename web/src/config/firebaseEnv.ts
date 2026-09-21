@@ -98,6 +98,14 @@ export interface ViteBuildGuardInput {
   unvalidated: boolean;
   env: FirebaseEnvLike;
   context: string;
+  /**
+   * What `vite.config.ts` already decided about deployability when it chose which service worker
+   * to emit (`selfDestroying` vs. precaching), resolved independently via `loadEnv` before this
+   * plugin runs. Checked against `validateFirebaseEnv(input.env)` here so the two resolutions of
+   * "is this deployable?" cannot silently disagree (e.g. a root/envDir/mode mismatch causing
+   * `loadEnv` to see different values than `config.env`).
+   */
+  expectedDeployable?: boolean;
 }
 
 /**
@@ -112,6 +120,12 @@ export function guardViteBuild(input: ViteBuildGuardInput): "skipped" | "validat
       `Refusing a non-production Vite build (${input.context}): NODE_ENV=${input.nodeEnv ?? "<unset>"} ` +
         "resolved to a development bundle. Unset NODE_ENV (or set it to production); " +
         "use `npm run dev` for the emulator-backed development server.",
+    );
+  }
+  if (input.expectedDeployable !== undefined && input.expectedDeployable !== (validateFirebaseEnv(input.env).length === 0)) {
+    throw new Error(
+      `[safebite] build-time worker decision disagrees with Vite's resolved env (${input.context}): ` +
+        "check root/envDir/mode — refusing to build",
     );
   }
   if (input.unvalidated) {

@@ -207,7 +207,7 @@ npm --prefix web run e2e:upgrade      # same-origin release upgrades: invalid re
 npm --prefix web run icons            # re-render the PNG icon set from web/assets/safebite-mark.svg
 ```
 
-`npm run test:unit` currently reports 55 tests.
+`npm run test:unit` currently reports 59 tests.
 
 ### Guardrails
 
@@ -216,5 +216,5 @@ npm --prefix web run icons            # re-render the PNG icon set from web/asse
 - Never reuse the legacy seed data from git history; its safety claims were invented.
 - `npm --prefix web run build` (used by `firebase deploy`) refuses missing, blank, demo-, or legacy-project Firebase values; the resulting bundle also refuses to start against them.
 - Any `vite build` refuses to run with `NODE_ENV` set to anything but `production` (including via `.env` files), even for `build:check`. A built bundle's startup guard keys on the `__SAFEBITE_BUILD__` marker from `vite.config.ts`, not on `import.meta.env.PROD`, so `NODE_ENV` cannot switch it off.
-- A misconfigured built bundle shows a plain "this build is misconfigured" screen, loads no Firebase code, unregisters every service worker, deletes every cache and leaves the old worker's control; a clean bundle registers the Workbox worker only after that check. A non-deployable build ships a self-destroying worker (no precache), so an installed worker that picks it up as an update cleans the device instead of caching it (`npm --prefix web run e2e:upgrade` proves both paths).
+- A misconfigured built bundle shows a plain "this build is misconfigured" screen, loads no Firebase code, unregisters every service worker, deletes every cache and leaves the old worker's control; a clean bundle registers the Workbox worker only after that check. A non-deployable build ships a self-destroying worker (no precache), so an installed worker that picks it up as an update never caches it and triggers a clean-up; the misconfiguration screen completes the purge (`npm --prefix web run e2e:upgrade` proves both paths).
 - The PWA icon set is generated, never hand-edited: change `web/assets/safebite-mark.svg` and run `npm --prefix web run icons`.
