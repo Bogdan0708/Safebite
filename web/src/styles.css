@@ -17,3 +17,5 @@ body { margin: 0; }
 .shell-nav { display: flex; justify-content: space-around; border-top: 1px solid #8884; padding: 0.5rem 0; padding-bottom: calc(0.5rem + env(safe-area-inset-bottom, 0px)); }
 .shell-nav a { text-decoration: none; padding: 0.5rem 1rem; }
 .shell-nav a.active { font-weight: 700; }
+.problems { padding-left: 1.25rem; }
+.problems li { margin: 0.25rem 0; overflow-wrap: anywhere; }
