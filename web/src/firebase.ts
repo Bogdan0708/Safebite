@@ -2,6 +2,7 @@ import { initializeApp } from "firebase/app";
 import { connectAuthEmulator, getAuth } from "firebase/auth";
 import { connectFirestoreEmulator, getFirestore } from "firebase/firestore";
 import { connectFunctionsEmulator, getFunctions } from "firebase/functions";
+import { assertDeployableFirebaseEnv } from "./config/firebaseEnv";
 
 // Real values are supplied by the owner for staging via environment variables.
 // The defaults below only work with the emulators (project demo-safebite).
@@ -12,8 +13,9 @@ const firebaseConfig = {
   appId: import.meta.env.VITE_FIREBASE_APP_ID ?? "demo-app-id",
 };
 
-if (import.meta.env.PROD && !import.meta.env.VITE_FIREBASE_PROJECT_ID) {
-  throw new Error("Production build without VITE_FIREBASE_PROJECT_ID: refusing to start against the demo project.");
+// A production bundle must never start against the emulator-only demo project or placeholders.
+if (import.meta.env.PROD) {
+  assertDeployableFirebaseEnv(import.meta.env, "production startup");
 }
 
 export const app = initializeApp(firebaseConfig);

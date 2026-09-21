@@ -199,12 +199,14 @@ npm run typecheck   # both packages
 npm run test:unit   # web unit tests (no emulator)
 npm run emu:test    # functions + Firestore rules tests (starts emulators)
 npm run emu:e2e     # Playwright browser tests (starts emulators, seeds, runs Vite)
+npm --prefix web run build:check   # compile-only build (no Firebase config needed)
 ```
 
-`npm run test:unit` currently reports 11 tests.
+`npm run test:unit` currently reports 19 tests.
 
 ### Guardrails
 
 - Local work targets the emulator-only project `demo-safebite`. Nothing here deploys.
 - Membership (`users/{uid}`, `households/{hid}`) is written only with the Admin SDK; there is no sign-up.
 - Never reuse the legacy seed data from git history; its safety claims were invented.
+- `npm --prefix web run build` (used by `firebase deploy`) refuses missing, blank, demo-, or legacy-project Firebase values; the resulting bundle also refuses to start against them.

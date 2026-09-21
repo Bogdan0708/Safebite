@@ -5,7 +5,7 @@
   "engines": { "node": "22" },
   "scripts": {
     "typecheck": "npm --prefix functions run typecheck && npm --prefix web run typecheck",
-    "build": "npm --prefix functions run build && npm --prefix web run build",
+    "build": "npm --prefix functions run build && npm --prefix web run build:check",
     "test:unit": "npm --prefix web test",
     "emu:start": "npm --prefix functions run build && FUNCTIONS_DISCOVERY_TIMEOUT=90 firebase emulators:start --only auth,firestore,functions --project demo-safebite",
     "emu:seed": "FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 FIREBASE_AUTH_EMULATOR_HOST=127.0.0.1:9099 node functions/lib/seed-emulator.js",
