@@ -44,7 +44,7 @@ describe("RestaurantDetailPage", () => {
     renderPage();
     act(() => { emitRestaurant({ status: "ready", value: restaurant }); emitClaims({ status: "ready", value: [] }); });
     expect(screen.getByTestId("restaurant-name")).toHaveTextContent("Da Marco");
-    expect(screen.getByTestId("restaurant-phone")).toHaveAttribute("href", "tel:+39 06 1");
+    expect(screen.getByTestId("restaurant-phone")).toHaveAttribute("href", "tel:+39061");
     expect(screen.getByTestId("restaurant-website")).toHaveAttribute("href", "https://damarco.it");
     for (const kind of ["dedicatedKitchen", "separateFryer", "trainedStaff", "gfMenu", "preparationPractice", "accreditation"]) {
       expect(screen.getByTestId(`evidence-${kind}`)).toHaveAttribute("data-state", "unknown");
@@ -94,6 +94,22 @@ describe("RestaurantDetailPage", () => {
     expect(m.deleteClaim).not.toHaveBeenCalled();
     await userEvent.click(screen.getByTestId("claim-delete-confirm-c1"));
     await waitFor(() => expect(m.deleteClaim).toHaveBeenCalledWith("home", "r1", "c1"));
+  });
+
+  it("keeps evidence unknown-vs-unloaded distinct: loading and error show notices, not six unknowns", () => {
+    renderPage();
+    act(() => { emitRestaurant({ status: "ready", value: restaurant }); });
+    expect(screen.getByTestId("read-loading")).toBeInTheDocument();
+    expect(screen.queryByTestId("evidence-dedicatedKitchen")).toBeNull();
+
+    act(() => { emitClaims({ status: "error", message: "boom" }); });
+    expect(screen.getByTestId("read-error")).toBeInTheDocument();
+    expect(screen.queryByTestId("evidence-dedicatedKitchen")).toBeNull();
+
+    act(() => { emitClaims({ status: "ready", value: [] }); });
+    for (const kind of ["dedicatedKitchen", "separateFryer", "trainedStaff", "gfMenu", "preparationPractice", "accreditation"]) {
+      expect(screen.getByTestId(`evidence-${kind}`)).toHaveAttribute("data-state", "unknown");
+    }
   });
 
   it("shows gone when the restaurant is deleted and disables Add evidence when offline", () => {

@@ -10,9 +10,25 @@ vi.mock("../auth/AuthProvider", () => ({
 }));
 vi.mock("./useToday", () => ({ useToday: () => "2026-09-21" }));
 
-import { ClaimFormPage } from "./ClaimFormPage";
+import { ClaimFormPage, toClaimInput } from "./ClaimFormPage";
 
 afterEach(() => vi.clearAllMocks());
+
+describe("toClaimInput", () => {
+  it("lowercases an upper-case http(s) scheme in the source URL so the rules' case-sensitive check accepts it", () => {
+    const input = toClaimInput({
+      kind: "accreditation",
+      value: "yes",
+      detail: "",
+      sourceType: "accreditingBody",
+      sourceLabel: "Coeliac UK",
+      sourceUrl: " HTTPS://Coeliac.org.uk/venues/1 ",
+      checkedAt: "2026-09-01",
+      expiresAt: "",
+    });
+    expect(input.source.url).toBe("https://Coeliac.org.uk/venues/1");
+  });
+});
 
 function renderPage() {
   return render(

@@ -33,7 +33,7 @@ export function normaliseRestaurantInput(raw: RawRestaurantForm): RestaurantInpu
   const phone = raw.phone.trim();
   if (phone !== "") input.phone = phone;
   const website = raw.website.trim();
-  if (website !== "") input.website = website;
+  if (website !== "") input.website = website.replace(/^https?:/i, (m) => m.toLowerCase());
   return input;
 }
 

@@ -18,6 +18,9 @@ describe("normaliseRestaurantInput", () => {
     expect(normaliseRestaurantInput({ name: "  Da Marco ", address: " Via Roma 1 ", phone: "  ", website: "" })).toEqual({ name: "Da Marco", address: "Via Roma 1" });
     expect(normaliseRestaurantInput({ name: "A", address: "B", phone: " +39 1 ", website: " https://x.test " })).toEqual({ name: "A", address: "B", phone: "+39 1", website: "https://x.test" });
   });
+  it("lowercases an upper-case http(s) scheme so the rules' case-sensitive check accepts it", () => {
+    expect(normaliseRestaurantInput({ name: "A", address: "B", phone: "", website: " HTTPS://Damarco.IT " })).toEqual({ name: "A", address: "B", website: "https://Damarco.IT" });
+  });
 });
 
 describe("validateRestaurantInput", () => {

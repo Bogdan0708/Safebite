@@ -63,13 +63,16 @@ function requireFixtureIdentity(mode: string, resolvedEnv: Record<string, string
 
 /**
  * Writes `<outDir>/safebite-build.json` so test scripts can verify which mode and which sources a
- * dist came from. Not matched by the Workbox glob (json is not in it), so never precached.
+ * dist came from. Only for the three fixture modes `assertFreshDist` ever checks — a deployable
+ * build never gets this file, so no build provenance detail ships to production. Not matched by
+ * the Workbox glob (json is not in it) either way, so it would never have been precached.
  */
 function buildStamp(mode: string, projectId: string): Plugin {
   return {
     name: "safebite-build-stamp",
     apply: "build",
     generateBundle() {
+      if (!isFixtureMode(mode)) return;
       const stamp: BuildStamp = {
         mode,
         projectId,

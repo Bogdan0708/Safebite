@@ -3,9 +3,9 @@ import { Link, useParams } from "react-router";
 import { CALL_AHEAD_GROUPS } from "./callAhead";
 import { formatCalendarDate } from "./dates";
 import { evidenceStatus, summariseEvidence, type KindEvidence } from "./evidence";
+import { outcomeMessage } from "./messages";
 import { deleteClaim, watchClaims, watchRestaurant, type WriteOutcome } from "./repository";
 import { ReadStateNotice } from "./ReadStateNotice";
-import { outcomeMessage } from "./RestaurantFormPage";
 import { CLAIM_KIND_LABELS, CLAIM_VALUE_LABELS, SOURCE_TYPE_LABELS, type CalendarDate, type Claim, type Restaurant } from "./types";
 import { useMember } from "./useMember";
 import { useToday } from "./useToday";
@@ -76,14 +76,15 @@ export function RestaurantDetailPage() {
     setOutcome(result.kind === "ok" ? null : result.kind);
   }
 
+  const claimsReady = cs.status === "ready" || cs.status === "offline";
+
   return (
     <section>
       <ReadStateNotice state={rs} onRetry={restaurantWatch.retry} />
-      {rs.status === "ready" && cs.status !== "ready" && cs.status !== "loading" && <ReadStateNotice state={cs} onRetry={claimsWatch.retry} />}
       <h2 data-testid="restaurant-name">{restaurant.name}</h2>
       <p data-testid="restaurant-address">{restaurant.address}</p>
       <p className="actions">
-        {restaurant.phone && <a data-testid="restaurant-phone" href={`tel:${restaurant.phone}`}>Call {restaurant.phone}</a>}
+        {restaurant.phone && <a data-testid="restaurant-phone" href={`tel:${restaurant.phone.replace(/\s+/g, "")}`}>Call {restaurant.phone}</a>}
         {restaurant.website && <a data-testid="restaurant-website" href={restaurant.website} target="_blank" rel="noreferrer">Website</a>}
         <Link data-testid="edit-restaurant" to={`/restaurants/${restaurant.id}/edit`}>Edit</Link>
       </p>
@@ -100,25 +101,28 @@ export function RestaurantDetailPage() {
           Add evidence
         </Link>
       </p>
-      {outcome && <p role="alert" data-testid="claim-outcome" data-kind={outcome}>{outcomeMessage(outcome, "This evidence")}</p>}
-      <div className="evidence">
-        {summary.map((entry) => (
-          <div key={entry.kind} className="evidence-kind" data-testid={`evidence-${entry.kind}`} data-state={entry.state}>
-            <h4>{CLAIM_KIND_LABELS[entry.kind]}</h4>
-            <p>{STATE_TEXT[entry.state]}</p>
-            {entry.state === "conflicting" && entry.tied.map((c) => <ClaimCard key={c.id} claim={c} today={today} disabled={offline} onDelete={(id) => void onDeleteClaim(id)} />)}
-            {(entry.state === "current" || entry.state === "needsRechecking") && (
-              <ClaimCard claim={entry.latest} today={today} disabled={offline} onDelete={(id) => void onDeleteClaim(id)} />
-            )}
-            {entry.state !== "unknown" && entry.history.length > 0 && (
-              <details>
-                <summary>Older evidence ({entry.history.length})</summary>
-                {entry.history.map((c) => <ClaimCard key={c.id} claim={c} today={today} disabled={offline} onDelete={(id) => void onDeleteClaim(id)} />)}
-              </details>
-            )}
-          </div>
-        ))}
-      </div>
+      {outcome && <p role="alert" data-testid="claim-outcome" data-kind={outcome}>{outcomeMessage(outcome, "This evidence", "delete")}</p>}
+      {!claimsReady && <ReadStateNotice state={cs} onRetry={claimsWatch.retry} />}
+      {claimsReady && (
+        <div className="evidence">
+          {summary.map((entry) => (
+            <div key={entry.kind} className="evidence-kind" data-testid={`evidence-${entry.kind}`} data-state={entry.state}>
+              <h4>{CLAIM_KIND_LABELS[entry.kind]}</h4>
+              <p>{STATE_TEXT[entry.state]}</p>
+              {entry.state === "conflicting" && entry.tied.map((c) => <ClaimCard key={c.id} claim={c} today={today} disabled={offline} onDelete={(id) => void onDeleteClaim(id)} />)}
+              {(entry.state === "current" || entry.state === "needsRechecking") && (
+                <ClaimCard claim={entry.latest} today={today} disabled={offline} onDelete={(id) => void onDeleteClaim(id)} />
+              )}
+              {entry.state !== "unknown" && entry.history.length > 0 && (
+                <details>
+                  <summary>Older evidence ({entry.history.length})</summary>
+                  {entry.history.map((c) => <ClaimCard key={c.id} claim={c} today={today} disabled={offline} onDelete={(id) => void onDeleteClaim(id)} />)}
+                </details>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
 
       <section className="notice" data-testid="call-ahead">
         <h3>Call ahead and ask</h3>

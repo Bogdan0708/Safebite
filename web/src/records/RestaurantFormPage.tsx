@@ -1,23 +1,12 @@
 import { useState, type SubmitEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router";
+import { outcomeMessage } from "./messages";
 import { createRestaurant, deleteRestaurant, updateRestaurant, watchRestaurant, type DeleteStep, type WriteOutcome } from "./repository";
 import { ReadStateNotice } from "./ReadStateNotice";
 import type { Restaurant } from "./types";
 import { useMember } from "./useMember";
 import { useWatch } from "./useWatch";
 import { normaliseRestaurantInput, validateRestaurantInput, type FieldErrors, type RawRestaurantForm, type RestaurantField } from "./validation";
-
-/** One message per outcome kind; only `conflict` invites a reload (spec §3.5, audit F2). */
-export function outcomeMessage(kind: WriteOutcome["kind"], what: string): string {
-  switch (kind) {
-    case "ok": return `${what} saved.`;
-    case "conflict": return `${what} was changed on another device. Reload the draft to see the latest, then apply your change again.`;
-    case "notFound": return `${what} was deleted.`;
-    case "permission": return "You no longer have access to this household.";
-    case "offline": return "You are offline. Connect and try again.";
-    case "failed": return `Could not save ${what.toLowerCase()}. Try again.`;
-  }
-}
 
 const EMPTY: RawRestaurantForm = { name: "", address: "", phone: "", website: "" };
 const STEP_TEXT: Record<DeleteStep, string> = { marking: "Marking…", sweeping: "Removing evidence…", removing: "Removing restaurant…" };

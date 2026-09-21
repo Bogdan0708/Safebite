@@ -1,7 +1,7 @@
 import { useState, type SubmitEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router";
+import { outcomeMessage } from "./messages";
 import { addClaim, type WriteOutcome } from "./repository";
-import { outcomeMessage } from "./RestaurantFormPage";
 import { CLAIM_KINDS, CLAIM_KIND_LABELS, CLAIM_VALUES, CLAIM_VALUE_LABELS, SOURCE_TYPES, SOURCE_TYPE_LABELS, type ClaimInput, type ClaimKind, type ClaimValue, type SourceType } from "./types";
 import { useMember } from "./useMember";
 import { useToday } from "./useToday";
@@ -28,7 +28,7 @@ export function toClaimInput(form: RawClaimForm): ClaimInput {
     checkedAt: form.checkedAt,
   };
   const url = form.sourceUrl.trim();
-  if (url !== "") input.source.url = url;
+  if (url !== "") input.source.url = url.replace(/^https?:/i, (m) => m.toLowerCase());
   if (form.expiresAt.trim() !== "") input.expiresAt = form.expiresAt.trim();
   return input;
 }
