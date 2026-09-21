@@ -357,142 +357,280 @@ the real interfaces that landed rather than predicted ones.
 | No npm workspaces; `web/`, `functions/` and a thin root `package.json` | Firebase deploy packages `functions/` standalone; hoisted deps break it | Slightly more `npm ci` steps in CI |
 | Optimistic concurrency by integer `version` enforced in rules | Meets "reject stale versions, offer reload" without server round-trips | None foreseen |
 
-### 3.5 Plan 2b design — restaurant records and evidence (brainstormed 2026-09-21)
+### 3.5 Plan 2b design — restaurant records and evidence (brainstormed 2026-09-21, revised after the design audit the same day)
 
-Owner rulings taken during the brainstorm (all six recommendations accepted):
+Owner rulings taken during the brainstorm (all six recommendations accepted; the design audit
+`planning/audits/2026-09-21-plan-2b-design-audit.md` found seven mechanism gaps, F1–F7, which this
+revision closes without changing the six rulings):
 
 1. The **Saved** tab lists the household's restaurant records until Plan 4 layers visited
    state and notes on top. Routes: `/restaurants`, `/restaurants/new`, `/restaurants/:rid`,
    `/restaurants/:rid/edit`, `/restaurants/:rid/evidence/new`. `/saved` redirects to
    `/restaurants`. The `nav-saved` testid and "Saved" label stay.
-2. **Claims are append-only.** Members add and delete claims; the rules refuse `update`.
-   Evidence is corrected by adding a new claim and deleting the old one.
+2. **Claims are immutable documents.** Members add and delete claims; the rules refuse
+   `update`. Evidence is corrected by adding a new claim and deleting the old one. A deleted
+   claim is gone; this is not an audit trail.
 3. **Restaurants can be deleted** by any member after an in-page confirm step (a second
-   "Yes, delete" button, never `window.confirm`, which would block browser tests). The client deletes the
-   claims in a batch together with the document; Firestore does not cascade.
+   "Yes, delete" button, never `window.confirm`, which would block browser tests). Deletion
+   follows the protocol below so no claim is orphaned.
 4. **Live data.** `onSnapshot` listeners for the list, the detail page and its claims.
-   Firestore SDK offline persistence stays off (spec 2.6).
-5. **Update prompt.** A non-modal banner "A new version of SafeBite is ready" with a **Reload**
-   button, rendered above every screen; nothing reloads until it is tapped.
+   Firestore SDK offline persistence stays off (spec 2.6); the memory cache is unavoidable and
+   is handled explicitly (see "Online-only writes and read states").
+5. **Update prompt.** A non-modal banner with a **Reload** button, rendered above every screen;
+   a tab reloads only when *that tab's* Reload is tapped (see "Pre-work").
 6. **Scope fence.** In: the four pre-work items below, the model, rules, form, detail page with
    "call ahead and ask" prompts, unit, rules and browser tests. Out: the `abortable()`
-   `signal.reason` fix (Plan 3 pre-work), the square-icon question (Plan 5), anything Places.
+   `signal.reason` fix (Plan 3 pre-work), the square-icon question (Plan 5), anything Places,
+   any change under `functions/src` (everything here is client + rules).
 
 #### Pre-work (worker and build hygiene)
 
-- `registerType: "prompt"`. `registerServiceWorker()` passes `onNeedRefresh` and keeps the
-  returned `updateServiceWorker` function. A tiny external store in `web/src/pwa/updates.ts`
-  (`subscribe`, `getSnapshot`, `applyUpdate`) lets `App` render `<UpdateBanner>` via
-  `useSyncExternalStore`; the banner is outside the router so it shows on the sign-in screen
-  and inside the shell alike. Tapping Reload calls `updateServiceWorker()`; the plugin reloads
-  the page once the new worker is controlling. The `e2e-upgrade` valid→valid test is rewritten:
-  install v1, type into the sign-in email field, serve v2, trigger the update check, assert the
-  banner is visible, the typed value is intact and the entry chunk is still v1; tap Reload;
-  assert the v2 entry chunk, one registration, controlled, old chunk evicted. (The sign-in form
-  is the only form reachable without emulators; the mechanism is form-agnostic.) The
-  "reloads exactly once" wording in the purge test is tightened to what it asserts.
-- Synthetic build environments move into committed `web/.env.preview`, `web/.env.preview-v2`
-  and `web/.env.boot-guard` (shape-valid fake values, gitignore exceptions like
-  `web/.env.development`). `vite build --mode <name>` loads them; `SAFEBITE_UNVALIDATED_BUILD=1`
-  stays on the boot-guard command line because it is not a `VITE_` value. Scripts split into
-  `build:preview`, `build:preview-v2`, `build:boot-guard` and `build:e2e` (all three), while
-  `e2e:preview`, `e2e:boot-guard` and `e2e:upgrade` only run Playwright against existing output
-  and fail with a clear message if a dist directory is missing. CI builds once, then runs the
-  three suites. README updated.
-- `includeManifestIcons: false` removes the duplicate icon and manifest precache entries; the
-  artefact test in `e2e-upgrade` asserts every precache URL is unique.
-- Self-destroying builds get `manifest: false`, so a misconfigured artefact is not installable;
-  the boot-guard test asserts there is no `<link rel="manifest">`.
+- **Prompt-mode worker with per-tab reload (F5).** `registerType: "prompt"`.
+  `registerServiceWorker()` passes `onNeedRefresh` and `onNeedReload` and keeps the returned
+  `updateServiceWorker` function. A small external store in `web/src/pwa/updates.ts`
+  (`subscribe`, `getSnapshot`, `applyUpdate`) feeds `<UpdateBanner>` in `App` via
+  `useSyncExternalStore`, outside the router so it shows on the sign-in screen and in the shell.
+  Store states: `idle` → `available` ("A new version of SafeBite is ready", Reload) →
+  `activated` ("SafeBite was updated in another tab. Reload when you are ready.", Reload).
+  Tapping Reload calls `applyUpdate()`, which records `requestedHere = true` and calls
+  `updateServiceWorker()`. The plugin's `onNeedReload` fires in **every** open tab when the new
+  worker takes control (audit reproduction: the default handler reloads them all); ours reloads
+  only if `requestedHere`, otherwise it moves the store to `activated`. Tapping Reload in
+  `activated` calls `window.location.reload()`. Old-version tabs keep working: the app imports
+  its only lazy chunk (`App`) at boot and no route is lazy, so an old tab needs nothing from the
+  evicted precache until it navigates or reloads. Misconfiguration recovery (Plan 2a-h purge and
+  one-shot reload) is unchanged and exempt from "nothing reloads until tapped".
+- **Upgrade tests (F5).** The `e2e-upgrade` valid→valid test is rewritten: install v1, type into
+  the sign-in email field, serve v2, trigger the update check, assert the banner is visible, the
+  typed value intact and the entry chunk still v1; tap Reload; assert the v2 entry chunk, one
+  registration, controlled, old chunk evicted. A new **same-context two-tab test**: tabs A and B
+  on v1, B holds typed text; A taps Reload; A reaches v2 while B stays on v1 with its text and
+  shows the `activated` banner; B taps Reload and reaches v2. The sign-in field is the only form
+  reachable without emulators and stands in for a draft; the dirty-restaurant-draft behaviour is
+  covered by unit tests (form keeps its draft and base version while the store changes state).
+  The purge test's "reloads exactly once" wording is tightened to what it asserts (session flag
+  and final state). All invalid-upgrade regressions stay.
+- **Hermetic synthetic builds (F7).** Synthetic values move into committed `web/.env.preview`,
+  `web/.env.preview-v2` and `web/.env.boot-guard` (shape-valid fake values; gitignore exceptions
+  like `web/.env.development`). `vite build --mode <name>` loads them; `SAFEBITE_UNVALIDATED_BUILD=1`
+  stays on the boot-guard command line because it is not a `VITE_` value. Because ambient
+  `VITE_*` variables outrank mode files in Vite, the config gains a fixture check for these three
+  modes: it parses the mode file itself (own `KEY=VALUE` parser in `web/src/config/fixtureEnv.ts`,
+  no new dependency) and refuses the build if any resolved `VITE_FIREBASE_*` or
+  `VITE_USE_EMULATORS` value differs from the file. Every build also emits
+  `<outDir>/safebite-build.json` `{ mode, projectId, sourceHash, builtAt }` where `sourceHash` is
+  SHA-256 over the contents of `web/index.html`, `web/vite.config.ts`, `web/.env.<mode>` and every
+  file under `web/src` and `web/public` (excluded from the precache glob). The upgrade server and
+  the preview/boot-guard Playwright configs recompute the hash and refuse to run against a
+  missing, wrong-mode or stale dist with a message naming the `build:<mode>` script to run.
+  Scripts: `build:preview`, `build:preview-v2`, `build:boot-guard`, `build:e2e` (all three);
+  `e2e:preview`, `e2e:boot-guard`, `e2e:upgrade` run Playwright only. CI builds once, then runs
+  the three suites. README updated. Existing non-production and worker-decision guards stay.
+- **Precache clean-up (F6).** `includeManifestIcons: false` *and* `webmanifest` removed from
+  `globPatterns` (the plugin adds `manifest.webmanifest` itself, outside the icons conditional).
+  The artefact test in `e2e-upgrade` asserts every precache URL is unique and that the manifest
+  and the four icons are still precached exactly once.
+- **No manifest for self-destroying builds.** `manifest: false` when `selfDestroying`, so a
+  misconfigured artefact is not installable; the boot-guard test asserts no `<link rel="manifest">`.
 
 #### Data model (as spec 2.3, made concrete)
 
 `households/{hid}/restaurants/{rid}`: `name` (1–120), `address` (1–300), optional `phone`
 (≤ 40), optional `website` (http(s) URL ≤ 300), optional `lat`/`lng` (both or neither; numbers
-with `lat` in −90…90 and `lng` in −180…180), optional `googlePlaceId` (≤ 200), `createdBy` (uid), `createdAt`, `updatedAt`
-(server timestamps), `version` (integer, starts at 1). No other keys.
+with `lat` in −90…90 and `lng` in −180…180), optional `googlePlaceId` (≤ 200), `createdBy`
+(uid), `createdAt`, `updatedAt` (server timestamps), `version` (integer, starts at 1),
+`deleting` (boolean, false on create; see deletion). No other keys. Required strings are
+trimmed client-side and must not be whitespace-only.
 
 `households/{hid}/restaurants/{rid}/claims/{cid}`: `kind` in {`dedicatedKitchen`,
 `separateFryer`, `trainedStaff`, `gfMenu`, `preparationPractice`, `accreditation`}; `value` in
-{`yes`, `no`, `partial`}; `detail` (string ≤ 1000, may be empty); `source` map with `type` in
-{`restaurantStatement`, `accreditingBody`, `ownVisit`, `thirdParty`}, `label` (1–200), optional
-`url` (http(s) ≤ 500); `checkedAt` (timestamp, not in the future); optional `expiresAt`
-(timestamp after `checkedAt`); `authorUid`; `createdAt` (server timestamp). No other keys.
-`kind == 'accreditation'` requires `source.type == 'accreditingBody'` and a non-empty
-`source.url`.
+{`yes`, `no`, `partial`}; `detail` (string ≤ 1000, may be empty); `source` map with exactly
+`type` in {`restaurantStatement`, `accreditingBody`, `ownVisit`, `thirdParty`}, `label`
+(1–200) and optional `url` (http(s) ≤ 500) — no other keys in the map; `checkedAt` (calendar
+date, below); optional `expiresAt` (calendar date, strictly after `checkedAt`); `authorUid`;
+`authorName` (the caller's `users/{uid}.displayName`, checked by the rules with a `get()` of
+the caller's own document, which the client may also read — no peer-user reads are introduced);
+`createdAt` (server timestamp). No other keys. **URL policy (one rule everywhere):**
+`source.type == 'accreditingBody'` requires a non-empty `source.url`, and `kind ==
+'accreditation'` requires `source.type == 'accreditingBody'` (and therefore a URL). Form, pure
+validation and rules enforce the same statement.
 
-No composite indexes: the list orders restaurants by `name`, claims by `checkedAt` descending.
+**Calendar dates (F3).** `checkedAt` and `expiresAt` are Firestore timestamps at **00:00:00 UTC**
+of the calendar day, and are read, compared and displayed as UTC calendar dates only
+(`Intl.DateTimeFormat("en-GB", { timeZone: "UTC" })`; pure code works on `YYYY-MM-DD` strings
+derived with UTC getters). The rules require `checkedAt == timestamp.date(checkedAt.year(),
+checkedAt.month(), checkedAt.day())` (exact UTC midnight), the same for `expiresAt`, and
+`checkedAt <= request.time + duration.value(1, 'd')` so a user anywhere from UTC−12 to UTC+14 can
+enter their local "today" while dates two or more days ahead are rejected. The form refuses a
+date after the device's local today. **Expiry:** with an explicit `expiresAt`, a claim needs
+rechecking once today is *after* `expiresAt` (the expiry day itself is still current). Without
+one, it needs rechecking once today is *on or after* the 12-month anniversary of `checkedAt`;
+when the anniversary month lacks the day (29 February), the anniversary is that month's last day.
+"Today" for display is the device's local calendar date, recomputed on mount, on
+`visibilitychange`, and by a timer at the next local midnight, so an open page flips state
+without a snapshot. **Same-day precedence:** claims of one kind sort by `checkedAt` desc, then
+`createdAt` desc, then id, client-side (no composite index). If the newest claims of a kind
+share the newest `checkedAt` and disagree on `value`, the kind shows **"Conflicting evidence —
+check before you go"** and lists all of them with equal prominence; otherwise the newest is
+current and the rest are history.
+
+No composite indexes: the list orders restaurants by `name`; claims are read unordered and
+sorted client-side.
+
+#### Deletion protocol (F1)
+
+Firestore has no atomic collection delete and no cascade. Deleting a restaurant is a three-step
+client protocol with a rules-enforced invariant:
+
+1. **Mark.** Transaction: read the restaurant, check `version == expectedVersion`, write
+   `deleting: true`, `version + 1`, `updatedAt`. From this commit on, the rules refuse every
+   `claims` create under this restaurant (`exists(parent) && parent.data.deleting == false`)
+   and every restaurant update other than the mark itself, so no claim can arrive after the
+   query in step 2. Rules `get()`/`exists()` see committed state at write time, so a claim
+   whose create raced the mark either committed before it (and is found by step 2) or is
+   rejected.
+2. **Sweep.** Query up to 100 claims; delete them in one transaction; repeat until the query
+   is empty.
+3. **Remove.** Delete the restaurant document (rules: member; `deleting` must be true).
+
+The protocol is **resumable**: a restaurant with `deleting: true` renders in the list as
+"Deleting…" with a **Finish deleting** button that runs steps 2–3, and the list page runs them
+automatically once per mount for each such restaurant. The confirm UI reports success only when
+step 3 has committed. Claims may never be created under a missing parent (`exists(parent)`).
 
 #### Rules
 
-- `restaurants`: read by members; create by a member with `createdBy == request.auth.uid`,
-  `version == 1`, `createdAt == updatedAt == request.time`; update by a member with `createdBy`
-  and `createdAt` unchanged, `updatedAt == request.time`, `version == resource.data.version + 1`;
-  delete by a member. Field validation as above on create and update.
-- `claims`: read by members; create by a member with `authorUid == request.auth.uid` and
-  `createdAt == request.time`; update denied; delete by a member.
-- The existing `isMember(hid)` helper (one `get()`) guards every subcollection operation.
-- A web unit test reads `firestore.rules` and asserts every kind, value and source-type literal
-  from `web/src/records/types.ts` appears in it, so the two lists cannot drift silently.
+- `restaurants`: read by members. Create by a member with `createdBy == request.auth.uid`,
+  `version == 1`, `deleting == false`, `createdAt == updatedAt == request.time`, full field
+  validation. Update by a member with `createdBy`, `createdAt` unchanged, `updatedAt ==
+  request.time`, `version == resource.data.version + 1`, full validation, and: if
+  `resource.data.deleting` is true the update is denied; the only update that sets `deleting`
+  true changes nothing else besides `version`/`updatedAt`. Delete by a member when
+  `resource.data.deleting == true`.
+- `claims`: read by members. Create by a member with `authorUid == request.auth.uid`,
+  `authorName == get(users/$(request.auth.uid)).data.displayName`, `createdAt == request.time`,
+  the parent restaurant existing and not deleting, full validation including the nested
+  `source` key set and the URL policy. Update denied. Delete by a member.
+- `isMember(hid)` (one `get()`) guards every operation; claim creates add one `get()` of the
+  parent and one of the caller's user document.
+- Parity is proven by **table-driven emulator tests** over every enum member and representative
+  invalid values (see Tests). A web unit test that reads `firestore.rules` and checks each
+  TypeScript literal appears in it is kept only as a drift smoke check.
+
+#### Online-only writes and read states (F2, F4)
+
+- **Every write is a `runTransaction`.** Transactions require the server and are never queued
+  offline; their writes are not applied to the local cache until commit, so snapshots never
+  show pending or unacknowledged data and server timestamps are never unresolved. Success is
+  reported only when the transaction promise resolves.
+- **Write outcomes are typed** in `repository.ts`: `ok`, `conflict` (the transaction read a
+  `version` different from the caller's base version; checked on every retry), `notFound` (the
+  document is gone), `permission` (`permission-denied` from the rules — membership revoked or a
+  client/rules mismatch), `offline` (`unavailable`, or `navigator.onLine === false` before
+  starting), `failed` (anything else, message logged without note text). The UI copy is distinct
+  for each; only `conflict` offers "Reload to see the latest".
+- **Draft vs snapshot.** The edit form seeds a draft and a `baseVersion` once from the first
+  snapshot (or from the router state when arriving from the detail page). Later snapshots update
+  a separate `remote` value only; they never touch dirty fields or `baseVersion`. If
+  `remote.version !== baseVersion` while the draft is dirty, a non-blocking notice says the
+  restaurant changed on another device, with **Reload draft** that re-seeds. A successful save
+  re-seeds from the transaction result. `transaction.update` writes only the form's fields plus
+  `version`/`updatedAt`, so `lat`/`lng`/`googlePlaceId` are preserved untouched.
+- **Read states** for every listener: `loading`, `ready`, `offline` (`snapshot.metadata.fromCache`
+  — the data is shown with a "Showing last loaded data — you are offline" banner and Add/Edit/
+  Delete controls disabled), `denied` (`permission-denied` → "You no longer have access to this
+  household", with Sign out), `error` (other listener errors → Retry re-subscribes), `gone`
+  (the detail document no longer exists → "This restaurant was deleted", link to the list). An
+  empty list renders only from a `ready`, non-cache snapshot.
+- **Scoping.** Each page subscribes in an effect keyed on `householdId`/`rid`, unsubscribes on
+  cleanup, and ignores callbacks from a superseded subscription (generation counter, as in
+  `AuthProvider`). Sign-out unmounts the shell, so no listener survives an account switch.
 
 #### Client modules (`web/src/records/`)
 
-- `types.ts` — `Restaurant`, `Claim`, `ClaimKind`, `ClaimValue`, `SourceType` and the constant
-  lists with UI labels.
-- `validation.ts` — pure `validateRestaurantInput` and `validateClaimInput` returning
-  field-keyed error messages; limits identical to the rules.
-- `evidence.ts` — pure `evidenceStatus(claim, now)` → `current | needsRechecking`
-  (12 months after `checkedAt` unless `expiresAt` is set; `expiresAt` wins) and
-  `summariseEvidence(claims, now)` → one entry per kind: `unknown`, or the newest claim by
-  `checkedAt` with its status and the older claims as history. Nothing is stored.
-- `repository.ts` — `watchRestaurants`, `watchRestaurant`, `watchClaims` (each returns an
-  unsubscribe), `createRestaurant`, `updateRestaurant(hid, rid, expectedVersion, input)`,
-  `deleteRestaurant` (claims + document in one batch), `addClaim`, `deleteClaim`. A
-  `permission-denied` on `updateRestaurant` after client-side validation passed is surfaced as
-  `ConflictError` ("changed on another device"); the form offers Reload, which re-seeds from
-  the live snapshot.
+- `types.ts` — read models `Restaurant` and `Claim` (with `id`), write inputs
+  `RestaurantInput` and `ClaimInput`, `ClaimKind`, `ClaimValue`, `SourceType`, constant lists
+  with UI labels, `CalendarDate` (`YYYY-MM-DD`).
+- `dates.ts` — pure `toCalendarDate(Timestamp)`, `fromCalendarDate(CalendarDate): Timestamp`
+  (UTC midnight), `localToday(now: Date): CalendarDate`, `addMonths(date, 12)` with end-of-month
+  clamping, `formatCalendarDate` (en-GB, UTC).
+- `validation.ts` — pure `validateRestaurantInput` and `validateClaimInput(input, today)`
+  returning field-keyed messages; limits and the URL policy identical to the rules.
+- `evidence.ts` — pure `evidenceStatus(claim, today)` → `current | needsRechecking` and
+  `summariseEvidence(claims, today)` → one entry per kind: `unknown`, `current`/
+  `needsRechecking` with the newest claim and history, or `conflicting` with the tied claims.
+- `repository.ts` — `watchRestaurants`, `watchRestaurant`, `watchClaims` (each takes callbacks
+  for data and for the read states above; returns an unsubscribe), `createRestaurant`,
+  `updateRestaurant(hid, rid, baseVersion, input)`, `markDeleting(hid, rid, baseVersion)`,
+  `sweepClaims(hid, rid)`, `removeRestaurant(hid, rid)`, `deleteRestaurant` (runs the protocol),
+  `addClaim`, `deleteClaim`. All writes are transactions returning the typed outcomes.
 
 #### Pages
 
-- `RestaurantsPage` (`/restaurants`) — list with name and address, empty state, **Add
-  restaurant**. Replaces `SavedPage`.
+- `RestaurantsPage` (`/restaurants`) — list with name and address, `Deleting…` rows with
+  **Finish deleting**, read-state banners, empty state, **Add restaurant** (disabled offline).
+  Replaces `SavedPage`.
 - `RestaurantFormPage` (`/restaurants/new`, `/restaurants/:rid/edit`) — name, address, phone,
-  website; inline validation; conflict message with Reload; Delete (edit mode only) behind a
-  confirm step. Coordinates and place ID are never asked for (owner ruling, until Plan 3).
-- `RestaurantDetailPage` (`/restaurants/:rid`) — facts, phone (`tel:`) and website links, the
-  six evidence kinds each showing unknown / current / **needs rechecking** with value, detail,
-  source label and link, checked date and author, older claims collapsed as history; **Add
-  evidence**; per-claim Delete; a static **Call ahead and ask** block with the four general
-  prompts ported from the Swift `Localizable.strings` (`ask_general`, `ask_italian`,
-  `ask_asian`, `ask_bakery`), British spelling.
+  website; inline validation; typed outcome messages; "changed on another device" notice with
+  Reload draft; Delete (edit mode only) behind the in-page confirm, running the deletion
+  protocol with progress ("Removing evidence…"). Coordinates and place ID are never asked for.
+- `RestaurantDetailPage` (`/restaurants/:rid`) — facts, `tel:` and website links, the six
+  evidence kinds each in one of unknown / current / **needs rechecking** / **conflicting
+  evidence** with value, detail, source label and link, checked date, author name and history;
+  **Add evidence** (disabled offline); per-claim Delete behind an in-page confirm; a static
+  **Call ahead and ask** block with the Swift prompts from `Localizable.strings` labelled by
+  group — *Anywhere* (`ask_general`), *Italian* (`ask_italian`), *Asian* (`ask_asian`),
+  *Bakeries* (`ask_bakery`) — in British spelling.
 - `ClaimFormPage` (`/restaurants/:rid/evidence/new`) — kind, value, detail, source type, label,
-  URL, checked date (defaults to today, cannot be in the future), optional expiry date; the URL
-  field becomes required when kind is accreditation or source type is accrediting body.
+  URL (required when the source type is accrediting body; choosing kind accreditation forces
+  that source type), checked date (`<input type="date">`, defaults to local today, refuses later
+  dates), optional expiry date (must follow the checked date).
 
-Dates are entered as `<input type="date">`, stored as `Timestamp` at local midnight, displayed
-with `en-GB` formatting. Copy never shows a score.
+Copy never shows a score.
 
 #### Tests
 
-- Unit (Vitest): `evidence.ts` boundaries (day before/after 12 months, `expiresAt` precedence,
-  unknown kinds, newest-wins), `validation.ts`, the rules-literal drift test, the update store
-  and banner (`useSyncExternalStore`, Reload calls `applyUpdate`), conflict mapping in
-  `repository.ts` with a stubbed Firestore error.
-- Rules (`functions/test/rules.records.test.ts`, emulator): member vs non-member vs stranger
-  reads; create with wrong `createdBy`/`version`/extra keys/bad URL/coordinates without pair;
-  stale-version update rejected, correct version accepted; `createdBy` change rejected;
-  accreditation without accrediting body or URL rejected; claim update rejected; claim delete
-  by the other member accepted; future `checkedAt` rejected; `expiresAt` before `checkedAt`
-  rejected.
-- Browser (`web/e2e/records.spec.ts`, emulators): add a restaurant and see it in the list and
-  detail with six unknown kinds and the call-ahead block; the accreditation form refuses a
-  missing URL, then a valid accrediting-body claim shows as current and a fryer claim checked
-  13 months ago shows **needs rechecking**; two browser contexts (Ava, Bogdan) — Bogdan saves an
-  edit, Ava's stale save shows the conflict message and Reload shows Bogdan's values; delete a
-  restaurant with claims and see the list empty.
-- Upgrade (`web/e2e-upgrade`): the rewritten valid→valid test (banner, preserved input,
-  confirmed reload) and the unique-precache assertion. Boot-guard: no manifest link.
+- **Unit (Vitest).** `dates.ts` (UTC round-trips from Rome/London/Auckland-style inputs, DST
+  days, `addMonths` end-of-month and leap day, `localToday` across a midnight boundary);
+  `evidence.ts` (day before / on / after the anniversary; explicit `expiresAt` on the day and the
+  day after; `expiresAt` precedence; unknown kinds; newest wins; same-day tie → `conflicting`,
+  same-day agreeing values → `current`); `validation.ts` including the URL policy and
+  whitespace-only strings; the rules-literal smoke check; the update store and banner (states,
+  `requestedHere` gating of `onNeedReload`, Reload behaviour in each state); the form draft
+  (dirty fields and `baseVersion` survive new snapshots and store changes; Reload draft re-seeds);
+  outcome mapping in `repository.ts` with a stubbed transaction (conflict, not-found,
+  permission, unavailable, offline pre-check); `summariseEvidence` sort order.
+- **Rules (`functions/test/rules.records.test.ts`, emulator, table-driven).** Reads: member,
+  other member, non-member, unauthenticated, cross-household. Restaurant create: every valid
+  optional-field combination; wrong `createdBy`, `version ≠ 1`, `deleting: true`, extra key, bad
+  URL, one coordinate without the other, out-of-range coordinates, whitespace-only name, client
+  timestamps. Update: stale version rejected, correct version accepted, `createdBy` change
+  rejected, update after `deleting` rejected, mark-deleting that also changes a field rejected.
+  Delete: rejected unless `deleting`. Claim create: every kind × value × source type; the URL
+  policy matrix; nested `source` extra key / wrong type / missing label; non-midnight
+  `checkedAt`; `checkedAt` two days ahead rejected, one day ahead accepted; `expiresAt` equal to
+  `checkedAt` rejected; wrong `authorName`; missing parent; deleting parent; claim update
+  rejected; delete by the other member accepted.
+- **Browser (`web/e2e/records.spec.ts`, emulators).** (1) Add a restaurant; list and detail show
+  it with six unknown kinds and the call-ahead block. (2) The accreditation form refuses a
+  missing URL; a valid accrediting-body claim shows current; a fryer claim checked 13 months ago
+  shows needs rechecking; two same-day opposing fryer claims show conflicting evidence.
+  (3) Two contexts: Bogdan saves an edit; Ava's stale draft shows the changed-elsewhere notice,
+  her save reports a conflict, Reload draft shows Bogdan's values. (4) Deletion versus add: Bogdan
+  opens Add evidence for a restaurant with two claims; Ava deletes it completely; Bogdan submits
+  and sees the not-found outcome, and his detail page shows "This restaurant was deleted"; an
+  admin-context query proves zero claims remain and Ava's list is empty (the mark-then-create
+  interleaving itself is the rules test "deleting parent"). (5) Interrupted deletion: the page is closed after
+  the mark; on the next visit the list shows Deleting… and Finish deleting completes it.
+  (6) Offline save: `context.setOffline(true)`; saving reports the offline outcome, controls are
+  disabled, nothing appears after reconnecting. (7) Account switch: Ava's records are not
+  rendered after signing in as the stranger, and no listener error surfaces.
+- **Upgrade (`web/e2e-upgrade`).** The rewritten valid→valid test, the two-tab test, unique
+  precache URLs, manifest and icons precached once. **Boot-guard:** no manifest link. **Build:**
+  a fixture-mismatch build (shell `VITE_FIREBASE_PROJECT_ID` set to another value) is refused;
+  a stale-dist run is refused with the naming message.
 
 #### Not in this plan
 
-Visited state, notes, offline download, discovery, export, deletion of accounts, indexes,
-functions changes (none needed: everything is client + rules).
+Visited state, notes, offline download, discovery, export, deletion of accounts, composite
+indexes, functions changes.
