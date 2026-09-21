@@ -10,8 +10,13 @@ body { margin: 0; }
 .screen input { font-size: 1rem; padding: 0.6rem; }
 .screen button, .shell button { font-size: 1rem; padding: 0.7rem 1rem; }
 [role="alert"] { color: #b00020; }
-.shell { display: grid; grid-template-rows: auto 1fr auto; min-height: 100dvh; }
-.shell-header { padding: var(--gap); padding-top: calc(var(--gap) + env(safe-area-inset-top, 0px)); }
+/* Single column: the banner (when present) takes its own height, .shell/.screen takes the rest.
+   box-sizing: border-box keeps the top safe-area inset inside the 100dvh budget instead of
+   pushing the page taller than the viewport (which is what made .shell-nav sink below the fold
+   whenever both .shell's own 100dvh and the banner's height were on screen at once). */
+.app-frame { display: flex; flex-direction: column; min-height: 100dvh; box-sizing: border-box; padding-top: env(safe-area-inset-top, 0px); }
+.shell { display: grid; grid-template-rows: auto 1fr auto; flex: 1; min-height: 0; }
+.shell-header { padding: var(--gap); }
 .shell-header h1 { margin: 0; font-size: 1.25rem; }
 .shell-main { padding: 0 var(--gap); }
 .shell-nav { display: flex; justify-content: space-around; border-top: 1px solid #8884; padding: 0.5rem 0; padding-bottom: calc(0.5rem + env(safe-area-inset-bottom, 0px)); }
@@ -19,5 +24,5 @@ body { margin: 0; }
 .shell-nav a.active { font-weight: 700; }
 .problems { padding-left: 1.25rem; }
 .problems li { margin: 0.25rem 0; overflow-wrap: anywhere; }
-.banner { display: flex; align-items: center; justify-content: space-between; gap: var(--gap); padding: 0.6rem var(--gap); padding-top: calc(0.6rem + env(safe-area-inset-top, 0px)); background: #1f7a4d; color: #fff; }
+.banner { display: flex; align-items: center; justify-content: space-between; gap: var(--gap); padding: 0.6rem var(--gap); background: #1f7a4d; color: #fff; }
 .banner button { font-size: 0.95rem; padding: 0.4rem 0.8rem; }

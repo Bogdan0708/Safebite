@@ -122,10 +122,14 @@ const pwaOptions: Parameters<typeof VitePWA>[0] = {
     // The plugin only defaults clientsClaim to true for registerType "autoUpdate"; prompt mode
     // needs it set explicitly so a fresh install claims the open tab without a reload, and so an
     // update — once skipWaiting is requested — claims every open tab (the onNeedReload fan-out
-    // the store in src/pwa/updates.ts relies on). skipWaiting itself stays unset (false): the
-    // plugin's default template then waits for the SKIP_WAITING postMessage that
-    // updateServiceWorker() sends, so an update never activates until a tab taps Reload.
+    // the store in src/pwa/updates.ts relies on).
     clientsClaim: true,
+    // Explicit (matches the plugin's own default for prompt mode): the generated worker waits
+    // for the SKIP_WAITING postMessage that updateServiceWorker() sends, so an update never
+    // activates until a tab taps Reload. Flipping registerType back to "autoUpdate" would
+    // re-enable both skipWaiting and clientsClaim automatically, making this line and the one
+    // above redundant again.
+    skipWaiting: false,
   },
 };
 

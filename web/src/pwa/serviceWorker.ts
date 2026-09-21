@@ -79,14 +79,14 @@ export function registerServiceWorker(): void {
       // this document's controller changes, so listen for it directly as the reliable signal.
       // Attached only here (once a real update is confirmed waiting), not unconditionally at
       // registration time, because the very first install's OWN claim of this page also fires a
-      // native controllerchange, which is not an update. `{ once: true }` self-removes it so a
-      // later update cycle in the same tab gets a fresh listener instead of stacking duplicates.
-      // Calling `workerActivated()` twice (once from here, once from onNeedReload when the
-      // plugin's flag happens to already be true) is harmless — see the early-returns in
-      // updates.ts's `setState` and in `workerActivated`'s `requestedHere` branch.
-      if (typeof navigator.serviceWorker.addEventListener === "function") {
-        navigator.serviceWorker.addEventListener("controllerchange", () => workerActivated(), { once: true });
-      }
+      // native controllerchange, which is not an update. `{ once: true }` self-removes this
+      // particular listener once it fires, but onNeedRefresh can itself be called more than once
+      // before any controllerchange happens (the plugin re-invokes it for each "waiting"/
+      // "installed as external" event), which would attach more than one such listener at a
+      // time — that stacking is harmless, not prevented, because `workerActivated()` is
+      // idempotent: repeat calls are a no-op once the store is already "activated", and a
+      // requesting tab's repeat `reload()` call is likewise harmless (see updates.ts).
+      navigator.serviceWorker.addEventListener("controllerchange", () => workerActivated(), { once: true });
     },
     onNeedReload: () => workerActivated(),
   });

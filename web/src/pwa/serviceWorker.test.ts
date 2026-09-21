@@ -100,16 +100,22 @@ describe("registerServiceWorker", () => {
 
   it("registers once in prompt mode and routes the plugin callbacks into the update store", async () => {
     vi.stubGlobal("__SAFEBITE_BUILD__", true);
-    Object.defineProperty(navigator, "serviceWorker", { configurable: true, value: {} });
+    const addEventListener = vi.fn();
+    Object.defineProperty(navigator, "serviceWorker", { configurable: true, value: { addEventListener } });
     const updateServiceWorker = vi.fn(async () => {});
     registerSWMock.mockReturnValue(updateServiceWorker);
     registerServiceWorker();
     expect(registerSWMock).toHaveBeenCalledTimes(1);
     const options = registerSWMock.mock.calls[0]![0] as { immediate: boolean; onNeedRefresh: () => void; onNeedReload: () => void };
     expect(options.immediate).toBe(true);
+    // Nothing is registered until a real update is confirmed waiting (see the comment in
+    // serviceWorker.ts on why this is scoped to onNeedRefresh rather than attached eagerly).
+    expect(addEventListener).not.toHaveBeenCalled();
 
     options.onNeedRefresh();
     expect(getUpdateState()).toBe("available");
+    expect(addEventListener).toHaveBeenCalledTimes(1);
+    expect(addEventListener).toHaveBeenCalledWith("controllerchange", expect.any(Function), { once: true });
     applyUpdate(vi.fn());
     expect(updateServiceWorker).toHaveBeenCalledTimes(1);
 

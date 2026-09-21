@@ -25,10 +25,16 @@ function Gate() {
 export default function App() {
   return (
     <BrowserRouter>
-      <UpdateBanner />
-      <AuthProvider>
-        <Gate />
-      </AuthProvider>
+      {/* Single 100dvh column so the banner (auto) and the screen below it (1fr) always sum to
+          the viewport height — .shell no longer owns its own 100dvh, so the tab bar never gets
+          pushed below the fold while the banner is up. Also the one place the top safe-area
+          inset is applied (see styles.css); .banner and .shell-header no longer add it. */}
+      <div className="app-frame">
+        <UpdateBanner />
+        <AuthProvider>
+          <Gate />
+        </AuthProvider>
+      </div>
     </BrowserRouter>
   );
 }

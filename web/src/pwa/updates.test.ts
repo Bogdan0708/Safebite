@@ -54,6 +54,31 @@ describe("updates store", () => {
     expect(reload).not.toHaveBeenCalled();
   });
 
+  it("workerActivated called twice in a non-requesting tab notifies subscribers once and stays 'activated'", () => {
+    const listener = vi.fn();
+    const reload = vi.fn();
+    updateAvailable(async () => {});
+    subscribeToUpdates(listener);
+    workerActivated(reload);
+    workerActivated(reload);
+    expect(reload).not.toHaveBeenCalled();
+    expect(getUpdateState()).toBe("activated");
+    expect(listener).toHaveBeenCalledTimes(1);
+  });
+
+  it("workerActivated called twice in a requesting tab is inert beyond calling reload again", () => {
+    const reload = vi.fn();
+    updateAvailable(async () => {});
+    applyUpdate(vi.fn());
+    const stateBefore = getUpdateState();
+    expect(() => {
+      workerActivated(reload);
+      workerActivated(reload);
+    }).not.toThrow();
+    expect(reload).toHaveBeenCalledTimes(2);
+    expect(getUpdateState()).toBe(stateBefore);
+  });
+
   it("unsubscribe stops notifications", () => {
     const listener = vi.fn();
     const unsubscribe = subscribeToUpdates(listener);
