@@ -1,8 +1,11 @@
 /// <reference types="vitest/config" />
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { defineConfig, loadEnv, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import { VitePWA } from "vite-plugin-pwa";
 import { guardViteBuild, validateFirebaseEnv } from "./src/config/firebaseEnv.ts";
+import { fixtureMismatches, isFixtureMode, parseEnvFile } from "./src/config/fixtureEnv.ts";
 
 /**
  * Refuses to produce a deployable bundle with missing, blank, or demo Firebase values, and
@@ -27,6 +30,30 @@ function requireDeployableFirebaseEnv(mode: string, expectedDeployable: boolean)
       if (outcome === "skipped") {
         config.logger.warn(
           "[safebite] SAFEBITE_UNVALIDATED_BUILD=1: skipping Firebase configuration validation (compile-only build)",
+        );
+      }
+    },
+  };
+}
+
+/**
+ * For the three synthetic test modes, refuse the build unless every value in `web/.env.<mode>`
+ * is exactly what Vite resolved. An exported VITE_* variable outranks the mode file in Vite, so
+ * without this a shell could swap a real project into a "synthetic" bundle (audit F7).
+ */
+function requireFixtureIdentity(mode: string, resolvedEnv: Record<string, string>): Plugin {
+  return {
+    name: "safebite-require-fixture-identity",
+    apply: "build",
+    configResolved(config) {
+      if (!isFixtureMode(mode)) return;
+      const file = path.resolve(config.root, `.env.${mode}`);
+      const fixture = parseEnvFile(readFileSync(file, "utf8"));
+      const problems = fixtureMismatches(fixture, resolvedEnv);
+      if (problems.length > 0) {
+        throw new Error(
+          `[safebite] vite build --mode ${mode} is not hermetic; refusing to build:\n- ${problems.join("\n- ")}\n` +
+            `Unset the conflicting VITE_* variables (and any .env.${mode}.local) so the committed fixture is what gets built.`,
         );
       }
     },
@@ -88,6 +115,7 @@ export default defineConfig(({ mode, command }) => {
     define: { __SAFEBITE_BUILD__: JSON.stringify(command === "build") },
     plugins: [
       react(),
+      requireFixtureIdentity(mode, firebaseEnv),
       requireDeployableFirebaseEnv(mode, deployable),
       VitePWA({ ...pwaOptions, selfDestroying: command === "build" && !deployable }),
     ],

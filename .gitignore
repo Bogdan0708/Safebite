@@ -80,3 +80,6 @@ firestore-debug.log
 ui-debug.log
 *.log
 !/web/.env.development
+!/web/.env.preview
+!/web/.env.preview-v2
+!/web/.env.boot-guard
