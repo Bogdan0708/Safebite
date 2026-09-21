@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test, type BrowserContext, type Page } from "@playwright/test";
@@ -84,6 +84,28 @@ test("the invalid build ships a self-destroying worker, the valid build a precac
   expect(invalid).not.toContain("precache");
   expect(valid).toContain("precache");
   expect(valid).not.toContain("self.registration.unregister()");
+});
+
+/** Precache entries as emitted by generateSW: `{url:"...",revision:"..."}` objects inside sw.js. */
+function precacheUrls(sw: string): string[] {
+  return [...sw.matchAll(/url:"([^"]+)"/g)].map((m) => m[1]);
+}
+
+test("the valid worker precaches every shell file exactly once (no duplicate icon or manifest entries)", () => {
+  const urls = precacheUrls(readFileSync(path.join(distDir("dist-preview"), "sw.js"), "utf8"));
+  const duplicates = urls.filter((u, i) => urls.indexOf(u) !== i);
+  expect(duplicates, `duplicated precache URLs: ${duplicates.join(", ")}`).toEqual([]);
+  for (const required of ["index.html", "manifest.webmanifest", "favicon.svg", "pwa-192.png", "pwa-512.png", "pwa-maskable-512.png", "apple-touch-icon-180.png"]) {
+    expect(urls.filter((u) => u === required), required).toHaveLength(1);
+  }
+});
+
+test("the invalid build has no web app manifest, so a misconfigured artefact is not installable", () => {
+  const index = readFileSync(path.join(distDir("dist-boot-guard"), "index.html"), "utf8");
+  expect(index).not.toContain('rel="manifest"');
+  expect(existsSync(path.join(distDir("dist-boot-guard"), "manifest.webmanifest"))).toBe(false);
+  // The valid build keeps it.
+  expect(readFileSync(path.join(distDir("dist-preview"), "index.html"), "utf8")).toContain('rel="manifest"');
 });
 
 test("an installed worker that picks up an invalid release cleans the device instead of caching it", async ({ page, context }) => {

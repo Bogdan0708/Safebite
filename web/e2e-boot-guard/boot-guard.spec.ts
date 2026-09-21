@@ -18,6 +18,7 @@ test("a compile-only bundle with demo Firebase values shows the misconfiguration
   // "demo-" project id, app id placeholder, emulators on.
   await expect(screen.locator("li")).toHaveCount(5);
   await expect(page.getByTestId("signin-form")).toHaveCount(0);
+  await expect(page.locator('link[rel="manifest"]')).toHaveCount(0);
   expect(pageErrors).toEqual([]);
   const registrations = await page.evaluate(async () =>
     "serviceWorker" in navigator ? (await navigator.serviceWorker.getRegistrations()).length : 0,

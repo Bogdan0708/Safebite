@@ -89,6 +89,8 @@ function buildStamp(mode: string, projectId: string): Plugin {
 const pwaOptions: Parameters<typeof VitePWA>[0] = {
   registerType: "autoUpdate",
   injectRegister: null,
+  // The glob below already matches the PNG icons; the plugin would otherwise add them a second time.
+  includeManifestIcons: false,
   manifest: {
     name: "SafeBite",
     short_name: "SafeBite",
@@ -106,7 +108,8 @@ const pwaOptions: Parameters<typeof VitePWA>[0] = {
     ],
   },
   workbox: {
-    globPatterns: ["**/*.{js,css,html,svg,png,webmanifest}"],
+    // No "webmanifest" here: the plugin adds manifest.webmanifest itself (outside the includeManifestIcons switch), so listing it too duplicated the entry (audit F6).
+    globPatterns: ["**/*.{js,css,html,svg,png}"],
     navigateFallback: "/index.html",
     // Firebase Hosting reserves /__/ (auth handler, init.js); never answer those with the shell.
     navigateFallbackDenylist: [/^\/__\//],
@@ -139,7 +142,12 @@ export default defineConfig(({ mode, command }) => {
       requireFixtureIdentity(mode, firebaseEnv),
       requireDeployableFirebaseEnv(mode, deployable),
       buildStamp(mode, firebaseEnv.VITE_FIREBASE_PROJECT_ID ?? ""),
-      VitePWA({ ...pwaOptions, selfDestroying: command === "build" && !deployable }),
+      VitePWA({
+        ...pwaOptions,
+        selfDestroying: command === "build" && !deployable,
+        // A self-destroying build must not look installable: no manifest file, no <link rel="manifest">.
+        manifest: deployable ? pwaOptions.manifest : false,
+      }),
     ],
     server: { port: 5173, strictPort: true },
     test: {
