@@ -299,6 +299,22 @@ the real interfaces that landed rather than predicted ones.
 - Done in Plan 2a: Establish request cancellation (`AbortController`) on the Settings page's callable before
   Plan 3 adds paid discovery calls (spec 2.5 requires cancellation).
 
+**Carried from the Plan 2a final review (2026-09-21), for Plan 2b/3/5:**
+
+- `unregisterServiceWorkers()` leaves the Workbox precache in Cache Storage; delete
+  `workbox-precache-*` caches alongside the registrations (Plan 2b).
+- `abortable()` discards `signal.reason`, so an `AbortSignal.timeout()` reports as a user abort;
+  preserve the reason and add a timeout companion before Plan 3 adds per-request timeouts.
+- The service worker is `registerType: "autoUpdate"`, which reloads the page unannounced when a
+  new version activates. Add an `onNeedRefresh` "new version — reload" prompt when the first
+  real form lands (Plan 2b's editing form), so an update never discards half-typed input.
+- `pwa-192.png`/`pwa-512.png` (purpose `any`) bake rounded corners in; the maskable variant is
+  correct. Decide with the owner whether the `any` icons should be square before Plan 5.
+- CI now runs four `vite build`s and three Playwright configurations in one 25-minute job with
+  `retries: 0` on the preview suite; if it starts timing out or flaking, those are the dials.
+- `navigateFallbackDenylist: [/^\/__\//]` is set; confirm on staging (Plan 5) that
+  `/__/auth/handler` is reachable if `authDomain` ever shares the app's origin.
+
 **Plan 2 rulings (owner, 2026-09-21):**
 
 - Plan 2 is split: **2a** = the pre-work list above, the PWA app shell (manifest, icon set,
