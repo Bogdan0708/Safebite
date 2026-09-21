@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { assertDeployableFirebaseEnv, guardViteBuild, validateFirebaseEnv } from "./firebaseEnv";
+import { assertDeployableFirebaseEnv, guardViteBuild, validateFirebaseEnv, startupProblems } from "./firebaseEnv";
 
 const good = {
-  VITE_FIREBASE_API_KEY: "AIzaSyExampleKey",
+  VITE_FIREBASE_API_KEY: "AIzaSyExampleKey0123456789abcdefghijk",
   VITE_FIREBASE_AUTH_DOMAIN: "safebite-pilot.firebaseapp.com",
   VITE_FIREBASE_PROJECT_ID: "safebite-pilot",
-  VITE_FIREBASE_APP_ID: "1:123:web:abc",
+  VITE_FIREBASE_APP_ID: "1:123456789012:web:0123456789abcdef",
 };
 
 describe("validateFirebaseEnv", () => {
@@ -48,6 +48,31 @@ describe("validateFirebaseEnv", () => {
       "VITE_USE_EMULATORS must not be true for a deployable build",
     ]);
   });
+
+  it("rejects an api key that does not look like a Firebase web key", () => {
+    expect(validateFirebaseEnv({ ...good, VITE_FIREBASE_API_KEY: "AIzaShort" })).toEqual([
+      "VITE_FIREBASE_API_KEY does not look like a Firebase web API key (expected AIza… of at least 30 characters)",
+    ]);
+    expect(validateFirebaseEnv({ ...good, VITE_FIREBASE_API_KEY: "not-a-firebase-key-0123456789abcdefghijk" })).toHaveLength(1);
+  });
+
+  it("rejects an app id that is not a web app id", () => {
+    expect(validateFirebaseEnv({ ...good, VITE_FIREBASE_APP_ID: "1:123:ios:abc" })).toEqual([
+      "VITE_FIREBASE_APP_ID does not look like a Firebase web app id (expected <digits>:<digits>:web:<hex>)",
+    ]);
+  });
+
+  it("rejects an auth domain without a dot", () => {
+    expect(validateFirebaseEnv({ ...good, VITE_FIREBASE_AUTH_DOMAIN: "localhost" })).toEqual([
+      "VITE_FIREBASE_AUTH_DOMAIN does not look like a domain (expected something like <project>.firebaseapp.com)",
+    ]);
+  });
+
+  it("reports a placeholder once, not also as a shape problem", () => {
+    expect(validateFirebaseEnv({ ...good, VITE_FIREBASE_API_KEY: "demo-api-key" })).toEqual([
+      "VITE_FIREBASE_API_KEY is the demo placeholder",
+    ]);
+  });
 });
 
 describe("assertDeployableFirebaseEnv", () => {
@@ -86,5 +111,21 @@ describe("guardViteBuild", () => {
     expect(() => guardViteBuild({ ...production, unvalidated: false, env: {}, context: "vite build" })).toThrow(
       /Firebase configuration is not deployable \(vite build\)/,
     );
+  });
+});
+
+describe("startupProblems", () => {
+  const demo = { ...good, VITE_FIREBASE_PROJECT_ID: "demo-safebite" };
+
+  it("is empty outside a built bundle, whatever the values", () => {
+    expect(startupProblems(demo, false)).toEqual([]);
+    expect(startupProblems({}, false)).toEqual([]);
+  });
+
+  it("returns the validator's problems inside a built bundle", () => {
+    expect(startupProblems(demo, true)).toEqual([
+      "VITE_FIREBASE_PROJECT_ID must not be an emulator-only demo- project (got demo-safebite)",
+    ]);
+    expect(startupProblems(good, true)).toEqual([]);
   });
 });

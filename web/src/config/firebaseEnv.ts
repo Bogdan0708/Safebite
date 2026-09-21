@@ -24,6 +24,21 @@ const DEMO_PLACEHOLDERS: Partial<Record<(typeof REQUIRED_FIREBASE_VARS)[number],
   VITE_FIREBASE_APP_ID: "demo-app-id",
 };
 
+const SHAPE_CHECKS: Partial<Record<(typeof REQUIRED_FIREBASE_VARS)[number], { ok: (v: string) => boolean; problem: string }>> = {
+  VITE_FIREBASE_API_KEY: {
+    ok: (v) => /^AIza[0-9A-Za-z_-]{26,}$/.test(v),
+    problem: "does not look like a Firebase web API key (expected AIza… of at least 30 characters)",
+  },
+  VITE_FIREBASE_APP_ID: {
+    ok: (v) => /^\d+:\d+:web:[0-9a-f]+$/.test(v),
+    problem: "does not look like a Firebase web app id (expected <digits>:<digits>:web:<hex>)",
+  },
+  VITE_FIREBASE_AUTH_DOMAIN: {
+    ok: (v) => v.includes("."),
+    problem: "does not look like a domain (expected something like <project>.firebaseapp.com)",
+  },
+};
+
 function blank(value: string | undefined): boolean {
   return value === undefined || value.trim().length === 0;
 }
@@ -32,7 +47,7 @@ function blank(value: string | undefined): boolean {
 export function validateFirebaseEnv(env: FirebaseEnvLike): string[] {
   const problems: string[] = [];
   for (const name of REQUIRED_FIREBASE_VARS) {
-    const value = env[name];
+    const value = env[name] ?? "";
     if (blank(value)) {
       problems.push(`${name} is missing or blank`);
       continue;
@@ -40,6 +55,11 @@ export function validateFirebaseEnv(env: FirebaseEnvLike): string[] {
     const placeholder = DEMO_PLACEHOLDERS[name];
     if (placeholder !== undefined && value === placeholder) {
       problems.push(`${name} is the demo placeholder`);
+      continue;
+    }
+    const shape = SHAPE_CHECKS[name];
+    if (shape !== undefined && !shape.ok(value)) {
+      problems.push(`${name} ${shape.problem}`);
     }
   }
   const projectId = env.VITE_FIREBASE_PROJECT_ID;
@@ -99,4 +119,12 @@ export function guardViteBuild(input: ViteBuildGuardInput): "skipped" | "validat
   }
   assertDeployableFirebaseEnv(input.env, input.context);
   return "validated";
+}
+
+/**
+ * What blocks this bundle from starting. Outside a built bundle (dev server, Vitest) nothing
+ * does: the emulator-backed development server runs on demo values by design.
+ */
+export function startupProblems(env: FirebaseEnvLike, isBuild: boolean): string[] {
+  return isBuild ? validateFirebaseEnv(env) : [];
 }
