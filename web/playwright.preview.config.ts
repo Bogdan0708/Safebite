@@ -1,8 +1,14 @@
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { defineConfig, devices } from "@playwright/test";
+import { assertFreshDist } from "./tooling/distStamp.ts";
 
-// Serves the validated bundle in `dist-preview` (built by `npm run e2e:preview` with synthetic,
-// non-demo Firebase values) through `vite preview`, to test the PWA shell: manifest, icons,
+// Serves the validated bundle in `dist-preview` (built by `npm run build:preview`; this config
+// refuses a missing or stale dist) through `vite preview`, to test the PWA shell: manifest, icons,
 // service worker, offline reload. No emulators, no network beyond 127.0.0.1.
+const webRoot = path.dirname(fileURLToPath(import.meta.url));
+assertFreshDist(webRoot, "dist-preview", "preview");
+
 export default defineConfig({
   testDir: "./e2e-preview",
   outputDir: "test-results/preview",

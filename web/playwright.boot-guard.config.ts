@@ -1,7 +1,13 @@
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { defineConfig, devices } from "@playwright/test";
+import { assertFreshDist } from "./tooling/distStamp.ts";
 
-// Boots the compile-only bundle in `dist-boot-guard` (built by `npm run e2e:boot-guard`) through
+// Boots the compile-only bundle in `dist-boot-guard` (built by `npm run build:boot-guard`) through
 // `vite preview` and checks that the startup guard refuses demo Firebase values. No emulators.
+const webRoot = path.dirname(fileURLToPath(import.meta.url));
+assertFreshDist(webRoot, "dist-boot-guard", "boot-guard");
+
 export default defineConfig({
   testDir: "./e2e-boot-guard",
   outputDir: "test-results/boot-guard",

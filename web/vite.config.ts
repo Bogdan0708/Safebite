@@ -6,6 +6,7 @@ import react from "@vitejs/plugin-react";
 import { VitePWA } from "vite-plugin-pwa";
 import { guardViteBuild, validateFirebaseEnv } from "./src/config/firebaseEnv.ts";
 import { fixtureMismatches, isFixtureMode, parseEnvFile } from "./src/config/fixtureEnv.ts";
+import { computeSourceHash, type BuildStamp } from "./tooling/sourceHash.ts";
 
 /**
  * Refuses to produce a deployable bundle with missing, blank, or demo Firebase values, and
@@ -56,6 +57,26 @@ function requireFixtureIdentity(mode: string, resolvedEnv: Record<string, string
             `Unset the conflicting VITE_* variables (and any .env.${mode}.local) so the committed fixture is what gets built.`,
         );
       }
+    },
+  };
+}
+
+/**
+ * Writes `<outDir>/safebite-build.json` so test scripts can verify which mode and which sources a
+ * dist came from. Not matched by the Workbox glob (json is not in it), so never precached.
+ */
+function buildStamp(mode: string, projectId: string): Plugin {
+  return {
+    name: "safebite-build-stamp",
+    apply: "build",
+    generateBundle() {
+      const stamp: BuildStamp = {
+        mode,
+        projectId,
+        sourceHash: computeSourceHash(process.cwd(), mode),
+        builtAt: new Date().toISOString(),
+      };
+      this.emitFile({ type: "asset", fileName: "safebite-build.json", source: JSON.stringify(stamp, null, 2) + "\n" });
     },
   };
 }
@@ -117,12 +138,13 @@ export default defineConfig(({ mode, command }) => {
       react(),
       requireFixtureIdentity(mode, firebaseEnv),
       requireDeployableFirebaseEnv(mode, deployable),
+      buildStamp(mode, firebaseEnv.VITE_FIREBASE_PROJECT_ID ?? ""),
       VitePWA({ ...pwaOptions, selfDestroying: command === "build" && !deployable }),
     ],
     server: { port: 5173, strictPort: true },
     test: {
       environment: "jsdom",
-      include: ["src/**/*.test.{ts,tsx}"],
+      include: ["src/**/*.test.{ts,tsx}", "tooling/**/*.test.ts"],
       setupFiles: ["src/test-setup.ts"],
     },
   };

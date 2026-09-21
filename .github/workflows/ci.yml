@@ -109,13 +109,32 @@ jobs:
           fi
           echo "Non-production build rejected as expected"
 
+      - name: Synthetic build refuses an ambient VITE_ override (fixture identity)
+        env:
+          VITE_FIREBASE_PROJECT_ID: not-the-fixture
+        run: |
+          set +e
+          out=$(npm --prefix web run build:preview 2>&1)
+          status=$?
+          set -e
+          if [ "$status" -eq 0 ]; then
+            echo "$out"; echo "build:preview succeeded with an ambient VITE_FIREBASE_PROJECT_ID — the fixture check is broken"; exit 1
+          fi
+          if ! echo "$out" | grep -q "is not hermetic"; then
+            echo "$out"; echo "Build failed, but not because of the fixture check"; exit 1
+          fi
+          echo "Fixture identity check rejected the override as expected"
+
+      - name: Build the three synthetic test bundles (preview, preview-v2, boot-guard)
+        run: npm --prefix web run build:e2e
+
       - name: Compile-only bundle refuses to start in a browser
         run: npm --prefix web run e2e:boot-guard
 
       - name: PWA shell — manifest, service worker, offline reload (preview bundle)
         run: npm --prefix web run e2e:preview
 
-      - name: Service worker upgrades — invalid release self-destructs, valid release replaces (upgrade suite)
+      - name: Service worker upgrades and update prompt (upgrade suite)
         run: npm --prefix web run e2e:upgrade
 
       - name: Upload Playwright artifacts (report, traces, screenshots, videos)

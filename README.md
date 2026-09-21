@@ -201,9 +201,10 @@ npm run emu:test    # functions + Firestore rules tests (starts emulators)
 npm run emu:e2e     # Playwright browser tests (starts emulators, seeds, runs Vite)
 npm run emu:e2e:stress   # 5 browser scenarios × 3 repeats, retries disabled (flakiness gate)
 npm --prefix web run build:check   # compile-only build (no Firebase config needed)
-npm --prefix web run e2e:boot-guard   # builds a compile-only bundle with demo values and proves it refuses to start (Chromium, no emulators)
-npm --prefix web run e2e:preview      # validated build with synthetic values → manifest, service worker, offline shell (Chromium, no emulators)
-npm --prefix web run e2e:upgrade      # same-origin release upgrades: invalid release self-destructs, valid release replaces (Chromium, no emulators)
+npm --prefix web run build:e2e        # builds the three synthetic bundles: dist-preview, dist-preview-v2, dist-boot-guard (fixtures in web/.env.preview, .env.preview-v2, .env.boot-guard)
+npm --prefix web run e2e:boot-guard   # compile-only bundle with demo values refuses to start (Chromium, no emulators)
+npm --prefix web run e2e:preview      # manifest, service worker, offline shell (Chromium, no emulators)
+npm --prefix web run e2e:upgrade      # same-origin release upgrades and the update prompt (Chromium, no emulators)
 npm --prefix web run icons            # re-render the PNG icon set from web/assets/safebite-mark.svg
 ```
 
@@ -218,3 +219,4 @@ npm --prefix web run icons            # re-render the PNG icon set from web/asse
 - Any `vite build` refuses to run with `NODE_ENV` set to anything but `production` (including via `.env` files), even for `build:check`. A built bundle's startup guard keys on the `__SAFEBITE_BUILD__` marker from `vite.config.ts`, not on `import.meta.env.PROD`, so `NODE_ENV` cannot switch it off.
 - A misconfigured built bundle shows a plain "this build is misconfigured" screen, loads no Firebase code, unregisters every service worker, deletes every cache and leaves the old worker's control; a clean bundle registers the Workbox worker only after that check. A non-deployable build ships a self-destroying worker (no precache), so an installed worker that picks it up as an update never caches it and triggers a clean-up; the misconfiguration screen completes the purge (`npm --prefix web run e2e:upgrade` proves both paths).
 - The PWA icon set is generated, never hand-edited: change `web/assets/safebite-mark.svg` and run `npm --prefix web run icons`.
+- The three synthetic test bundles are built only from the committed `web/.env.<mode>` fixtures: `vite build --mode preview|preview-v2|boot-guard` refuses to run if an exported `VITE_*` variable differs from the file, and every build writes `safebite-build.json` (mode, project id, source hash) that the `e2e:*` scripts verify, so a stale or wrong-mode dist is refused with the `build:<mode>` command to run.
