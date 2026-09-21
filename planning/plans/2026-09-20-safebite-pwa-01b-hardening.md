@@ -316,7 +316,7 @@ and add `import { assertDeployableFirebaseEnv } from "./config/firebaseEnv";` at
 /// <reference types="vitest/config" />
 import { defineConfig, loadEnv, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
-import { assertDeployableFirebaseEnv } from "./src/config/firebaseEnv";
+import { assertDeployableFirebaseEnv } from "./src/config/firebaseEnv.ts"; // explicit extension: tsconfig.node.json uses nodenext resolution
 
 /**
  * Refuses to produce a deployable bundle with missing, blank, or demo Firebase values.
@@ -386,7 +386,7 @@ In `.github/workflows/ci.yml` rename the step `Production build` to `Build (comp
 
 - [ ] **Step 10: README**
 
-Under "Tests" add: `npm --prefix web run build:check   # compile-only build (no Firebase config needed)`; under "Guardrails" add: `- \`npm --prefix web run build\` (used by \`firebase deploy\`) refuses missing, blank, demo-, or legacy-project Firebase values; the resulting bundle also refuses to start against them.`
+Under "Tests" add: `npm --prefix web run build:check   # compile-only build (no Firebase config needed)`; update the unit-test count line to 19; under "Guardrails" add: `- \`npm --prefix web run build\` (used by \`firebase deploy\`) refuses missing, blank, demo-, or legacy-project Firebase values; the resulting bundle also refuses to start against them.`
 
 - [ ] **Step 11: Verify and commit**
 
