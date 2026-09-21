@@ -356,3 +356,143 @@ the real interfaces that landed rather than predicted ones.
 | Firestore SDK offline persistence off; explicit IndexedDB download instead | Makes "opt-in", "exclude provider data" and "clear on sign-out" provable | More code in Plan 5 |
 | No npm workspaces; `web/`, `functions/` and a thin root `package.json` | Firebase deploy packages `functions/` standalone; hoisted deps break it | Slightly more `npm ci` steps in CI |
 | Optimistic concurrency by integer `version` enforced in rules | Meets "reject stale versions, offer reload" without server round-trips | None foreseen |
+
+### 3.5 Plan 2b design — restaurant records and evidence (brainstormed 2026-09-21)
+
+Owner rulings taken during the brainstorm (all six recommendations accepted):
+
+1. The **Saved** tab lists the household's restaurant records until Plan 4 layers visited
+   state and notes on top. Routes: `/restaurants`, `/restaurants/new`, `/restaurants/:rid`,
+   `/restaurants/:rid/edit`, `/restaurants/:rid/evidence/new`. `/saved` redirects to
+   `/restaurants`. The `nav-saved` testid and "Saved" label stay.
+2. **Claims are append-only.** Members add and delete claims; the rules refuse `update`.
+   Evidence is corrected by adding a new claim and deleting the old one.
+3. **Restaurants can be deleted** by any member after an in-page confirm step (a second
+   "Yes, delete" button, never `window.confirm`, which would block browser tests). The client deletes the
+   claims in a batch together with the document; Firestore does not cascade.
+4. **Live data.** `onSnapshot` listeners for the list, the detail page and its claims.
+   Firestore SDK offline persistence stays off (spec 2.6).
+5. **Update prompt.** A non-modal banner "A new version of SafeBite is ready" with a **Reload**
+   button, rendered above every screen; nothing reloads until it is tapped.
+6. **Scope fence.** In: the four pre-work items below, the model, rules, form, detail page with
+   "call ahead and ask" prompts, unit, rules and browser tests. Out: the `abortable()`
+   `signal.reason` fix (Plan 3 pre-work), the square-icon question (Plan 5), anything Places.
+
+#### Pre-work (worker and build hygiene)
+
+- `registerType: "prompt"`. `registerServiceWorker()` passes `onNeedRefresh` and keeps the
+  returned `updateServiceWorker` function. A tiny external store in `web/src/pwa/updates.ts`
+  (`subscribe`, `getSnapshot`, `applyUpdate`) lets `App` render `<UpdateBanner>` via
+  `useSyncExternalStore`; the banner is outside the router so it shows on the sign-in screen
+  and inside the shell alike. Tapping Reload calls `updateServiceWorker()`; the plugin reloads
+  the page once the new worker is controlling. The `e2e-upgrade` valid→valid test is rewritten:
+  install v1, type into the sign-in email field, serve v2, trigger the update check, assert the
+  banner is visible, the typed value is intact and the entry chunk is still v1; tap Reload;
+  assert the v2 entry chunk, one registration, controlled, old chunk evicted. (The sign-in form
+  is the only form reachable without emulators; the mechanism is form-agnostic.) The
+  "reloads exactly once" wording in the purge test is tightened to what it asserts.
+- Synthetic build environments move into committed `web/.env.preview`, `web/.env.preview-v2`
+  and `web/.env.boot-guard` (shape-valid fake values, gitignore exceptions like
+  `web/.env.development`). `vite build --mode <name>` loads them; `SAFEBITE_UNVALIDATED_BUILD=1`
+  stays on the boot-guard command line because it is not a `VITE_` value. Scripts split into
+  `build:preview`, `build:preview-v2`, `build:boot-guard` and `build:e2e` (all three), while
+  `e2e:preview`, `e2e:boot-guard` and `e2e:upgrade` only run Playwright against existing output
+  and fail with a clear message if a dist directory is missing. CI builds once, then runs the
+  three suites. README updated.
+- `includeManifestIcons: false` removes the duplicate icon and manifest precache entries; the
+  artefact test in `e2e-upgrade` asserts every precache URL is unique.
+- Self-destroying builds get `manifest: false`, so a misconfigured artefact is not installable;
+  the boot-guard test asserts there is no `<link rel="manifest">`.
+
+#### Data model (as spec 2.3, made concrete)
+
+`households/{hid}/restaurants/{rid}`: `name` (1–120), `address` (1–300), optional `phone`
+(≤ 40), optional `website` (http(s) URL ≤ 300), optional `lat`/`lng` (both or neither; numbers
+with `lat` in −90…90 and `lng` in −180…180), optional `googlePlaceId` (≤ 200), `createdBy` (uid), `createdAt`, `updatedAt`
+(server timestamps), `version` (integer, starts at 1). No other keys.
+
+`households/{hid}/restaurants/{rid}/claims/{cid}`: `kind` in {`dedicatedKitchen`,
+`separateFryer`, `trainedStaff`, `gfMenu`, `preparationPractice`, `accreditation`}; `value` in
+{`yes`, `no`, `partial`}; `detail` (string ≤ 1000, may be empty); `source` map with `type` in
+{`restaurantStatement`, `accreditingBody`, `ownVisit`, `thirdParty`}, `label` (1–200), optional
+`url` (http(s) ≤ 500); `checkedAt` (timestamp, not in the future); optional `expiresAt`
+(timestamp after `checkedAt`); `authorUid`; `createdAt` (server timestamp). No other keys.
+`kind == 'accreditation'` requires `source.type == 'accreditingBody'` and a non-empty
+`source.url`.
+
+No composite indexes: the list orders restaurants by `name`, claims by `checkedAt` descending.
+
+#### Rules
+
+- `restaurants`: read by members; create by a member with `createdBy == request.auth.uid`,
+  `version == 1`, `createdAt == updatedAt == request.time`; update by a member with `createdBy`
+  and `createdAt` unchanged, `updatedAt == request.time`, `version == resource.data.version + 1`;
+  delete by a member. Field validation as above on create and update.
+- `claims`: read by members; create by a member with `authorUid == request.auth.uid` and
+  `createdAt == request.time`; update denied; delete by a member.
+- The existing `isMember(hid)` helper (one `get()`) guards every subcollection operation.
+- A web unit test reads `firestore.rules` and asserts every kind, value and source-type literal
+  from `web/src/records/types.ts` appears in it, so the two lists cannot drift silently.
+
+#### Client modules (`web/src/records/`)
+
+- `types.ts` — `Restaurant`, `Claim`, `ClaimKind`, `ClaimValue`, `SourceType` and the constant
+  lists with UI labels.
+- `validation.ts` — pure `validateRestaurantInput` and `validateClaimInput` returning
+  field-keyed error messages; limits identical to the rules.
+- `evidence.ts` — pure `evidenceStatus(claim, now)` → `current | needsRechecking`
+  (12 months after `checkedAt` unless `expiresAt` is set; `expiresAt` wins) and
+  `summariseEvidence(claims, now)` → one entry per kind: `unknown`, or the newest claim by
+  `checkedAt` with its status and the older claims as history. Nothing is stored.
+- `repository.ts` — `watchRestaurants`, `watchRestaurant`, `watchClaims` (each returns an
+  unsubscribe), `createRestaurant`, `updateRestaurant(hid, rid, expectedVersion, input)`,
+  `deleteRestaurant` (claims + document in one batch), `addClaim`, `deleteClaim`. A
+  `permission-denied` on `updateRestaurant` after client-side validation passed is surfaced as
+  `ConflictError` ("changed on another device"); the form offers Reload, which re-seeds from
+  the live snapshot.
+
+#### Pages
+
+- `RestaurantsPage` (`/restaurants`) — list with name and address, empty state, **Add
+  restaurant**. Replaces `SavedPage`.
+- `RestaurantFormPage` (`/restaurants/new`, `/restaurants/:rid/edit`) — name, address, phone,
+  website; inline validation; conflict message with Reload; Delete (edit mode only) behind a
+  confirm step. Coordinates and place ID are never asked for (owner ruling, until Plan 3).
+- `RestaurantDetailPage` (`/restaurants/:rid`) — facts, phone (`tel:`) and website links, the
+  six evidence kinds each showing unknown / current / **needs rechecking** with value, detail,
+  source label and link, checked date and author, older claims collapsed as history; **Add
+  evidence**; per-claim Delete; a static **Call ahead and ask** block with the four general
+  prompts ported from the Swift `Localizable.strings` (`ask_general`, `ask_italian`,
+  `ask_asian`, `ask_bakery`), British spelling.
+- `ClaimFormPage` (`/restaurants/:rid/evidence/new`) — kind, value, detail, source type, label,
+  URL, checked date (defaults to today, cannot be in the future), optional expiry date; the URL
+  field becomes required when kind is accreditation or source type is accrediting body.
+
+Dates are entered as `<input type="date">`, stored as `Timestamp` at local midnight, displayed
+with `en-GB` formatting. Copy never shows a score.
+
+#### Tests
+
+- Unit (Vitest): `evidence.ts` boundaries (day before/after 12 months, `expiresAt` precedence,
+  unknown kinds, newest-wins), `validation.ts`, the rules-literal drift test, the update store
+  and banner (`useSyncExternalStore`, Reload calls `applyUpdate`), conflict mapping in
+  `repository.ts` with a stubbed Firestore error.
+- Rules (`functions/test/rules.records.test.ts`, emulator): member vs non-member vs stranger
+  reads; create with wrong `createdBy`/`version`/extra keys/bad URL/coordinates without pair;
+  stale-version update rejected, correct version accepted; `createdBy` change rejected;
+  accreditation without accrediting body or URL rejected; claim update rejected; claim delete
+  by the other member accepted; future `checkedAt` rejected; `expiresAt` before `checkedAt`
+  rejected.
+- Browser (`web/e2e/records.spec.ts`, emulators): add a restaurant and see it in the list and
+  detail with six unknown kinds and the call-ahead block; the accreditation form refuses a
+  missing URL, then a valid accrediting-body claim shows as current and a fryer claim checked
+  13 months ago shows **needs rechecking**; two browser contexts (Ava, Bogdan) — Bogdan saves an
+  edit, Ava's stale save shows the conflict message and Reload shows Bogdan's values; delete a
+  restaurant with claims and see the list empty.
+- Upgrade (`web/e2e-upgrade`): the rewritten valid→valid test (banner, preserved input,
+  confirmed reload) and the unique-precache assertion. Boot-guard: no manifest link.
+
+#### Not in this plan
+
+Visited state, notes, offline download, discovery, export, deletion of accounts, indexes,
+functions changes (none needed: everything is client + rules).
