@@ -5,6 +5,7 @@ export const PROJECT_ID = "demo-safebite";
 export const REGION = "europe-west2";
 const AUTH_HOST = process.env.FIREBASE_AUTH_EMULATOR_HOST ?? "127.0.0.1:9099";
 const FUNCTIONS_HOST = process.env.FUNCTIONS_EMULATOR_HOST ?? "127.0.0.1:5001";
+const REQUEST_TIMEOUT_MS = 30_000;
 
 export function ensureAdminApp(): void {
   if (getApps().length === 0) initializeApp({ projectId: PROJECT_ID });
@@ -28,6 +29,7 @@ export async function signInForIdToken(email: string, password: string): Promise
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email, password, returnSecureToken: true }),
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     },
   );
   if (!res.ok) throw new Error(`emulator sign-in failed: ${res.status} ${await res.text()}`);
@@ -48,6 +50,7 @@ export async function callFunction(name: string, data: unknown, idToken?: string
       ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}),
     },
     body: JSON.stringify({ data }),
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
   });
   return { status: res.status, body: (await res.json()) as CallResult["body"] };
 }
@@ -63,19 +66,21 @@ export async function callFunction(name: string, data: unknown, idToken?: string
  * time has elapsed, throws rather than retrying forever — a vitest hook timeout
  * does not cancel this loop on its own, so the bound has to be self-enforced.
  */
-export async function warmUpFunctions(name: string, maxElapsedMs = 240000): Promise<void> {
+export async function warmUpFunctions(name: string, maxElapsedMs = 240000, perRequestMs = 90000): Promise<void> {
   const url = `http://${FUNCTIONS_HOST}/${PROJECT_ID}/${REGION}/${name}`;
   const start = Date.now();
   for (;;) {
     try {
+      // A cold worker legitimately takes tens of seconds; a request that exceeds perRequestMs is
+      // aborted and retried so a stalled emulator cannot hold the hook until its own timeout.
       await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ data: {} }),
+        signal: AbortSignal.timeout(perRequestMs),
       });
       return;
     } catch {
-      // Emulator worker not accepting connections yet (still spinning up / cold require in progress).
       if (Date.now() - start > maxElapsedMs) {
         throw new Error(`Functions emulator did not answer ${name} within ${maxElapsedMs} ms`);
       }

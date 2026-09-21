@@ -17,6 +17,7 @@
 const WHOAMI_URL = "http://127.0.0.1:5001/demo-safebite/europe-west2/whoami";
 const MAX_ELAPSED_MS = 240_000;
 const RETRY_DELAY_MS = 2_000;
+const PER_REQUEST_MS = 90_000;
 
 function callWhoami(): Promise<Response> {
   // Any HTTP response counts as "warm" -- a 401 (unauthenticated) is expected.
@@ -24,6 +25,7 @@ function callWhoami(): Promise<Response> {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ data: {} }),
+    signal: AbortSignal.timeout(PER_REQUEST_MS),
   });
 }
 
@@ -46,5 +48,9 @@ async function waitUntilReachable(): Promise<void> {
 export default async function globalSetup(): Promise<void> {
   await waitUntilReachable();
   // Warm a second, concurrent instance so StrictMode's double-fetch never hits a cold one.
-  await Promise.all([callWhoami(), callWhoami()]);
+  try {
+    await Promise.all([callWhoami(), callWhoami()]);
+  } catch (err) {
+    throw new Error(`Second warm-up request failed or exceeded ${PER_REQUEST_MS} ms: ${String(err)}`);
+  }
 }
