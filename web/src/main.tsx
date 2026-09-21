@@ -2,7 +2,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { startupProblems } from "./config/firebaseEnv";
 import { MisconfiguredScreen } from "./MisconfiguredScreen";
-import { unregisterServiceWorkers } from "./pwa/serviceWorker";
+import { registerServiceWorker, unregisterServiceWorkers } from "./pwa/serviceWorker";
 import "./styles.css";
 
 const root = createRoot(document.getElementById("root")!);
@@ -21,5 +21,6 @@ if (problems.length > 0) {
         <App />
       </StrictMode>,
     );
+    registerServiceWorker();
   });
 }

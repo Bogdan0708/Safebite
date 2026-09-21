@@ -15,7 +15,8 @@
     "preview:boot-guard": "vite preview --outDir dist-boot-guard --host 127.0.0.1 --port 4173 --strictPort",
     "test": "vitest run",
     "e2e": "playwright test",
-    "e2e:boot-guard": "SAFEBITE_UNVALIDATED_BUILD=1 VITE_FIREBASE_API_KEY=demo-api-key VITE_FIREBASE_AUTH_DOMAIN=localhost VITE_FIREBASE_PROJECT_ID=demo-safebite VITE_FIREBASE_APP_ID=demo-app-id VITE_USE_EMULATORS=true vite build --outDir dist-boot-guard && playwright test -c playwright.boot-guard.config.ts"
+    "e2e:boot-guard": "SAFEBITE_UNVALIDATED_BUILD=1 VITE_FIREBASE_API_KEY=demo-api-key VITE_FIREBASE_AUTH_DOMAIN=localhost VITE_FIREBASE_PROJECT_ID=demo-safebite VITE_FIREBASE_APP_ID=demo-app-id VITE_USE_EMULATORS=true vite build --outDir dist-boot-guard && playwright test -c playwright.boot-guard.config.ts",
+    "icons": "node scripts/render-icons.mjs"
   },
   "dependencies": {
     "firebase": "^12.19.0",
@@ -35,6 +36,7 @@
     "jsdom": "^30.1.0",
     "typescript": "~6.0.2",
     "vite": "^8.3.0",
+    "vite-plugin-pwa": "^1.3.0",
     "vitest": "^5.0.1"
   }
 }
