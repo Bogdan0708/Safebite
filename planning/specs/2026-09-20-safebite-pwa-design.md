@@ -281,6 +281,20 @@ the real interfaces that landed rather than predicted ones.
 - Before staging: supply `VITE_FIREBASE_*` build-time values, add the `staging` alias,
   confirm `europe-west2`, set the £10 budget alert (owner actions O3–O6).
 
+**Added from the Plan 1b final review (2026-09-21):**
+
+- The runtime deployability guard in `web/src/firebase.ts` throws at module scope, so a
+  misconfigured bundle renders a blank page. Before the PWA service worker lands, render a
+  plain "this build is misconfigured" screen instead, and make sure the service worker never
+  precaches a bundle whose guard fires. Any deploy job must call `npm --prefix web run build`
+  (validated), never the root `build` (compile-only).
+- Add shape checks to the validator (api key starts `AIza` and ≥ 30 chars; app id matches
+  `^\d+:\d+:web:[0-9a-f]+$`; auth domain contains a dot) so junk-but-non-blank values fail.
+- Scope the 15 s Playwright `expect` timeout to the two `whoami` assertions (or raise the
+  per-test timeout) once the Settings `whoami` call is deduplicated.
+- Establish request cancellation (`AbortController`) on the Settings page's callable before
+  Plan 3 adds paid discovery calls (spec 2.5 requires cancellation).
+
 ### 3.4 Decisions taken without owner input (override if wrong)
 
 | Decision | Reason | Cost if wrong |
