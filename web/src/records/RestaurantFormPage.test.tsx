@@ -119,6 +119,23 @@ describe("RestaurantFormPage — edit", () => {
     expect(screen.getByTestId("reload-draft")).toBeInTheDocument();
   });
 
+  it("shows a single Reload draft when a conflict coincides with changed-elsewhere, and reloads to the newer values", async () => {
+    m.updateRestaurant.mockResolvedValue({ kind: "conflict" });
+    renderAt("/restaurants/r1/edit");
+    act(() => emit({ status: "ready", value: stored }));
+    await userEvent.clear(screen.getByTestId("field-name"));
+    await userEvent.type(screen.getByTestId("field-name"), "My rename");
+    act(() => emit({ status: "ready", value: { ...stored, name: "Bogdan's rename", version: 4 } }));
+    expect(screen.getByTestId("changed-elsewhere")).toBeInTheDocument();
+    await userEvent.click(screen.getByTestId("save-restaurant"));
+    await waitFor(() => expect(screen.getByTestId("save-outcome")).toHaveAttribute("data-kind", "conflict"));
+    expect(screen.getAllByTestId("reload-draft")).toHaveLength(1);
+    await userEvent.click(screen.getByTestId("reload-draft"));
+    expect(screen.getByTestId("field-name")).toHaveValue("Bogdan's rename");
+    expect(screen.queryByTestId("changed-elsewhere")).toBeNull();
+    expect(screen.queryByTestId("save-outcome")).toBeNull();
+  });
+
   it("shows gone when the restaurant disappears, with a link back to the list", () => {
     renderAt("/restaurants/r1/edit");
     act(() => emit({ status: "gone" }));

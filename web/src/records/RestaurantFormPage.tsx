@@ -67,6 +67,7 @@ export function RestaurantFormPage({ mode }: { mode: "create" | "edit" }) {
     if (!remote) return;
     setDraft({ form: toForm(remote), seededFrom: toForm(remote), baseVersion: remote.version });
     setOutcome(null);
+    setErrors({});
   }
 
   function setField(field: RestaurantField, value: string) {
@@ -152,7 +153,7 @@ export function RestaurantFormPage({ mode }: { mode: "create" | "edit" }) {
         {outcome && outcome !== "ok" && (
           <div role="alert" data-testid="save-outcome" data-kind={outcome}>
             <p>{outcomeMessage(outcome, "This restaurant")}</p>
-            {outcome === "conflict" && <button type="button" data-testid="reload-draft" onClick={reloadDraft}>Reload draft</button>}
+            {outcome === "conflict" && !changedElsewhere && <button type="button" data-testid="reload-draft" onClick={reloadDraft}>Reload draft</button>}
             {outcome === "notFound" && <Link to="/restaurants">Back to Saved</Link>}
           </div>
         )}
@@ -165,8 +166,8 @@ export function RestaurantFormPage({ mode }: { mode: "create" | "edit" }) {
           {confirming && deleteProgress === null && (
             <>
               <span>Delete this restaurant and all of its evidence?</span>
-              <button type="button" data-testid="delete-confirm" onClick={() => void onDelete()}>Yes, delete</button>
-              <button type="button" data-testid="delete-cancel" onClick={() => setConfirming(false)}>Cancel</button>
+              <button type="button" data-testid="delete-confirm" disabled={busy} onClick={() => void onDelete()}>Yes, delete</button>
+              <button type="button" data-testid="delete-cancel" disabled={busy} onClick={() => setConfirming(false)}>Cancel</button>
             </>
           )}
           {deleteProgress !== null && <span data-testid="delete-progress">{deleteProgress}</span>}
