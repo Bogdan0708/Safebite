@@ -5,12 +5,6 @@ export default defineConfig({
   timeout: 30_000,
   // Caps global setup (the emulator warm-up) plus the whole suite run.
   globalTimeout: 300_000,
-  // React 19 StrictMode (main.tsx) double-invokes SettingsPage's effect in dev mode, firing
-  // two concurrent `whoami` calls on first mount. The Functions emulator can route the second,
-  // concurrent call to a fresh instance that cold-starts even after the global warm-up below
-  // has warmed the first instance (observed ~14s vs. the default 5s assertion timeout). Raise
-  // the expect timeout rather than touching the assertions themselves.
-  expect: { timeout: 15_000 },
   fullyParallel: false,
   workers: 1,
   retries: process.env.CI ? 1 : 0,
