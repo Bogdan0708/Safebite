@@ -60,6 +60,39 @@ service cloud.firestore {
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['deleting', 'version', 'updatedAt']);
     }
 
+    // Calendar dates are timestamps at 00:00:00 UTC (spec §3.5, audit F3).
+    function utcMidnight(ts) {
+      return ts is timestamp && ts == ts.date();
+    }
+
+    // URL policy: an accrediting body always carries a link to its listing.
+    function validSource(s) {
+      return s is map
+        && s.keys().hasOnly(['type', 'label', 'url'])
+        && s.keys().hasAll(['type', 'label'])
+        && s.type in ['restaurantStatement', 'accreditingBody', 'ownVisit', 'thirdParty']
+        && nonBlankString(s.label, 200)
+        && optionalHttpUrl(s, 'url', 500)
+        && (s.type != 'accreditingBody' || 'url' in s);
+    }
+
+    function validClaim(data) {
+      return data.keys().hasOnly(['kind', 'value', 'detail', 'source', 'checkedAt', 'expiresAt', 'authorUid', 'authorName', 'createdAt'])
+        && data.keys().hasAll(['kind', 'value', 'detail', 'source', 'checkedAt', 'authorUid', 'authorName', 'createdAt'])
+        && data.kind in ['dedicatedKitchen', 'separateFryer', 'trainedStaff', 'gfMenu', 'preparationPractice', 'accreditation']
+        && data.value in ['yes', 'no', 'partial']
+        && data.detail is string && data.detail.size() <= 1000
+        && validSource(data.source)
+        && (data.kind != 'accreditation' || data.source.type == 'accreditingBody')
+        && utcMidnight(data.checkedAt)
+        // A user anywhere from UTC-12 to UTC+14 may enter their local "today"; two days ahead is never valid.
+        && data.checkedAt <= request.time + duration.value(1, 'd')
+        && (!('expiresAt' in data) || (utcMidnight(data.expiresAt) && data.expiresAt > data.checkedAt))
+        && data.authorUid is string
+        && data.authorName is string
+        && data.createdAt is timestamp;
+    }
+
     match /users/{uid} {
       allow read: if signedIn() && request.auth.uid == uid;
       allow write: if false;
@@ -94,6 +127,32 @@ service cloud.firestore {
 
         // Step 3 of the protocol: only a marked restaurant can go.
         allow delete: if isMember(hid) && resource.data.deleting == true;
+
+        match /claims/{cid} {
+          function parentRestaurant() {
+            return get(/databases/$(database)/documents/households/$(hid)/restaurants/$(rid));
+          }
+          // The caller's own users/{uid} document; rules get() is not subject to the read rules,
+          // so no peer-user read is introduced (the client also may read its own document).
+          function callerDisplayName() {
+            return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.displayName;
+          }
+
+          allow read: if isMember(hid);
+
+          // Immutable evidence: create with the caller's identity, under an existing parent that is
+          // not being deleted (deletion protocol step 1 makes this false before the sweep).
+          allow create: if isMember(hid)
+            && validClaim(request.resource.data)
+            && exists(/databases/$(database)/documents/households/$(hid)/restaurants/$(rid))
+            && parentRestaurant().data.deleting == false
+            && request.resource.data.authorUid == request.auth.uid
+            && request.resource.data.authorName == callerDisplayName()
+            && request.resource.data.createdAt == request.time;
+
+          allow update: if false;
+          allow delete: if isMember(hid);
+        }
       }
     }
   }
