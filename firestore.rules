@@ -6,6 +6,7 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    // household() and isMember() are unused until Plan 2b adds the subcollection rules; keep them.
     function household(hid) {
       return get(/databases/$(database)/documents/households/$(hid));
     }

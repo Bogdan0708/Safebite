@@ -39,7 +39,6 @@ function requireDeployableFirebaseEnv(mode: string): Plugin {
 const pwaOptions: Parameters<typeof VitePWA>[0] = {
   registerType: "autoUpdate",
   injectRegister: null,
-  includeAssets: ["favicon.svg", "apple-touch-icon-180.png"],
   manifest: {
     name: "SafeBite",
     short_name: "SafeBite",
@@ -59,6 +58,8 @@ const pwaOptions: Parameters<typeof VitePWA>[0] = {
   workbox: {
     globPatterns: ["**/*.{js,css,html,svg,png,webmanifest}"],
     navigateFallback: "/index.html",
+    // Firebase Hosting reserves /__/ (auth handler, init.js); never answer those with the shell.
+    navigateFallbackDenylist: [/^\/__\//],
     cleanupOutdatedCaches: true,
   },
 };

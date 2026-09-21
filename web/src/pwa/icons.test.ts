@@ -25,5 +25,7 @@ describe("PWA icon set", () => {
     const svg = readFileSync(path.join(publicDir, "favicon.svg"), "utf8");
     expect(svg).toContain("safebite-mark");
     expect(svg).not.toContain("#863bff");
+    expect(svg).toContain("<circle");
+    expect(svg).toContain("<path");
   });
 });

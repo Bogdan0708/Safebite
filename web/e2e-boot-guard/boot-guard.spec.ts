@@ -13,6 +13,8 @@ test("a compile-only bundle with demo Firebase values shows the misconfiguration
   const screen = page.getByTestId("misconfigured");
   await expect(screen).toBeVisible();
   await expect(screen).toContainText("demo-safebite");
+  // The five expected problems: api key placeholder, auth domain "localhost" has no dot,
+  // "demo-" project id, app id placeholder, emulators on.
   await expect(screen.locator("li")).toHaveCount(5);
   await expect(page.getByTestId("signin-form")).toHaveCount(0);
   expect(pageErrors).toEqual([]);

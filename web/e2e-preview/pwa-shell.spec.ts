@@ -8,7 +8,11 @@ interface Manifest {
   icons: Array<{ src: string; sizes: string; type: string; purpose?: string }>;
 }
 
-/** The synthetic Firebase project must never be contacted: refuse everything off-box. */
+/**
+ * Refuse every page-initiated request off-box; the synthetic project must never be contacted.
+ * (Requests a service worker makes on its own are not intercepted here; the precache is
+ * entirely same-origin.)
+ */
 async function blockExternalNetwork(context: BrowserContext) {
   await context.route(/^https?:\/\/(?!127\.0\.0\.1)/, (route) => route.abort());
 }
@@ -61,4 +65,15 @@ test("the misconfiguration screen is not shown for a validated bundle", async ({
   await page.goto("/");
   await expect(page.getByTestId("signin-form")).toBeVisible();
   await expect(page.getByTestId("misconfigured")).toHaveCount(0);
+});
+
+test("a failed app-chunk load shows a load-failed screen, not a blank page", async ({ page, context }) => {
+  await blockExternalNetwork(context);
+  await context.route(/\/assets\/App-[^/]+\.js$/, (route) => route.abort());
+  await page.goto("/");
+
+  const screen = page.getByTestId("load-failed");
+  await expect(screen).toBeVisible();
+  await expect(screen).toContainText("reload");
+  await expect(page.locator("#root")).not.toBeEmpty();
 });

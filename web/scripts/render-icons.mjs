@@ -1,6 +1,7 @@
-// Renders the PNG icon set from assets/safebite-mark.svg with the Playwright Chromium that the
-// browser tests already install. Run: `npm run icons` (from web/). Output is committed.
-import { readFile } from "node:fs/promises";
+// Renders the PNG icon set, plus the favicon, from assets/safebite-mark.svg with the Playwright
+// Chromium that the browser tests already install. Run: `npm run icons` (from web/). Output is
+// committed.
+import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium } from "@playwright/test";
@@ -8,6 +9,30 @@ import { chromium } from "@playwright/test";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.resolve(here, "../public");
 const GROUND = "#1f7a4d";
+
+// Rewraps the mark's inner elements (stripped of its own comments) inside the favicon's green
+// rounded square, matching public/favicon.svg's committed structure.
+async function renderFavicon(markSvg) {
+  const start = markSvg.indexOf(">") + 1;
+  const end = markSvg.lastIndexOf("</svg>");
+  const inner = markSvg
+    .slice(start, end)
+    .replace(/<!--[\s\S]*?-->/g, "")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => `    ${line}`)
+    .join("\n");
+  const favicon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" id="safebite-mark-favicon" fill="none">
+  <rect width="100" height="100" rx="22" fill="${GROUND}"/>
+  <g transform="translate(15 15) scale(0.7)">
+${inner}
+  </g>
+</svg>
+`;
+  await writeFile(path.join(publicDir, "favicon.svg"), favicon);
+  console.log("wrote favicon.svg");
+}
 
 // radius: corner radius as a fraction of the size (0 = square; iOS and maskable icons are
 // masked by the platform). glyph: glyph width as a fraction of the size (maskable icons keep
@@ -21,6 +46,8 @@ const ICONS = [
 
 const svg = await readFile(path.resolve(here, "../assets/safebite-mark.svg"), "utf8");
 const dataUrl = `data:image/svg+xml;base64,${Buffer.from(svg).toString("base64")}`;
+
+await renderFavicon(svg);
 
 const browser = await chromium.launch();
 try {
