@@ -275,29 +275,28 @@ the real interfaces that landed rather than predicted ones.
 
 **Plan 2 pre-work carried from the Plan 1 final review (2026-09-20):**
 
-- Dedupe the Settings page's `whoami` call (ref/AbortController) so React StrictMode's
+- Done in Plan 2a: Dedupe the Settings page's `whoami` call (ref/AbortController) so React StrictMode's
   double effect issues one request; then drop the global 15 s Playwright `expect` timeout
   and the doubled emulator warm-up in `web/e2e/global-setup.ts`.
-- Switch the household read rule to `request.auth.uid in resource.data.memberIds` (no
+- Done in Plan 2a: Switch the household read rule to `request.auth.uid in resource.data.memberIds` (no
   extra `get()`), keeping `isMember(hid)` for subcollections.
-- Type-check `functions/test/**` (a `tsconfig.test.json`), add `.gitattributes`
+- Done in Plan 2a: Type-check `functions/test/**` (a `tsconfig.test.json`), add `.gitattributes`
   (`* text=auto eol=lf`), make the 60 s vitest timeouts conditional on `CI`.
-- Unit-test the auth provider's generation-counter race and unsubscribe-on-unmount.
+- Done in Plan 2a: Unit-test the auth provider's generation-counter race and unsubscribe-on-unmount.
 - Before staging: supply `VITE_FIREBASE_*` build-time values, add the `staging` alias,
   confirm `europe-west2`, set the £10 budget alert (owner actions O3–O6).
 
 **Added from the Plan 1b final review (2026-09-21):**
 
-- The runtime deployability guard in `web/src/firebase.ts` throws at module scope, so a
-  misconfigured bundle renders a blank page. Before the PWA service worker lands, render a
-  plain "this build is misconfigured" screen instead, and make sure the service worker never
-  precaches a bundle whose guard fires. Any deploy job must call `npm --prefix web run build`
-  (validated), never the root `build` (compile-only).
-- Add shape checks to the validator (api key starts `AIza` and ≥ 30 chars; app id matches
+- Done in Plan 2a: a misconfigured bundle renders `MisconfiguredScreen` from `web/src/main.tsx`
+  before any Firebase import, unregisters service workers, and never registers one; the
+  module-scope guard in `web/src/firebase.ts` remains as the second line. Any deploy job must
+  call `npm --prefix web run build` (validated), never the root `build` (compile-only).
+- Done in Plan 2a: Add shape checks to the validator (api key starts `AIza` and ≥ 30 chars; app id matches
   `^\d+:\d+:web:[0-9a-f]+$`; auth domain contains a dot) so junk-but-non-blank values fail.
-- Scope the 15 s Playwright `expect` timeout to the two `whoami` assertions (or raise the
+- Done in Plan 2a: Scope the 15 s Playwright `expect` timeout to the two `whoami` assertions (or raise the
   per-test timeout) once the Settings `whoami` call is deduplicated.
-- Establish request cancellation (`AbortController`) on the Settings page's callable before
+- Done in Plan 2a: Establish request cancellation (`AbortController`) on the Settings page's callable before
   Plan 3 adds paid discovery calls (spec 2.5 requires cancellation).
 
 **Plan 2 rulings (owner, 2026-09-21):**

@@ -112,6 +112,9 @@ jobs:
       - name: Compile-only bundle refuses to start in a browser
         run: npm --prefix web run e2e:boot-guard
 
+      - name: PWA shell — manifest, service worker, offline reload (preview bundle)
+        run: npm --prefix web run e2e:preview
+
       - name: Upload Playwright artifacts (report, traces, screenshots, videos)
         if: always()
         uses: actions/upload-artifact@v4
