@@ -65,25 +65,32 @@ export async function callFunction(name: string, data: unknown, idToken?: string
  * Bounded by `maxElapsedMs`: if the worker still isn't answering once that much
  * time has elapsed, throws rather than retrying forever — a vitest hook timeout
  * does not cancel this loop on its own, so the bound has to be self-enforced.
+ * The last attempt's own timeout is clamped to whatever remains of `maxElapsedMs`,
+ * so a late attempt cannot itself overshoot the overall bound (checking elapsed
+ * time only after an attempt finishes would let a single `perRequestMs`-long
+ * attempt push the total past `maxElapsedMs` by nearly `perRequestMs`).
  */
 export async function warmUpFunctions(name: string, maxElapsedMs = 240000, perRequestMs = 90000): Promise<void> {
   const url = `http://${FUNCTIONS_HOST}/${PROJECT_ID}/${REGION}/${name}`;
   const start = Date.now();
   for (;;) {
+    const remaining = maxElapsedMs - (Date.now() - start);
+    if (remaining <= 0) {
+      throw new Error(`Functions emulator did not answer ${name} within ${maxElapsedMs} ms`);
+    }
     try {
       // A cold worker legitimately takes tens of seconds; a request that exceeds perRequestMs is
-      // aborted and retried so a stalled emulator cannot hold the hook until its own timeout.
+      // aborted and retried so a stalled emulator cannot hold the hook until its own timeout. The
+      // signal is clamped to whatever remains of maxElapsedMs so the last attempt cannot itself
+      // overshoot the overall bound.
       await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ data: {} }),
-        signal: AbortSignal.timeout(perRequestMs),
+        signal: AbortSignal.timeout(Math.min(perRequestMs, remaining)),
       });
       return;
     } catch {
-      if (Date.now() - start > maxElapsedMs) {
-        throw new Error(`Functions emulator did not answer ${name} within ${maxElapsedMs} ms`);
-      }
       await new Promise((resolve) => setTimeout(resolve, 2000));
     }
   }
