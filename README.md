@@ -207,7 +207,7 @@ npm --prefix web run e2e:upgrade      # same-origin release upgrades: invalid re
 npm --prefix web run icons            # re-render the PNG icon set from web/assets/safebite-mark.svg
 ```
 
-`npm run test:unit` currently reports 54 tests.
+`npm run test:unit` currently reports 55 tests.
 
 ### Guardrails
 

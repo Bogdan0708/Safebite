@@ -13,19 +13,23 @@ export interface PurgeResult {
  * precached release can keep serving a stale shell. Unregistering leaves the current document
  * under the old worker's control until the next navigation; the caller reloads once if
  * `wasControlled` is true. SafeBite owns this origin, so deleting all caches is correct.
+ * Individual failures (a single rejected `unregister()` or `caches.delete()`) are tolerated:
+ * every operation is attempted regardless of the others' outcome, and only the ones that
+ * succeed are counted, so one failure cannot skip the cache purge or hide `wasControlled` from
+ * the caller.
  */
 export async function purgeServiceWorkerState(): Promise<PurgeResult> {
   const result: PurgeResult = { registrations: 0, caches: 0, wasControlled: false };
   if ("serviceWorker" in navigator) {
     result.wasControlled = navigator.serviceWorker.controller !== null;
     const registrations = await navigator.serviceWorker.getRegistrations();
-    await Promise.all(registrations.map((registration) => registration.unregister()));
-    result.registrations = registrations.length;
+    const outcomes = await Promise.allSettled(registrations.map((registration) => registration.unregister()));
+    result.registrations = outcomes.filter((outcome) => outcome.status === "fulfilled").length;
   }
   if ("caches" in globalThis) {
     const names = await caches.keys();
-    await Promise.all(names.map((name) => caches.delete(name)));
-    result.caches = names.length;
+    const outcomes = await Promise.allSettled(names.map((name) => caches.delete(name)));
+    result.caches = outcomes.filter((outcome) => outcome.status === "fulfilled").length;
   }
   return result;
 }

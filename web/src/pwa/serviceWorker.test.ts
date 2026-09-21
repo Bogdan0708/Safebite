@@ -41,6 +41,27 @@ describe("purgeServiceWorkerState", () => {
     expect(deleted).toEqual(["stale"]);
   });
 
+  it("keeps going when one unregister and one cache delete reject", async () => {
+    const unregisterA = vi.fn(async () => {
+      throw new Error("unregister failed");
+    });
+    const unregisterB = vi.fn(async () => true);
+    fakeServiceWorker([{ unregister: unregisterA }, { unregister: unregisterB }], { scriptURL: "http://127.0.0.1/sw.js" });
+    const deleted: string[] = [];
+    vi.stubGlobal("caches", {
+      keys: async () => ["a", "b", "c"],
+      delete: async (name: string) => {
+        deleted.push(name);
+        if (name === "b") throw new Error("delete failed");
+        return true;
+      },
+    });
+    await expect(purgeServiceWorkerState()).resolves.toEqual({ registrations: 1, caches: 2, wasControlled: true });
+    expect(unregisterA).toHaveBeenCalledTimes(1);
+    expect(unregisterB).toHaveBeenCalledTimes(1);
+    expect(deleted).toEqual(["a", "b", "c"]);
+  });
+
   it("is a no-op where service workers and Cache Storage are unsupported", async () => {
     await expect(purgeServiceWorkerState()).resolves.toEqual({ registrations: 0, caches: 0, wasControlled: false });
   });
