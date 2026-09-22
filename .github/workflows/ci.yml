@@ -12,7 +12,9 @@ concurrency:
 jobs:
   web-and-functions:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    # 35: the browser suite grew from 12 to 23 scenarios, its globalTimeout is now 900s, and scenario 6
+    # alone waits ~25s by design.
+    timeout-minutes: 35
     env:
       CI: "true"
     steps:
@@ -42,6 +44,22 @@ jobs:
         run: |
           if git grep -n "safebite-production-13ba1" -- ':!SafeBite/**' ':!*.md' ':!docs/**' ':!.github/workflows/ci.yml' ':!web/src/config/firebaseEnv.ts' ':!web/src/config/firebaseEnv.test.ts'; then
             echo "Production project id found in tracked files"; exit 1
+          fi
+
+      - name: Guardrail — discovery never caches Places data or carries a key
+        run: |
+          if git grep -n "localStorage\|sessionStorage\|indexedDB" -- web/src/discover; then
+            echo "Discovery code touches browser storage — Places results must never be cached client-side"; exit 1
+          fi
+          # web/src/config legitimately mentions API key shapes (the config validator and its test);
+          # committed .env.* fixtures live outside web/src and are not covered by this grep.
+          if git grep -n "AIza" -- web/src ':!web/src/config/**'; then
+            echo "Looks like a Google API key literal in web/src"; exit 1
+          fi
+          # *.md excluded: AGENTS.md documents the unrelated legacy iOS GOOGLE_PLACES_API_KEY var, whose
+          # name contains this substring. functions/.secret.local.example legitimately sets the fixture value.
+          if git grep -n "PLACES_API_KEY=" -- ':!*.md' | grep -v "PLACES_API_KEY=fixture"; then
+            echo "A non-fixture PLACES_API_KEY value is committed"; exit 1
           fi
 
       - name: Typecheck

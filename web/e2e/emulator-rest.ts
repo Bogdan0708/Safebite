@@ -125,7 +125,14 @@ export async function clearUsage(request: APIRequestContext): Promise<void> {
   for (const d of await listDocs(request, "households/home/usage")) await del(request, `households/home/usage/${idOf(d)}`);
 }
 
-/** String fields of one restaurant document, or null when it does not exist. */
+/**
+ * Fields of one restaurant document, or null when it does not exist. Decodes stringValue,
+ * booleanValue, integerValue and doubleValue (Firestore encodes a number with a fractional part,
+ * such as a lat/lng, as doubleValue — decimal lat/lng would otherwise be silently dropped and a
+ * `not.toHaveProperty("lat")` assertion could never fail). Any other Firestore value type is kept
+ * as its raw `{ <type>: value }` object rather than dropped, so every stored field stays visible
+ * to assertions.
+ */
 export async function getRestaurant(request: APIRequestContext, rid: string): Promise<Record<string, unknown> | null> {
   const res = await request.get(`${BASE}/households/home/restaurants/${rid}`, { headers: HEADERS });
   if (res.status() === 404) return null;
@@ -133,10 +140,12 @@ export async function getRestaurant(request: APIRequestContext, rid: string): Pr
   const body = (await res.json()) as RestDoc;
   const out: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(body.fields ?? {})) {
-    const v = value as { stringValue?: string; booleanValue?: boolean; integerValue?: string };
+    const v = value as { stringValue?: string; booleanValue?: boolean; integerValue?: string; doubleValue?: number };
     if (v.stringValue !== undefined) out[key] = v.stringValue;
     else if (v.booleanValue !== undefined) out[key] = v.booleanValue;
     else if (v.integerValue !== undefined) out[key] = Number(v.integerValue);
+    else if (v.doubleValue !== undefined) out[key] = v.doubleValue;
+    else out[key] = value;
   }
   return out;
 }
