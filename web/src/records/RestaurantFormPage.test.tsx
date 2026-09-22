@@ -179,23 +179,26 @@ function renderCreateWithState(state: unknown) {
 }
 
 describe("RestaurantFormPage — create from a Discover result", () => {
-  const prefill = { name: "Fixture Trattoria", address: "1 Fixture Street, Testville", googlePlaceId: "fixture-01" };
+  const prefill = { googlePlaceId: "fixture-01" };
 
-  it("seeds a clean draft from the prefill, shows the From Google Maps notice, and writes the place id", async () => {
+  it("starts with an empty draft, shows the Linked notice, and writes the typed name/address plus the place id", async () => {
     m.createRestaurant.mockResolvedValue({ kind: "ok", value: "new-id" });
     renderCreateWithState({ prefill });
-    expect(screen.getByTestId("field-name")).toHaveValue("Fixture Trattoria");
-    expect(screen.getByTestId("field-address")).toHaveValue("1 Fixture Street, Testville");
+    expect(screen.getByTestId("field-name")).toHaveValue("");
+    expect(screen.getByTestId("field-address")).toHaveValue("");
+    expect(screen.getByTestId("prefill-notice")).toHaveTextContent("Linked to a Google Maps place");
     expect(screen.getByTestId("prefill-notice").querySelector("a")).toHaveAttribute(
       "href",
-      "https://www.google.com/maps/search/?api=1&query=Fixture%20Trattoria&query_place_id=fixture-01",
+      "https://www.google.com/maps/place/?q=place_id:fixture-01",
     );
+    await userEvent.type(screen.getByTestId("field-name"), "Trattoria as we know it");
+    await userEvent.type(screen.getByTestId("field-address"), "Rua Nossa 1");
     await userEvent.type(screen.getByTestId("field-phone"), "+351 21 000");
     await userEvent.click(screen.getByTestId("save-restaurant"));
     await waitFor(() => expect(screen.getByTestId("detail-page")).toBeInTheDocument());
     expect(m.createRestaurant).toHaveBeenCalledWith("home", "ava-uid", {
-      name: "Fixture Trattoria",
-      address: "1 Fixture Street, Testville",
+      name: "Trattoria as we know it",
+      address: "Rua Nossa 1",
       phone: "+351 21 000",
       googlePlaceId: "fixture-01",
     });
@@ -205,6 +208,8 @@ describe("RestaurantFormPage — create from a Discover result", () => {
     renderCreateWithState({ prefill });
     act(() => emitList({ status: "ready", value: [{ ...stored, id: "r-existing", googlePlaceId: "fixture-01" }] }));
     expect(screen.getByTestId("prefill-duplicate").querySelector("a")).toHaveAttribute("href", "/restaurants/r-existing");
+    await userEvent.type(screen.getByTestId("field-name"), "Trattoria as we know it");
+    await userEvent.type(screen.getByTestId("field-address"), "Rua Nossa 1");
     await userEvent.click(screen.getByTestId("save-restaurant"));
     await waitFor(() => expect(screen.getByTestId("detail-page")).toBeInTheDocument());
     expect(m.createRestaurant).not.toHaveBeenCalled();
@@ -215,6 +220,8 @@ describe("RestaurantFormPage — create from a Discover result", () => {
     renderCreateWithState({ prefill });
     act(() => emitList({ status: "ready", value: [{ ...stored, id: "r-old", googlePlaceId: "fixture-01", deleting: true }] }));
     expect(screen.queryByTestId("prefill-duplicate")).not.toBeInTheDocument();
+    await userEvent.type(screen.getByTestId("field-name"), "Trattoria as we know it");
+    await userEvent.type(screen.getByTestId("field-address"), "Rua Nossa 1");
     await userEvent.click(screen.getByTestId("save-restaurant"));
     await waitFor(() => expect(m.createRestaurant).toHaveBeenCalled());
   });
@@ -234,10 +241,19 @@ describe("RestaurantFormPage — create from a Discover result", () => {
 
 describe("readPrefill", () => {
   it("accepts a well-formed prefill and trims it", () => {
-    expect(readPrefill({ prefill: { name: " A ", address: " B ", googlePlaceId: " p " } })).toEqual({ name: "A", address: "B", googlePlaceId: "p" });
+    expect(readPrefill({ prefill: { googlePlaceId: " p " } })).toEqual({ googlePlaceId: "p" });
   });
-  it.each([null, undefined, {}, { prefill: null }, { prefill: { name: "A", address: "B" } }, { prefill: { name: "", address: "B", googlePlaceId: "p" } }, { prefill: { name: "A", address: "B", googlePlaceId: "x".repeat(201) } }])(
-    "returns null for %j",
-    (state) => expect(readPrefill(state)).toBeNull(),
-  );
+  it("ignores a legacy prefill's extra name/address keys (a stale history entry from before this change)", () => {
+    expect(readPrefill({ prefill: { name: "A", address: "B", googlePlaceId: "p" } })).toEqual({ googlePlaceId: "p" });
+  });
+  it.each([
+    null,
+    undefined,
+    {},
+    { prefill: null },
+    { prefill: {} },
+    { prefill: { googlePlaceId: "" } },
+    { prefill: { googlePlaceId: "x".repeat(201) } },
+    { prefill: { googlePlaceId: 1 } },
+  ])("returns null for %j", (state) => expect(readPrefill(state)).toBeNull());
 });

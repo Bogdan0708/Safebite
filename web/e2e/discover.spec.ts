@@ -150,20 +150,22 @@ test("9. Near me without permission shows the denied state and calls nothing", a
   await expect(page.getByTestId("discover-result")).toHaveCount(10);
 });
 
-test("10. Add to our records prefills the form; the saved record links to Google Maps and the result shows In our records", async ({ page, request }) => {
+test("10. Add to our records carries only the place id; the member types name and address; the saved record links to Google Maps and the result shows In our records", async ({ page, request }) => {
   await openDiscover(page);
   await search(page, "Lisbon");
   await page.getByTestId("result-add").first().click();
-  await expect(page.getByTestId("field-name")).toHaveValue("Fixture Trattoria");
-  await expect(page.getByTestId("field-address")).toHaveValue("1 Fixture Street, Testville");
-  await expect(page.getByTestId("prefill-notice")).toContainText("From Google Maps");
+  await expect(page.getByTestId("field-name")).toHaveValue("");
+  await expect(page.getByTestId("field-address")).toHaveValue("");
+  await expect(page.getByTestId("prefill-notice")).toContainText("Linked to a Google Maps place");
+  await page.getByTestId("field-name").fill("Trattoria as we know it");
+  await page.getByTestId("field-address").fill("Rua Nossa 1");
   await page.getByTestId("save-restaurant").click();
-  await expect(page.getByTestId("restaurant-name")).toHaveText("Fixture Trattoria");
+  await expect(page.getByTestId("restaurant-name")).toHaveText("Trattoria as we know it");
   await expect(page.getByTestId("restaurant-maps")).toHaveAttribute("href", /query_place_id=fixture-01$/);
 
   const [rid] = await listRestaurantIds(request);
   const stored = await getRestaurant(request, rid!);
-  expect(stored).toMatchObject({ name: "Fixture Trattoria", address: "1 Fixture Street, Testville", googlePlaceId: "fixture-01" });
+  expect(stored).toMatchObject({ name: "Trattoria as we know it", address: "Rua Nossa 1", googlePlaceId: "fixture-01" });
   expect(stored).not.toHaveProperty("lat");
   expect(stored).not.toHaveProperty("lng");
 
@@ -212,4 +214,16 @@ test("13. leaving Discover before the position resolves never starts a paid sear
   await page.evaluate(() => Reflect.get(window, "__resolveDelayedLocation")());
   await page.waitForTimeout(2_000);
   expect(nearbyRequests).toHaveLength(0);
+});
+
+test("14. nothing Google-derived reaches browser history when a result is added but not saved (audit F2)", async ({ page, request }) => {
+  await openDiscover(page);
+  await search(page, "Lisbon");
+  await page.getByTestId("result-add").first().click();
+  await expect(page.getByTestId("field-name")).toHaveValue("");
+  await page.reload();
+  await expect(page.getByTestId("field-name")).toHaveValue("");
+  const historyState = await page.evaluate(() => window.history.state);
+  expect(historyState.usr.prefill).toEqual({ googlePlaceId: "fixture-01" });
+  expect(await listRestaurantIds(request)).toHaveLength(0);
 });

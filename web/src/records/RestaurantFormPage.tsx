@@ -1,7 +1,7 @@
 import { useState, type SubmitEvent } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router";
 import type { RestaurantPrefill } from "../discover/DiscoverPage";
-import { placeUrl } from "../discover/links";
+import { placeIdUrl } from "../discover/links";
 import { outcomeMessage } from "./messages";
 import { createRestaurant, deleteRestaurant, updateRestaurant, watchRestaurant, watchRestaurants, type DeleteStep, type WriteOutcome } from "./repository";
 import { ReadStateNotice } from "./ReadStateNotice";
@@ -26,16 +26,17 @@ interface Draft {
   baseVersion: number;
 }
 
-/** Router state from Discover's "Add to our records". Anything malformed is ignored (no prefill). */
+/** Router state from Discover's "Add to our records". Only the place id crosses (audit S1/F2); a
+ * legacy entry's extra `name`/`address` keys (from before this change) are ignored, not rejected.
+ * Anything malformed is ignored (no prefill). */
 export function readPrefill(state: unknown): RestaurantPrefill | null {
   const prefill = (state as { prefill?: unknown } | null)?.prefill;
   if (typeof prefill !== "object" || prefill === null) return null;
-  const { name, address, googlePlaceId } = prefill as Record<string, unknown>;
-  if (typeof name !== "string" || typeof address !== "string" || typeof googlePlaceId !== "string") return null;
-  const trimmed = { name: name.trim(), address: address.trim(), googlePlaceId: googlePlaceId.trim() };
-  if (trimmed.name === "" || trimmed.googlePlaceId === "" || trimmed.googlePlaceId.length > LIMITS.googlePlaceId) return null;
-  if (trimmed.name.length > LIMITS.name || trimmed.address.length > LIMITS.address) return null;
-  return trimmed;
+  const { googlePlaceId } = prefill as Record<string, unknown>;
+  if (typeof googlePlaceId !== "string") return null;
+  const trimmed = googlePlaceId.trim();
+  if (trimmed === "" || trimmed.length > LIMITS.googlePlaceId) return null;
+  return { googlePlaceId: trimmed };
 }
 
 export function RestaurantFormPage({ mode }: { mode: "create" | "edit" }) {
@@ -55,9 +56,10 @@ export function RestaurantFormPage({ mode }: { mode: "create" | "edit" }) {
   const remote = state.status === "ready" || state.status === "offline" ? state.value : null;
 
   // The draft is seeded once from the first snapshot; later snapshots only update `remote`
-  // (audit F2). A clean draft follows remote silently; a dirty one keeps its fields.
-  const seed: RawRestaurantForm = prefill ? { name: prefill.name, address: prefill.address, phone: "", website: "" } : EMPTY;
-  const [draft, setDraft] = useState<Draft | null>(mode === "create" ? { form: seed, seededFrom: seed, baseVersion: 0 } : null);
+  // (audit F2). A clean draft follows remote silently; a dirty one keeps its fields. A prefill
+  // carries only the Google place id (audit S1/F2), so a create draft always starts empty — the
+  // member types the name and address themselves.
+  const [draft, setDraft] = useState<Draft | null>(mode === "create" ? { form: EMPTY, seededFrom: EMPTY, baseVersion: 0 } : null);
   const [errors, setErrors] = useState<FieldErrors<RestaurantField>>({});
   const [outcome, setOutcome] = useState<WriteOutcome["kind"] | null>(null);
   const [busy, setBusy] = useState(false);
@@ -139,7 +141,7 @@ export function RestaurantFormPage({ mode }: { mode: "create" | "edit" }) {
       <h2>{mode === "create" ? "Add restaurant" : "Edit restaurant"}</h2>
       {prefill && (
         <p className="notice" data-testid="prefill-notice">
-          From Google Maps: <a href={placeUrl(prefill.name, prefill.googlePlaceId)} target="_blank" rel="noopener noreferrer">{prefill.name}</a>. Check the details before saving; only what you save is stored.
+          Linked to a Google Maps place: <a href={placeIdUrl(prefill.googlePlaceId)} target="_blank" rel="noopener noreferrer">open it</a>. Enter the name and address as you know them; nothing from Google is stored except the link.
         </p>
       )}
       {existingId && (

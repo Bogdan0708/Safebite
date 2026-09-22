@@ -162,7 +162,7 @@ describe("DiscoverPage", () => {
     await userEvent.click(screen.getAllByTestId("result-add")[1]!);
     await waitFor(() => expect(screen.getByTestId("new-restaurant-state")).toBeInTheDocument());
     expect(JSON.parse(screen.getByTestId("new-restaurant-state").textContent!)).toEqual({
-      prefill: { name: "Place 2", address: "2 Street", googlePlaceId: "p2" },
+      prefill: { googlePlaceId: "p2" },
     });
   });
 });

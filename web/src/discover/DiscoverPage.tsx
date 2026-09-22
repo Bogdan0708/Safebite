@@ -21,10 +21,9 @@ export const REASON_TEXT: Record<SearchErrorReason, string> = {
   invalid: "Enter a destination to search for.",
 };
 
-/** Router state for /restaurants/new (read by RestaurantFormPage). Name and address are what the member saw; nothing else from Google. */
+/** Router state for /restaurants/new (read by RestaurantFormPage). Only the place id crosses to
+ * the form (audit S1/F2): Google's name and address are shown here and never stored or carried. */
 export interface RestaurantPrefill {
-  name: string;
-  address: string;
   googlePlaceId: string;
 }
 
@@ -103,7 +102,7 @@ export function DiscoverPage() {
   }
 
   function onAdd(result: DiscoveryResult) {
-    const prefill: RestaurantPrefill = { name: result.name, address: result.address, googlePlaceId: result.placeId };
+    const prefill: RestaurantPrefill = { googlePlaceId: result.placeId };
     void navigate("/restaurants/new", { state: { prefill } });
   }
 
