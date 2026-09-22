@@ -10,15 +10,17 @@ const m = vi.hoisted(() => ({
   updateRestaurant: vi.fn(),
   deleteRestaurant: vi.fn(),
   watchRestaurant: vi.fn(),
+  watchRestaurants: vi.fn(),
 }));
 vi.mock("./repository", () => m);
 vi.mock("../auth/AuthProvider", () => ({
   useAuth: () => ({ state: { status: "member", uid: "ava-uid", email: "ava@safebite.test", householdId: "home", displayName: "Ava" }, signOut: vi.fn() }),
 }));
 
-import { RestaurantFormPage } from "./RestaurantFormPage";
+import { RestaurantFormPage, readPrefill } from "./RestaurantFormPage";
 
 let emit: (s: Snapshot<Restaurant>) => void = () => {};
+let emitList: (s: Snapshot<Restaurant[]>) => void = () => {};
 const stored: Restaurant = {
   id: "r1",
   name: "Da Marco",
@@ -36,6 +38,11 @@ const stored: Restaurant = {
 beforeEach(() => {
   m.watchRestaurant.mockImplementation((_h: string, _r: string, cb: (s: Snapshot<Restaurant>) => void) => {
     emit = cb;
+    return () => {};
+  });
+  m.watchRestaurants.mockImplementation((_h: string, cb: (s: Snapshot<Restaurant[]>) => void) => {
+    emitList = cb;
+    cb({ status: "ready", value: [] });
     return () => {};
   });
 });
@@ -158,4 +165,79 @@ describe("RestaurantFormPage — edit", () => {
     await waitFor(() => expect(screen.getByTestId("list-page")).toBeInTheDocument());
     expect(m.deleteRestaurant).toHaveBeenCalledWith("home", "r1", 3, expect.any(Function));
   });
+});
+
+function renderCreateWithState(state: unknown) {
+  return render(
+    <MemoryRouter initialEntries={[{ pathname: "/restaurants/new", state }]}>
+      <Routes>
+        <Route path="/restaurants/new" element={<RestaurantFormPage mode="create" />} />
+        <Route path="/restaurants/:rid" element={<p data-testid="detail-page">detail</p>} />
+      </Routes>
+    </MemoryRouter>,
+  );
+}
+
+describe("RestaurantFormPage — create from a Discover result", () => {
+  const prefill = { name: "Fixture Trattoria", address: "1 Fixture Street, Testville", googlePlaceId: "fixture-01" };
+
+  it("seeds a clean draft from the prefill, shows the From Google Maps notice, and writes the place id", async () => {
+    m.createRestaurant.mockResolvedValue({ kind: "ok", value: "new-id" });
+    renderCreateWithState({ prefill });
+    expect(screen.getByTestId("field-name")).toHaveValue("Fixture Trattoria");
+    expect(screen.getByTestId("field-address")).toHaveValue("1 Fixture Street, Testville");
+    expect(screen.getByTestId("prefill-notice").querySelector("a")).toHaveAttribute(
+      "href",
+      "https://www.google.com/maps/search/?api=1&query=Fixture%20Trattoria&query_place_id=fixture-01",
+    );
+    await userEvent.type(screen.getByTestId("field-phone"), "+351 21 000");
+    await userEvent.click(screen.getByTestId("save-restaurant"));
+    await waitFor(() => expect(screen.getByTestId("detail-page")).toBeInTheDocument());
+    expect(m.createRestaurant).toHaveBeenCalledWith("home", "ava-uid", {
+      name: "Fixture Trattoria",
+      address: "1 Fixture Street, Testville",
+      phone: "+351 21 000",
+      googlePlaceId: "fixture-01",
+    });
+  });
+
+  it("redirects to the existing record instead of creating a duplicate", async () => {
+    renderCreateWithState({ prefill });
+    act(() => emitList({ status: "ready", value: [{ ...stored, id: "r-existing", googlePlaceId: "fixture-01" }] }));
+    expect(screen.getByTestId("prefill-duplicate").querySelector("a")).toHaveAttribute("href", "/restaurants/r-existing");
+    await userEvent.click(screen.getByTestId("save-restaurant"));
+    await waitFor(() => expect(screen.getByTestId("detail-page")).toBeInTheDocument());
+    expect(m.createRestaurant).not.toHaveBeenCalled();
+  });
+
+  it("does not treat a record being deleted as a duplicate", async () => {
+    m.createRestaurant.mockResolvedValue({ kind: "ok", value: "new-id" });
+    renderCreateWithState({ prefill });
+    act(() => emitList({ status: "ready", value: [{ ...stored, id: "r-old", googlePlaceId: "fixture-01", deleting: true }] }));
+    expect(screen.queryByTestId("prefill-duplicate")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByTestId("save-restaurant"));
+    await waitFor(() => expect(m.createRestaurant).toHaveBeenCalled());
+  });
+
+  it("ignores a malformed prefill", () => {
+    renderCreateWithState({ prefill: { name: 1, address: "x", googlePlaceId: "" } });
+    expect(screen.getByTestId("field-name")).toHaveValue("");
+    expect(screen.queryByTestId("prefill-notice")).not.toBeInTheDocument();
+    expect(m.watchRestaurants).not.toHaveBeenCalled();
+  });
+
+  it("does not subscribe to the records list for a plain create", () => {
+    renderAt("/restaurants/new");
+    expect(m.watchRestaurants).not.toHaveBeenCalled();
+  });
+});
+
+describe("readPrefill", () => {
+  it("accepts a well-formed prefill and trims it", () => {
+    expect(readPrefill({ prefill: { name: " A ", address: " B ", googlePlaceId: " p " } })).toEqual({ name: "A", address: "B", googlePlaceId: "p" });
+  });
+  it.each([null, undefined, {}, { prefill: null }, { prefill: { name: "A", address: "B" } }, { prefill: { name: "", address: "B", googlePlaceId: "p" } }, { prefill: { name: "A", address: "B", googlePlaceId: "x".repeat(201) } }])(
+    "returns null for %j",
+    (state) => expect(readPrefill(state)).toBeNull(),
+  );
 });

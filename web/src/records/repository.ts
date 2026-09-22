@@ -164,6 +164,7 @@ export function createRestaurant(hid: string, uid: string, input: RestaurantInpu
     const data: DocumentData = { name: input.name, address: input.address, createdBy: uid, createdAt: serverTimestamp(), updatedAt: serverTimestamp(), version: 1, deleting: false };
     if (input.phone !== undefined) data.phone = input.phone;
     if (input.website !== undefined) data.website = input.website;
+    if (input.googlePlaceId !== undefined) data.googlePlaceId = input.googlePlaceId;
     tx.set(ref, data);
     return ref.id;
   });

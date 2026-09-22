@@ -1,12 +1,14 @@
 import { useState, type SubmitEvent } from "react";
-import { Link, useNavigate, useParams } from "react-router";
+import { Link, useLocation, useNavigate, useParams } from "react-router";
+import type { RestaurantPrefill } from "../discover/DiscoverPage";
+import { placeUrl } from "../discover/links";
 import { outcomeMessage } from "./messages";
-import { createRestaurant, deleteRestaurant, updateRestaurant, watchRestaurant, type DeleteStep, type WriteOutcome } from "./repository";
+import { createRestaurant, deleteRestaurant, updateRestaurant, watchRestaurant, watchRestaurants, type DeleteStep, type WriteOutcome } from "./repository";
 import { ReadStateNotice } from "./ReadStateNotice";
-import type { Restaurant } from "./types";
+import type { Restaurant, RestaurantInput } from "./types";
 import { useMember } from "./useMember";
 import { useWatch } from "./useWatch";
-import { normaliseRestaurantInput, validateRestaurantInput, type FieldErrors, type RawRestaurantForm, type RestaurantField } from "./validation";
+import { LIMITS, normaliseRestaurantInput, validateRestaurantInput, type FieldErrors, type RawRestaurantForm, type RestaurantField } from "./validation";
 
 const EMPTY: RawRestaurantForm = { name: "", address: "", phone: "", website: "" };
 const STEP_TEXT: Record<DeleteStep, string> = { marking: "Marking…", sweeping: "Removing evidence…", removing: "Removing restaurant…" };
@@ -24,16 +26,38 @@ interface Draft {
   baseVersion: number;
 }
 
+/** Router state from Discover's "Add to our records". Anything malformed is ignored (no prefill). */
+export function readPrefill(state: unknown): RestaurantPrefill | null {
+  const prefill = (state as { prefill?: unknown } | null)?.prefill;
+  if (typeof prefill !== "object" || prefill === null) return null;
+  const { name, address, googlePlaceId } = prefill as Record<string, unknown>;
+  if (typeof name !== "string" || typeof address !== "string" || typeof googlePlaceId !== "string") return null;
+  const trimmed = { name: name.trim(), address: address.trim(), googlePlaceId: googlePlaceId.trim() };
+  if (trimmed.name === "" || trimmed.googlePlaceId === "" || trimmed.googlePlaceId.length > LIMITS.googlePlaceId) return null;
+  if (trimmed.name.length > LIMITS.name || trimmed.address.length > LIMITS.address) return null;
+  return trimmed;
+}
+
 export function RestaurantFormPage({ mode }: { mode: "create" | "edit" }) {
   const { householdId, uid } = useMember();
   const { rid } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
+  const prefill = mode === "create" ? readPrefill(location.state) : null;
+  const placeId = prefill?.googlePlaceId;
+  // Only a prefilled create watches the list: it is how "already in our records" is detected.
+  const records = useWatch<Restaurant[]>((cb) => (placeId ? watchRestaurants(householdId, cb) : () => {}), [householdId, placeId]);
+  let existingId: string | undefined;
+  if (placeId && (records.state.status === "ready" || records.state.status === "offline")) {
+    existingId = records.state.value.find((r) => r.googlePlaceId === placeId && !r.deleting)?.id;
+  }
   const { state, retry } = useWatch<Restaurant>((cb) => (mode === "edit" && rid ? watchRestaurant(householdId, rid, cb) : () => {}), [householdId, rid, mode]);
   const remote = state.status === "ready" || state.status === "offline" ? state.value : null;
 
   // The draft is seeded once from the first snapshot; later snapshots only update `remote`
   // (audit F2). A clean draft follows remote silently; a dirty one keeps its fields.
-  const [draft, setDraft] = useState<Draft | null>(mode === "create" ? { form: EMPTY, seededFrom: EMPTY, baseVersion: 0 } : null);
+  const seed: RawRestaurantForm = prefill ? { name: prefill.name, address: prefill.address, phone: "", website: "" } : EMPTY;
+  const [draft, setDraft] = useState<Draft | null>(mode === "create" ? { form: seed, seededFrom: seed, baseVersion: 0 } : null);
   const [errors, setErrors] = useState<FieldErrors<RestaurantField>>({});
   const [outcome, setOutcome] = useState<WriteOutcome["kind"] | null>(null);
   const [busy, setBusy] = useState(false);
@@ -66,11 +90,16 @@ export function RestaurantFormPage({ mode }: { mode: "create" | "edit" }) {
   async function onSubmit(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!draft) return;
-    const input = normaliseRestaurantInput(draft.form);
+    const input: RestaurantInput = { ...normaliseRestaurantInput(draft.form), ...(placeId ? { googlePlaceId: placeId } : {}) };
     const problems = validateRestaurantInput(input);
     setErrors(problems);
     setOutcome(null);
     if (Object.keys(problems).length > 0) return;
+    if (mode === "create" && existingId) {
+      // A member added this place meanwhile (or before): open it rather than create a twin.
+      void navigate(`/restaurants/${existingId}`);
+      return;
+    }
     setBusy(true);
     const result = mode === "create" ? await createRestaurant(householdId, uid, input) : await updateRestaurant(householdId, rid!, draft.baseVersion, input);
     setBusy(false);
@@ -108,6 +137,16 @@ export function RestaurantFormPage({ mode }: { mode: "create" | "edit" }) {
   return (
     <section>
       <h2>{mode === "create" ? "Add restaurant" : "Edit restaurant"}</h2>
+      {prefill && (
+        <p className="notice" data-testid="prefill-notice">
+          From Google Maps: <a href={placeUrl(prefill.name, prefill.googlePlaceId)} target="_blank" rel="noopener noreferrer">{prefill.name}</a>. Check the details before saving; only what you save is stored.
+        </p>
+      )}
+      {existingId && (
+        <p className="notice" role="status" data-testid="prefill-duplicate">
+          This place is already in our records. <Link to={`/restaurants/${existingId}`}>Open it</Link>
+        </p>
+      )}
       {mode === "edit" && <ReadStateNotice state={state} onRetry={retry} />}
       {changedElsewhere && (
         <div className="notice" role="status" data-testid="changed-elsewhere">

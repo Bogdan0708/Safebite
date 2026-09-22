@@ -113,6 +113,14 @@ describe("createRestaurant", () => {
     expect(data.updatedAt).toEqual(serverTimestamp());
     expect("phone" in data).toBe(false);
   });
+
+  it("writes googlePlaceId when the input carries one, and omits it otherwise", async () => {
+    const tx = fakeTx({ exists: false });
+    await createRestaurant("home", "ava-uid", { name: "Casa", address: "1 Rua", googlePlaceId: "ChIJ-1" });
+    expect(tx.set).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({ name: "Casa", googlePlaceId: "ChIJ-1", version: 1, deleting: false }));
+    await createRestaurant("home", "ava-uid", { name: "Casa", address: "1 Rua" });
+    expect((tx.set.mock.calls[1]![1] as Record<string, unknown>)).not.toHaveProperty("googlePlaceId");
+  });
 });
 
 describe("updateRestaurant", () => {

@@ -47,12 +47,17 @@ export interface Restaurant {
   deleting: boolean;
 }
 
-/** What the restaurant form edits. Coordinates and place id are Plan 3's; the form never touches them. */
+/**
+ * What the restaurant form edits. `googlePlaceId` is set only when a record is created from a
+ * Discover result (Plan 3 ruling 1); the edit form never shows or changes it. Coordinates are
+ * never written (Google's terms allow caching them for 30 days only).
+ */
 export interface RestaurantInput {
   name: string;
   address: string;
   phone?: string;
   website?: string;
+  googlePlaceId?: string;
 }
 
 export interface ClaimSource {

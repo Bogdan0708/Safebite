@@ -122,4 +122,18 @@ describe("RestaurantDetailPage", () => {
     expect(screen.getByTestId("add-evidence")).toHaveAttribute("aria-disabled", "true");
     expect(screen.getByTestId("read-offline")).toBeInTheDocument();
   });
+
+  it("links to Google Maps from stored fields when the record holds a place id", () => {
+    renderPage();
+    act(() => { emitRestaurant({ status: "ready", value: { ...restaurant, googlePlaceId: "ChIJ-1" } }); emitClaims({ status: "ready", value: [] }); });
+    const link = screen.getByTestId("restaurant-maps");
+    expect(link).toHaveAttribute("href", "https://www.google.com/maps/search/?api=1&query=Da%20Marco&query_place_id=ChIJ-1");
+    expect(link).toHaveAttribute("rel", "noopener noreferrer");
+  });
+
+  it("shows no Maps link without a place id", () => {
+    renderPage();
+    act(() => { emitRestaurant({ status: "ready", value: restaurant }); emitClaims({ status: "ready", value: [] }); });
+    expect(screen.queryByTestId("restaurant-maps")).not.toBeInTheDocument();
+  });
 });

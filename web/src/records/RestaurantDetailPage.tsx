@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Link, useParams } from "react-router";
+import { placeUrl } from "../discover/links";
 import { CALL_AHEAD_GROUPS } from "./callAhead";
 import { formatCalendarDate } from "./dates";
 import { evidenceStatus, summariseEvidence, type KindEvidence } from "./evidence";
@@ -86,6 +87,9 @@ export function RestaurantDetailPage() {
       <p className="actions">
         {restaurant.phone && <a data-testid="restaurant-phone" href={`tel:${restaurant.phone.replace(/\s+/g, "")}`}>Call {restaurant.phone}</a>}
         {restaurant.website && <a data-testid="restaurant-website" href={restaurant.website} target="_blank" rel="noreferrer">Website</a>}
+        {restaurant.googlePlaceId && (
+          <a data-testid="restaurant-maps" href={placeUrl(restaurant.name, restaurant.googlePlaceId)} target="_blank" rel="noopener noreferrer">Open in Google Maps</a>
+        )}
         <Link data-testid="edit-restaurant" to={`/restaurants/${restaurant.id}/edit`}>Edit</Link>
       </p>
 
