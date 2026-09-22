@@ -38,6 +38,14 @@
       "displayName": { "text": "Sem Tipos" },
       "formattedAddress": "9 Rua Exemplo, 1400-000 Lisboa, Portugal",
       "businessStatus": "OPERATIONAL"
+    },
+    {
+      "id": "ChIJfixture0000000000000007",
+      "displayName": { "text": "Padaria Sem Glúten" },
+      "formattedAddress": "9 Rua Doce, Lisboa, Portugal",
+      "googleMapsUri": "https://maps.google.com/?cid=7777777777777777777",
+      "businessStatus": "OPERATIONAL",
+      "types": ["bakery", "store", "food", "point_of_interest", "establishment"]
     }
   ]
 }

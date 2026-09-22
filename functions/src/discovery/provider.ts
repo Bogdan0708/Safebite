@@ -16,11 +16,13 @@ export type ProviderFailureKind = "quota" | "unavailable" | "badRequest";
 export class ProviderError extends Error {
   readonly kind: ProviderFailureKind;
   readonly status?: number;
-  constructor(kind: ProviderFailureKind, message: string, status?: number) {
+  readonly googleStatus?: string;
+  constructor(kind: ProviderFailureKind, message: string, status?: number, googleStatus?: string) {
     super(message);
     this.name = "ProviderError";
     this.kind = kind;
     this.status = status;
+    this.googleStatus = googleStatus;
   }
 }
 

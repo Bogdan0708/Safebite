@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { FIELD_MASK, REQUEST_TIMEOUT_MS, createGoogleProvider, mapPlacesResponse } from "../src/discovery/googleProvider";
+import { FIELD_MASK, REQUEST_TIMEOUT_MS, VENUE_TYPES, createGoogleProvider, mapPlacesResponse } from "../src/discovery/googleProvider";
 
 const recorded = JSON.parse(readFileSync(path.resolve(__dirname, "fixtures/places-searchText.json"), "utf8")) as unknown;
 
@@ -25,17 +25,37 @@ describe("mapPlacesResponse", () => {
         address: "",
         googleMapsUri: "https://www.google.com/maps/place/?q=place_id:ChIJfixture0000000000000004",
       },
+      {
+        placeId: "ChIJfixture0000000000000007",
+        name: "Padaria Sem Glúten",
+        address: "9 Rua Doce, Lisboa, Portugal",
+        googleMapsUri: "https://maps.google.com/?cid=7777777777777777777",
+      },
     ]);
   });
 
   it("drops localities and places without types", () => {
     // Same fixture: a locality (types: ["locality", "political"]) and a place with no `types` at
-    // all are both present alongside the two kept restaurants — proving both are excluded by the
-    // types check, independent of the closed/nameless drops above (audit F3).
+    // all are both present alongside the kept restaurants and the bakery — proving both are
+    // excluded by the types check, independent of the closed/nameless drops above (audit F3).
     const results = mapPlacesResponse(recorded);
-    expect(results.map((r) => r.placeId)).toEqual(["ChIJfixture0000000000000001", "ChIJfixture0000000000000004"]);
+    expect(results.map((r) => r.placeId)).toEqual([
+      "ChIJfixture0000000000000001",
+      "ChIJfixture0000000000000004",
+      "ChIJfixture0000000000000007",
+    ]);
     expect(results.some((r) => r.name === "Lisboa")).toBe(false);
     expect(results.some((r) => r.name === "Sem Tipos")).toBe(false);
+  });
+
+  it("keeps bakeries and cafés, drops localities", () => {
+    // Controller ruling (Fix F): VENUE_TYPES includes restaurant, cafe, bakery, bar and
+    // meal_takeaway, so a dedicated gluten-free bakery like entry #7 must survive the mapper while
+    // a locality (types: ["locality", "political"]) is still dropped.
+    const results = mapPlacesResponse(recorded);
+    expect(VENUE_TYPES).toEqual(["restaurant", "cafe", "bakery", "bar", "meal_takeaway"]);
+    expect(results.some((r) => r.placeId === "ChIJfixture0000000000000007" && r.name === "Padaria Sem Glúten")).toBe(true);
+    expect(results.some((r) => r.name === "Lisboa")).toBe(false);
   });
 
   it("treats a response without places as empty", () => {
@@ -58,12 +78,13 @@ describe("createGoogleProvider — requests", () => {
       "X-Goog-Api-Key": "test-key",
       "X-Goog-FieldMask": FIELD_MASK,
     });
-    expect(JSON.parse(init.body as string)).toEqual({
+    const parsedBody = JSON.parse(init.body as string);
+    expect(parsedBody).toEqual({
       textQuery: "Lisbon gluten free",
       maxResultCount: 10,
       includedType: "restaurant",
-      strictTypeFiltering: true,
     });
+    expect(parsedBody).not.toHaveProperty("strictTypeFiltering");
     expect(init.signal).toBeInstanceOf(AbortSignal);
   });
 
@@ -75,14 +96,14 @@ describe("createGoogleProvider — requests", () => {
     expect(FIELD_MASK).toContain("places.types");
   });
 
-  it("sends Nearby Search with a restaurant type and a circle restriction", async () => {
+  it("sends Nearby Search with the venue types and a circle restriction", async () => {
     const fetchMock = vi.fn(async () => jsonResponse(200, { places: [] }));
     const provider = createGoogleProvider("test-key", fetchMock as unknown as typeof fetch);
     await expect(provider.searchNearby(51.5, -0.12, 1500, 10)).resolves.toEqual([]);
     const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     expect(url).toBe("https://places.googleapis.com/v1/places:searchNearby");
     expect(JSON.parse(init.body as string)).toEqual({
-      includedTypes: ["restaurant"],
+      includedTypes: ["restaurant", "cafe", "bakery", "bar", "meal_takeaway"],
       maxResultCount: 10,
       locationRestriction: { circle: { center: { latitude: 51.5, longitude: -0.12 }, radius: 1500 } },
     });
@@ -121,6 +142,16 @@ describe("createGoogleProvider — failures", () => {
   it("carries Google's error message on a bad request so the callable can log it", async () => {
     const fetchMock = vi.fn(async () => jsonResponse(400, { error: { message: "Invalid field mask", status: "INVALID_ARGUMENT" } }));
     const provider = createGoogleProvider("k", fetchMock as unknown as typeof fetch);
-    await expect(provider.searchText("x", 10)).rejects.toMatchObject({ kind: "badRequest", message: expect.stringContaining("Invalid field mask") });
+    await expect(provider.searchText("x", 10)).rejects.toMatchObject({
+      kind: "badRequest",
+      message: expect.stringContaining("Invalid field mask"),
+      googleStatus: "INVALID_ARGUMENT",
+    });
+  });
+
+  it("drops a Google error status that is not in the fixed allow-list", async () => {
+    const fetchMock = vi.fn(async () => jsonResponse(400, { error: { message: "weird", status: "SOMETHING_ELSE" } }));
+    const provider = createGoogleProvider("k", fetchMock as unknown as typeof fetch);
+    await expect(provider.searchText("x", 10)).rejects.toMatchObject({ kind: "badRequest", googleStatus: undefined });
   });
 });

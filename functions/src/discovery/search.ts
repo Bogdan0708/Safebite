@@ -82,7 +82,7 @@ export async function runSearch(deps: SearchDeps, member: Member, request: Searc
       // ("discovery.search") — so a `message` field here never reaches the actual log and was only
       // ever exercised by the mock. Log fixed diagnostics only; provider text is never trusted
       // (spec §2.6, §3.6), so it is never logged at all, bounded or not.
-      logger.warn("discovery.search", { ...logBase, durationMs, outcome: err.kind, status: err.status });
+      logger.warn("discovery.search", { ...logBase, durationMs, outcome: err.kind, status: err.status, googleStatus: err.googleStatus });
       switch (err.kind) {
         case "quota":
           throw new HttpsError("resource-exhausted", "The search provider's quota is exhausted.", { reason: "providerQuota" });

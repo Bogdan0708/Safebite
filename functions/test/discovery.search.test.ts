@@ -187,11 +187,11 @@ describe("runSearch — logs never carry caller-supplied content (spec §2.6, §
     expect(logged).not.toContain("-0.987654");
   });
 
-  it("never logs a query a failing provider echoed back in its error message", async () => {
+  it("never logs a query a failing provider echoed back in its error message, but does log Google's error status", async () => {
     const echoedQuery = "zebra-quokka-search-term".repeat(20);
     const { selection } = stubProvider({
       searchText: vi.fn(async () => {
-        throw new ProviderError("unavailable", `upstream rejected: ${echoedQuery}`, 503);
+        throw new ProviderError("unavailable", `upstream rejected: ${echoedQuery}`, 503, "INVALID_ARGUMENT");
       }),
     });
     await expect(runSearch(deps(selection), member, { kind: "destination", query: echoedQuery })).rejects.toMatchObject({ code: "unavailable" });
@@ -202,6 +202,7 @@ describe("runSearch — logs never carry caller-supplied content (spec §2.6, §
     expect(logged).not.toContain("upstream rejected");
     expect(logged).toContain('"outcome":"unavailable"');
     expect(logged).toContain('"status":503');
+    expect(logged).toContain('"googleStatus":"INVALID_ARGUMENT"');
   });
 
   it("never logs an unexpected error's own message text", async () => {
