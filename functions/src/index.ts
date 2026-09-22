@@ -14,3 +14,5 @@ setGlobalOptions({
 export const whoami = onCall<unknown, Promise<Member>>(async (request) => {
   return requireMember(request);
 });
+
+export { searchDestination, searchNearby } from "./discovery/callables";
