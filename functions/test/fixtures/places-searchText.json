@@ -1,0 +1,27 @@
+{
+  "places": [
+    {
+      "id": "ChIJfixture0000000000000001",
+      "formattedAddress": "12 Rua Exemplo, 1100-000 Lisboa, Portugal",
+      "googleMapsUri": "https://maps.google.com/?cid=1111111111111111111",
+      "businessStatus": "OPERATIONAL",
+      "displayName": { "text": "Casa Sem Glúten", "languageCode": "pt" }
+    },
+    {
+      "id": "ChIJfixture0000000000000002",
+      "formattedAddress": "3 Largo Exemplo, 1200-000 Lisboa, Portugal",
+      "googleMapsUri": "https://maps.google.com/?cid=2222222222222222222",
+      "businessStatus": "CLOSED_PERMANENTLY",
+      "displayName": { "text": "Fechado Para Sempre", "languageCode": "pt" }
+    },
+    {
+      "id": "ChIJfixture0000000000000003",
+      "formattedAddress": "7 Travessa Exemplo, 1300-000 Lisboa, Portugal",
+      "businessStatus": "OPERATIONAL"
+    },
+    {
+      "id": "ChIJfixture0000000000000004",
+      "displayName": { "text": "Sem Morada", "languageCode": "pt" }
+    }
+  ]
+}
