@@ -704,7 +704,7 @@ secret `PLACES_API_KEY`, and begin with `requireMember(request)`.
 | Callable | Input | Provider call |
 |----------|-------|---------------|
 | `searchDestination` | `{ query: string }` — trimmed, 1–120 chars | Text Search, `maxResultCount: 10`, no location bias |
-| `searchNearby` | `{ lat: number, lng: number }` — numbers in range | Nearby Search, circle radius 1,500 m, `maxResultCount: 10`, `includedTypes: ["restaurant"]` |
+| `searchNearby` | `{ lat: number, lng: number }` — numbers in range | Nearby Search, circle radius 1,500 m, `maxResultCount: 10`, `includedTypes: ["restaurant", "cafe", "bakery", "bar", "meal_takeaway"]` |
 
 Response: `{ results: DiscoveryResult[], provider: "google" }` with
 `DiscoveryResult = { placeId, name, address, googleMapsUri }`. Field mask:
@@ -713,11 +713,12 @@ Response: `{ results: DiscoveryResult[], provider: "google" }` with
 is not `OPERATIONAL` are dropped server-side. Invalid input → `invalid-argument`. Unknown extra
 keys are ignored; identity comes only from `request.auth`.
 
-Text search sends `includedType: "restaurant"` with `strictTypeFiltering: true` (a bare
-`textQuery` is an unrestricted place lookup, not a restaurant search); the mask includes
-`places.types`; and the mapper independently keeps only places whose `types` include
-`restaurant`, dropping localities and any result with no `types` at all, regardless of what
-Google's own filtering does (audit F3, 2026-09-22).
+Text search sends `includedType: "restaurant"` as a bias (no strict filtering), `places.types`
+in the mask, and the mapper keeps only places typed restaurant, cafe, bakery, bar or
+meal_takeaway (controller ruling 2026-09-22 after the fix-wave review: strict restaurant-only
+filtering would hide dedicated gluten-free bakeries and cafés). Nearby `includedTypes` likewise;
+the mapper drops localities and any result with no `types` at all, regardless of what Google's
+own filtering does (audit F3, 2026-09-22).
 
 #### Provider selection and the secret
 
@@ -770,7 +771,7 @@ interface PlacesProvider {
 |-------|------|-----------|
 | Provider HTTP 429 or `RESOURCE_EXHAUSTED` status | `resource-exhausted` | `{ reason: "providerQuota" }` |
 | Timeout, network failure, HTTP 5xx | `unavailable` | — |
-| HTTP 4xx other than 429 (our request shape is wrong) | `internal` | — (status and Google's message logged) |
+| HTTP 4xx other than 429 (our request shape is wrong) | `internal` | — (status logged; provider text never logged; Google's error status enum logged from a fixed allow-list) |
 | Config disabled or missing | `failed-precondition` | message "Search is switched off" |
 | Not configured (table above) | `failed-precondition` | message "Search is not configured" |
 
@@ -823,7 +824,10 @@ regardless (audit observation, 2026-09-22).
   match exists, and the create submit re-checks the listener's latest snapshot before writing,
   redirecting to the existing record if one appeared meanwhile.
 - **Nothing persists from a search.** Results live only in component state: no cache, no
-  storage, no offline copy. The terms' caching limits are met by construction.
+  storage, no offline copy. The terms' caching limits are met by construction. The one exception
+  is the place ID handed to the record form through router state (`history.state`), which the
+  Places policy allows to be stored indefinitely; no name, address or other Places content ever
+  leaves component state.
 
 #### Tests
 
@@ -841,7 +845,7 @@ regardless (audit observation, 2026-09-22).
 - **Rules:** members cannot read or write `config/discovery` or their household's `usage` docs.
 - **Web unit:** `abortable` reason preservation; `anySignal`; sequencing (a late response for an
   old sequence is dropped); code→reason mapping; offline short-circuit; `DiscoverPage` per state;
-  prefilled form seeding and the duplicate guard; "In our records" matching; detail page link.
+  empty draft with the place-id notice, and the duplicate guard; "In our records" matching; detail page link.
 - **Browser (`web/e2e/discover.spec.ts`):** destination search shows results and the logo;
   empty; switched off; daily cap; provider unavailable; client timeout via `__slow__`; "Near me"
   with Playwright's granted geolocation; "Near me" denied; add to records → save → record shows
