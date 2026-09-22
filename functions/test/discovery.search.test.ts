@@ -1,20 +1,46 @@
-import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+
+// The log-content tests below exercise the REAL firebase-functions/logger, not a mock. Its write()
+// (functions/node_modules/firebase-functions/lib/logger/index.js) spreads the structured payload
+// first, then overwrites `message` with the positional string ("discovery.search") — so a mock
+// that only inspects the object it was handed would never catch a `message` field on that payload
+// being silently discarded, and would not prove what production actually logs (audit observation).
+//
+// write() calls console.info/warn/error through a reference (`UNPATCHED_CONSOLE`) captured once,
+// the first time the logger module loads — so a vi.spyOn(console, ...) or
+// vi.spyOn(process.stdout, "write") set up later (e.g. in beforeEach) never sees these calls: it
+// replaces the `console.info` *property*, but the logger already holds the older function object
+// directly (confirmed empirically; spying after the fact silently captures nothing). Patching
+// console.info/warn/error here, inside vi.hoisted(), runs before any import below — including the
+// transitive import of firebase-functions/logger — so the logger captures OUR wrapper as
+// `UNPATCHED_CONSOLE`, and recording can be toggled per test without reloading any module (which
+// would risk creating a second, distinct firebase-admin/firestore instance whose FieldValue
+// sentinels the original Firestore client does not recognise).
+const logCapture = vi.hoisted(() => {
+  const lines: string[] = [];
+  let recording = false;
+  const wrap =
+    (orig: (...a: unknown[]) => void) =>
+    (...args: unknown[]) => {
+      if (recording) lines.push(args.map(String).join(" "));
+      return orig(...args);
+    };
+  console.info = wrap(console.info.bind(console));
+  console.warn = wrap(console.warn.bind(console));
+  console.error = wrap(console.error.bind(console));
+  return {
+    start: () => { lines.length = 0; recording = true; },
+    stop: () => { recording = false; },
+    text: () => lines.join("\n"),
+  };
+});
+
 import { getApps, initializeApp } from "firebase-admin/app";
 import { getFirestore, type Firestore } from "firebase-admin/firestore";
 import type { Member } from "../src/membership";
 import { ProviderError, type PlacesProvider, type ProviderSelection } from "../src/discovery/provider";
 import { CONFIG_PATH, runSearch, usagePath, type SearchDeps } from "../src/discovery/search";
 import type { DiscoveryResult } from "../src/discovery/types";
-
-// Hoisted above the imports above by vitest. Spies stand in for firebase-functions/logger so the
-// log-content tests below can inspect exactly what would have been written, without touching real
-// logging. Other tests in this file do not assert on logs, so replacing them with no-op spies is safe.
-vi.mock("firebase-functions/logger", () => ({
-  info: vi.fn(),
-  warn: vi.fn(),
-  error: vi.fn(),
-}));
-import * as logger from "firebase-functions/logger";
 
 const member: Member = { uid: "ava", householdId: "home", displayName: "Ava" };
 const NOW = new Date("2026-09-22T10:00:00Z");
@@ -140,16 +166,12 @@ describe("runSearch — provider error mapping", () => {
 });
 
 describe("runSearch — logs never carry caller-supplied content (spec §2.6, §3.6)", () => {
-  const allLoggedText = () =>
-    JSON.stringify([...(logger.info as ReturnType<typeof vi.fn>).mock.calls, ...(logger.warn as ReturnType<typeof vi.fn>).mock.calls, ...(logger.error as ReturnType<typeof vi.fn>).mock.calls]);
+  beforeEach(() => logCapture.start());
+  afterEach(() => logCapture.stop());
 
-  beforeEach(() => {
-    (logger.info as ReturnType<typeof vi.fn>).mockClear();
-    (logger.warn as ReturnType<typeof vi.fn>).mockClear();
-    (logger.error as ReturnType<typeof vi.fn>).mockClear();
-  });
+  const allLoggedText = () => logCapture.text();
 
-  it("never logs a destination query's text", async () => {
+  it("never logs a destination query's text on a successful search", async () => {
     const { selection } = stubProvider();
     await runSearch(deps(selection), member, { kind: "destination", query: "zebra-quokka-search-term" });
     expect(allLoggedText()).not.toContain("zebra-quokka-search-term");
@@ -165,28 +187,38 @@ describe("runSearch — logs never carry caller-supplied content (spec §2.6, §
     expect(logged).not.toContain("-0.987654");
   });
 
-  it("truncates a ProviderError message that echoes the query to at most 200 characters", async () => {
-    const echoedQuery = "zebra-quokka-search-term".repeat(20); // > 200 chars once embedded below
+  it("never logs a query a failing provider echoed back in its error message", async () => {
+    const echoedQuery = "zebra-quokka-search-term".repeat(20);
     const { selection } = stubProvider({
       searchText: vi.fn(async () => {
         throw new ProviderError("unavailable", `upstream rejected: ${echoedQuery}`, 503);
       }),
     });
     await expect(runSearch(deps(selection), member, { kind: "destination", query: echoedQuery })).rejects.toMatchObject({ code: "unavailable" });
-    const warnCalls = (logger.warn as ReturnType<typeof vi.fn>).mock.calls;
-    expect(warnCalls).toHaveLength(1);
-    const loggedMessage = (warnCalls[0]?.[1] as { message: string }).message;
-    // The provider echoed the query, so the cap does not remove it from the logged text — only the
-    // length is guaranteed bounded.
-    expect(loggedMessage.length).toBeLessThanOrEqual(200);
+    const logged = allLoggedText();
+    // Fixed diagnostics only (audit observation): the ProviderError branch logs outcome/status, and
+    // never the provider's own text, so the echoed query cannot appear at any length.
+    expect(logged).not.toContain(echoedQuery);
+    expect(logged).not.toContain("upstream rejected");
+    expect(logged).toContain('"outcome":"unavailable"');
+    expect(logged).toContain('"status":503');
   });
 
-  it("truncates an unexpected error's message to at most 200 characters", async () => {
-    const { selection } = stubProvider({ searchText: vi.fn(async () => { throw new TypeError("b".repeat(500)); }) });
+  it("never logs an unexpected error's own message text", async () => {
+    const { selection } = stubProvider({ searchText: vi.fn(async () => { throw new TypeError("zebra-quokka-unexpected-marker"); }) });
     await expect(runSearch(deps(selection), member, { kind: "destination", query: "x" })).rejects.toMatchObject({ code: "internal" });
-    const errorCalls = (logger.error as ReturnType<typeof vi.fn>).mock.calls;
-    expect(errorCalls).toHaveLength(1);
-    const loggedMessage = (errorCalls[0]?.[1] as { message: string }).message;
-    expect(loggedMessage.length).toBeLessThanOrEqual(200);
+    const logged = allLoggedText();
+    expect(logged).not.toContain("zebra-quokka-unexpected-marker");
+    expect(logged).toContain('"outcome":"unexpected"');
+    expect(logged).toContain('"errorName":"TypeError"');
+  });
+
+  it("carries no payload `message` key other than the one the real logger itself sets", async () => {
+    const { selection } = stubProvider();
+    await runSearch(deps(selection), member, { kind: "destination", query: "x" });
+    // The success path logs at INFO severity, where the logger's positional message is written
+    // verbatim (no stack-trace wrapping, which only applies to ERROR severity) — so this is the
+    // plainest proof that the payload search.ts builds carries no `message` field of its own.
+    expect(allLoggedText()).toContain('"message":"discovery.search"');
   });
 });

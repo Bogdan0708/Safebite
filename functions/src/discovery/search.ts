@@ -77,9 +77,12 @@ export async function runSearch(deps: SearchDeps, member: Member, request: Searc
   } catch (err) {
     const durationMs = Date.now() - started;
     if (err instanceof ProviderError) {
-      // Provider text is bounded to 200 chars because logs must never carry unbounded caller-supplied
-      // content (spec §2.6, §3.6) — a provider can echo the query back in its error message.
-      logger.warn("discovery.search", { ...logBase, durationMs, outcome: err.kind, status: err.status, message: err.message.slice(0, 200) });
+      // Audit observation: the installed firebase-functions logger's entryFromArgs spreads the
+      // structured payload first, then overwrites `message` with the positional string
+      // ("discovery.search") — so a `message` field here never reaches the actual log and was only
+      // ever exercised by the mock. Log fixed diagnostics only; provider text is never trusted
+      // (spec §2.6, §3.6), so it is never logged at all, bounded or not.
+      logger.warn("discovery.search", { ...logBase, durationMs, outcome: err.kind, status: err.status });
       switch (err.kind) {
         case "quota":
           throw new HttpsError("resource-exhausted", "The search provider's quota is exhausted.", { reason: "providerQuota" });
@@ -89,9 +92,8 @@ export async function runSearch(deps: SearchDeps, member: Member, request: Searc
           throw new HttpsError("internal", "Search failed.");
       }
     }
-    // Same 200-char cap as above (spec §2.6, §3.6): an unexpected error's message is not provider-controlled
-    // but is still unbounded, so it is capped the same way.
-    logger.error("discovery.search", { ...logBase, durationMs, outcome: "unexpected", message: (err instanceof Error ? err.message : String(err)).slice(0, 200) });
+    // Same reasoning as above: fixed diagnostics only, no caller- or error-controlled text.
+    logger.error("discovery.search", { ...logBase, durationMs, outcome: "unexpected", errorName: err instanceof Error ? err.name : typeof err });
     throw new HttpsError("internal", "Search failed.");
   }
 }
