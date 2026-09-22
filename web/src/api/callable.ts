@@ -27,14 +27,7 @@ export function callable<Req, Res>(name: string): (data: Req) => Promise<Res> {
  * searches, where each submission must be independently abortable.
  */
 export function abortable<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
-  const reasonOf = (): unknown => {
-    // If reason is undefined or is an AbortError, create a DOMException.
-    // If reason is a custom error passed to abort(reason), use it as-is.
-    if (signal.reason === undefined || (signal.reason as any)?.name === "AbortError") {
-      return new DOMException("Aborted", "AbortError");
-    }
-    return signal.reason;
-  };
+  const reasonOf = (): unknown => (signal.reason === undefined ? new DOMException("Aborted", "AbortError") : signal.reason);
   if (signal.aborted) {
     // Drain the underlying promise so its later rejection (if any) doesn't surface as an
     // unhandled promise rejection now that nothing else is attached to it.
@@ -77,10 +70,19 @@ export function anySignal(...signals: AbortSignal[]): AbortSignal {
   return controller.signal;
 }
 
+/**
+ * Structural on purpose: DOMException instances cross realms (Vitest+jsdom hands Node's signals
+ * to jsdom's globals), so neither `instanceof DOMException` nor `instanceof Error` holds in both
+ * directions. The spec-defined `name` is the discriminator.
+ */
+function isNamedError(err: unknown, name: string): boolean {
+  return typeof err === "object" && err !== null && (err as { name?: unknown }).name === name;
+}
+
 export function isAbortError(err: unknown): boolean {
-  return err instanceof DOMException && err.name === "AbortError";
+  return isNamedError(err, "AbortError");
 }
 
 export function isTimeoutError(err: unknown): boolean {
-  return (err instanceof DOMException && err.name === "TimeoutError") || ((err as any)?.name === "TimeoutError");
+  return isNamedError(err, "TimeoutError");
 }
