@@ -6,6 +6,16 @@ import { ProviderError, type PlacesProvider, type ProviderSelection } from "../s
 import { CONFIG_PATH, runSearch, usagePath, type SearchDeps } from "../src/discovery/search";
 import type { DiscoveryResult } from "../src/discovery/types";
 
+// Hoisted above the imports above by vitest. Spies stand in for firebase-functions/logger so the
+// log-content tests below can inspect exactly what would have been written, without touching real
+// logging. Other tests in this file do not assert on logs, so replacing them with no-op spies is safe.
+vi.mock("firebase-functions/logger", () => ({
+  info: vi.fn(),
+  warn: vi.fn(),
+  error: vi.fn(),
+}));
+import * as logger from "firebase-functions/logger";
+
 const member: Member = { uid: "ava", householdId: "home", displayName: "Ava" };
 const NOW = new Date("2026-09-22T10:00:00Z");
 const USAGE = "households/home/usage/20260922";
@@ -126,5 +136,57 @@ describe("runSearch — provider error mapping", () => {
   it("maps an unexpected error to internal", async () => {
     const { selection } = stubProvider({ searchText: vi.fn(async () => { throw new TypeError("boom"); }) });
     await expect(runSearch(deps(selection), member, { kind: "destination", query: "x" })).rejects.toMatchObject({ code: "internal" });
+  });
+});
+
+describe("runSearch — logs never carry caller-supplied content (spec §2.6, §3.6)", () => {
+  const allLoggedText = () =>
+    JSON.stringify([...(logger.info as ReturnType<typeof vi.fn>).mock.calls, ...(logger.warn as ReturnType<typeof vi.fn>).mock.calls, ...(logger.error as ReturnType<typeof vi.fn>).mock.calls]);
+
+  beforeEach(() => {
+    (logger.info as ReturnType<typeof vi.fn>).mockClear();
+    (logger.warn as ReturnType<typeof vi.fn>).mockClear();
+    (logger.error as ReturnType<typeof vi.fn>).mockClear();
+  });
+
+  it("never logs a destination query's text", async () => {
+    const { selection } = stubProvider();
+    await runSearch(deps(selection), member, { kind: "destination", query: "zebra-quokka-search-term" });
+    expect(allLoggedText()).not.toContain("zebra-quokka-search-term");
+  });
+
+  it("logs nearby coordinates rounded to 2dp only, never the full precision given", async () => {
+    const { selection } = stubProvider();
+    await runSearch(deps(selection), member, { kind: "nearby", lat: 51.123456, lng: -0.987654 });
+    const logged = allLoggedText();
+    expect(logged).toContain("51.12");
+    expect(logged).toContain("-0.99");
+    expect(logged).not.toContain("51.123456");
+    expect(logged).not.toContain("-0.987654");
+  });
+
+  it("truncates a ProviderError message that echoes the query to at most 200 characters", async () => {
+    const echoedQuery = "zebra-quokka-search-term".repeat(20); // > 200 chars once embedded below
+    const { selection } = stubProvider({
+      searchText: vi.fn(async () => {
+        throw new ProviderError("unavailable", `upstream rejected: ${echoedQuery}`, 503);
+      }),
+    });
+    await expect(runSearch(deps(selection), member, { kind: "destination", query: echoedQuery })).rejects.toMatchObject({ code: "unavailable" });
+    const warnCalls = (logger.warn as ReturnType<typeof vi.fn>).mock.calls;
+    expect(warnCalls).toHaveLength(1);
+    const loggedMessage = (warnCalls[0]?.[1] as { message: string }).message;
+    // The provider echoed the query, so the cap does not remove it from the logged text — only the
+    // length is guaranteed bounded.
+    expect(loggedMessage.length).toBeLessThanOrEqual(200);
+  });
+
+  it("truncates an unexpected error's message to at most 200 characters", async () => {
+    const { selection } = stubProvider({ searchText: vi.fn(async () => { throw new TypeError("b".repeat(500)); }) });
+    await expect(runSearch(deps(selection), member, { kind: "destination", query: "x" })).rejects.toMatchObject({ code: "internal" });
+    const errorCalls = (logger.error as ReturnType<typeof vi.fn>).mock.calls;
+    expect(errorCalls).toHaveLength(1);
+    const loggedMessage = (errorCalls[0]?.[1] as { message: string }).message;
+    expect(loggedMessage.length).toBeLessThanOrEqual(200);
   });
 });

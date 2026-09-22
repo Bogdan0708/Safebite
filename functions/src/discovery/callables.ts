@@ -24,14 +24,23 @@ function deps(): SearchDeps {
   };
 }
 
-export const searchDestination = onCall<unknown, Promise<DiscoveryResponse>>({ secrets: [PLACES_API_KEY] }, async (request) => {
-  const member = await requireMember(request);
-  const { query } = parseDestinationInput(request.data);
-  return runSearch(deps(), member, { kind: "destination", query });
-});
+// Region and maxInstances are given explicitly here (not left to index.ts's setGlobalOptions) because
+// onCall snapshots global options eagerly at definition time — the cost guardrail (maxInstances: 2) must
+// not depend on this module being required after setGlobalOptions runs.
+export const searchDestination = onCall<unknown, Promise<DiscoveryResponse>>(
+  { region: "europe-west2", maxInstances: 2, secrets: [PLACES_API_KEY] },
+  async (request) => {
+    const member = await requireMember(request);
+    const { query } = parseDestinationInput(request.data);
+    return runSearch(deps(), member, { kind: "destination", query });
+  },
+);
 
-export const searchNearby = onCall<unknown, Promise<DiscoveryResponse>>({ secrets: [PLACES_API_KEY] }, async (request) => {
-  const member = await requireMember(request);
-  const { lat, lng } = parseNearbyInput(request.data);
-  return runSearch(deps(), member, { kind: "nearby", lat, lng });
-});
+export const searchNearby = onCall<unknown, Promise<DiscoveryResponse>>(
+  { region: "europe-west2", maxInstances: 2, secrets: [PLACES_API_KEY] },
+  async (request) => {
+    const member = await requireMember(request);
+    const { lat, lng } = parseNearbyInput(request.data);
+    return runSearch(deps(), member, { kind: "nearby", lat, lng });
+  },
+);

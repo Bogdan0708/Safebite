@@ -77,7 +77,9 @@ export async function runSearch(deps: SearchDeps, member: Member, request: Searc
   } catch (err) {
     const durationMs = Date.now() - started;
     if (err instanceof ProviderError) {
-      logger.warn("discovery.search", { ...logBase, durationMs, outcome: err.kind, status: err.status, message: err.message });
+      // Provider text is bounded to 200 chars because logs must never carry unbounded caller-supplied
+      // content (spec §2.6, §3.6) — a provider can echo the query back in its error message.
+      logger.warn("discovery.search", { ...logBase, durationMs, outcome: err.kind, status: err.status, message: err.message.slice(0, 200) });
       switch (err.kind) {
         case "quota":
           throw new HttpsError("resource-exhausted", "The search provider's quota is exhausted.", { reason: "providerQuota" });
@@ -87,7 +89,9 @@ export async function runSearch(deps: SearchDeps, member: Member, request: Searc
           throw new HttpsError("internal", "Search failed.");
       }
     }
-    logger.error("discovery.search", { ...logBase, durationMs, outcome: "unexpected", message: err instanceof Error ? err.message : String(err) });
+    // Same 200-char cap as above (spec §2.6, §3.6): an unexpected error's message is not provider-controlled
+    // but is still unbounded, so it is capped the same way.
+    logger.error("discovery.search", { ...logBase, durationMs, outcome: "unexpected", message: (err instanceof Error ? err.message : String(err)).slice(0, 200) });
     throw new HttpsError("internal", "Search failed.");
   }
 }
