@@ -5,14 +5,16 @@
       "formattedAddress": "12 Rua Exemplo, 1100-000 Lisboa, Portugal",
       "googleMapsUri": "https://maps.google.com/?cid=1111111111111111111",
       "businessStatus": "OPERATIONAL",
-      "displayName": { "text": "Casa Sem Glúten", "languageCode": "pt" }
+      "displayName": { "text": "Casa Sem Glúten", "languageCode": "pt" },
+      "types": ["restaurant", "food", "point_of_interest", "establishment"]
     },
     {
       "id": "ChIJfixture0000000000000002",
       "formattedAddress": "3 Largo Exemplo, 1200-000 Lisboa, Portugal",
       "googleMapsUri": "https://maps.google.com/?cid=2222222222222222222",
       "businessStatus": "CLOSED_PERMANENTLY",
-      "displayName": { "text": "Fechado Para Sempre", "languageCode": "pt" }
+      "displayName": { "text": "Fechado Para Sempre", "languageCode": "pt" },
+      "types": ["restaurant", "food", "point_of_interest", "establishment"]
     },
     {
       "id": "ChIJfixture0000000000000003",
@@ -21,7 +23,21 @@
     },
     {
       "id": "ChIJfixture0000000000000004",
-      "displayName": { "text": "Sem Morada", "languageCode": "pt" }
+      "displayName": { "text": "Sem Morada", "languageCode": "pt" },
+      "types": ["restaurant", "food", "point_of_interest", "establishment"]
+    },
+    {
+      "id": "ChIJfixture0000000000000005",
+      "displayName": { "text": "Lisboa" },
+      "formattedAddress": "Lisboa, Portugal",
+      "googleMapsUri": "https://maps.google.com/?cid=5555555555555555555",
+      "types": ["locality", "political"]
+    },
+    {
+      "id": "ChIJfixture0000000000000006",
+      "displayName": { "text": "Sem Tipos" },
+      "formattedAddress": "9 Rua Exemplo, 1400-000 Lisboa, Portugal",
+      "businessStatus": "OPERATIONAL"
     }
   ]
 }

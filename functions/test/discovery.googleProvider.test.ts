@@ -28,6 +28,16 @@ describe("mapPlacesResponse", () => {
     ]);
   });
 
+  it("drops localities and places without types", () => {
+    // Same fixture: a locality (types: ["locality", "political"]) and a place with no `types` at
+    // all are both present alongside the two kept restaurants — proving both are excluded by the
+    // types check, independent of the closed/nameless drops above (audit F3).
+    const results = mapPlacesResponse(recorded);
+    expect(results.map((r) => r.placeId)).toEqual(["ChIJfixture0000000000000001", "ChIJfixture0000000000000004"]);
+    expect(results.some((r) => r.name === "Lisboa")).toBe(false);
+    expect(results.some((r) => r.name === "Sem Tipos")).toBe(false);
+  });
+
   it("treats a response without places as empty", () => {
     expect(mapPlacesResponse({})).toEqual([]);
     expect(mapPlacesResponse(null)).toEqual([]);
@@ -48,15 +58,21 @@ describe("createGoogleProvider — requests", () => {
       "X-Goog-Api-Key": "test-key",
       "X-Goog-FieldMask": FIELD_MASK,
     });
-    expect(JSON.parse(init.body as string)).toEqual({ textQuery: "Lisbon gluten free", maxResultCount: 10 });
+    expect(JSON.parse(init.body as string)).toEqual({
+      textQuery: "Lisbon gluten free",
+      maxResultCount: 10,
+      includedType: "restaurant",
+      strictTypeFiltering: true,
+    });
     expect(init.signal).toBeInstanceOf(AbortSignal);
   });
 
-  it("never asks for coordinates, phone, website or rating", () => {
-    expect(FIELD_MASK).toBe("places.id,places.displayName,places.formattedAddress,places.googleMapsUri,places.businessStatus");
+  it("never asks for coordinates, phone, website or rating, but does ask for types", () => {
+    expect(FIELD_MASK).toBe("places.id,places.displayName,places.formattedAddress,places.googleMapsUri,places.businessStatus,places.types");
     for (const forbidden of ["location", "PhoneNumber", "websiteUri", "rating", "OpeningHours", "priceLevel"]) {
       expect(FIELD_MASK).not.toContain(forbidden);
     }
+    expect(FIELD_MASK).toContain("places.types");
   });
 
   it("sends Nearby Search with a restaurant type and a circle restriction", async () => {

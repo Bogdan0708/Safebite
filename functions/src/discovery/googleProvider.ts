@@ -7,7 +7,7 @@ import type { DiscoveryResult } from "./types";
  * not store (coordinates) or does not need (phone, website, rating) is ever fetched.
  */
 const BASE = "https://places.googleapis.com/v1";
-export const FIELD_MASK = "places.id,places.displayName,places.formattedAddress,places.googleMapsUri,places.businessStatus";
+export const FIELD_MASK = "places.id,places.displayName,places.formattedAddress,places.googleMapsUri,places.businessStatus,places.types";
 export const REQUEST_TIMEOUT_MS = 8_000;
 
 interface PlaceJson {
@@ -16,11 +16,18 @@ interface PlaceJson {
   formattedAddress?: unknown;
   googleMapsUri?: unknown;
   businessStatus?: unknown;
+  types?: unknown;
 }
 
 const str = (v: unknown): string | undefined => (typeof v === "string" && v !== "" ? v : undefined);
 
-/** Keeps operational places with an id and a name. Exported for the mapping test. */
+/**
+ * Keeps operational places with an id, a name, and Google's own `types` including "restaurant"
+ * (audit F3: a destination search is a general place lookup, so the mapper — not just the request
+ * — must guarantee every result shown to the member is a restaurant; a result with no `types` at
+ * all, or a locality like `types: ["locality", "political"]`, is dropped). Exported for the
+ * mapping test.
+ */
 export function mapPlacesResponse(body: unknown): DiscoveryResult[] {
   const places = (body as { places?: unknown } | null)?.places;
   if (!Array.isArray(places)) return [];
@@ -31,6 +38,7 @@ export function mapPlacesResponse(body: unknown): DiscoveryResult[] {
     if (!placeId || !name) continue;
     const status = str(raw.businessStatus);
     if (status !== undefined && status !== "OPERATIONAL") continue;
+    if (!Array.isArray(raw.types) || !raw.types.includes("restaurant")) continue;
     results.push({
       placeId,
       name,
@@ -73,7 +81,9 @@ export function createGoogleProvider(apiKey: string, fetchImpl: typeof fetch = f
 
   return {
     searchText(query, limit) {
-      return post("places:searchText", { textQuery: query, maxResultCount: limit });
+      // Audit F3: a bare textQuery is an unrestricted place lookup (any locality, address, etc.);
+      // restrict it to restaurants at the request level too, on top of the mapper's own guarantee.
+      return post("places:searchText", { textQuery: query, maxResultCount: limit, includedType: "restaurant", strictTypeFiltering: true });
     },
     searchNearby(lat, lng, radiusM, limit) {
       return post("places:searchNearby", {
