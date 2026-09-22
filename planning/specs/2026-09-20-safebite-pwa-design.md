@@ -266,7 +266,7 @@ branch/worktree, reviewed, then merged before the next begins.
 |------|--------------------------------------|-----------|
 | **1. Foundation and household auth** — `planning/plans/2026-09-20-safebite-pwa-01-foundation.md` | Repo hygiene; `web/` + `functions/` scaffolds; emulator-only config; new rules for `users`/`households`; `requireMember` + `whoami` callable; sign-in / not-invited / member shell; emulator seed; Playwright + CI. A member signs in and sees the shell; a non-member is refused; rules tests prove isolation | O1, O2 |
 | **2. Restaurant records and evidence** | **PWA app shell first** (`vite-plugin-pwa` manifest, real icon set replacing the Vite logo, `apple-touch-icon`, `apple-mobile-web-app-capable`, `theme-color`, standalone display — a plan gap found in the Plan 1 final review); then `restaurants` + `claims` model, rules with accreditation validation and version checks, private editing form, evidence display with checked/expired states, "call ahead" prompts, unit + rules + e2e tests | Plan 1 — 2a, 2a-h and 2b executed 2026-09-21 (see §3.5 and `planning/plans/2026-09-21-safebite-pwa-02b-records.md`) |
-| **3. Discovery through functions** | `searchDestination`, `searchNearby`, `placeDetails` callables with secret key, kill switch, caps, attribution; discover UI with all failure states; search cancellation; external directions links; "add to our records" from a result (stores place ID only) | Plan 2 |
+| **3. Discovery through functions** | `searchDestination`, `searchNearby`, `placeDetails` callables with secret key, kill switch, caps, attribution; discover UI with all failure states; search cancellation; external directions links; "add to our records" from a result (stores place ID only) | Plan 2 — design in §3.6 (2026-09-22) |
 | **4. Shared collection and notes** | `collection` + `notes` model and rules, save/unsave/visited, authored notes, optimistic concurrency with reload prompt, account-switch cache clearing, e2e | Plan 2 (Plan 3 optional) |
 | **5. Privacy, offline, operations** | Opt-in offline download to IndexedDB, clear-on-signout, export callable, account-deletion callable, settings page, privacy/terms content, staging config files, cost-control checklist, real-iPhone acceptance script | Plans 1–4, O3–O6 |
 
@@ -638,3 +638,199 @@ Copy never shows a score.
 
 Visited state, notes, offline download, discovery, export, deletion of accounts, composite
 indexes, functions changes.
+
+### 3.6 Plan 3 design — discovery through functions (brainstormed 2026-09-22)
+
+Owner rulings taken during the brainstorm:
+
+1. **"Add to our records" prefills the form.** A result opens `/restaurants/new` prefilled with
+   the result's name and address plus a hidden `googlePlaceId`. The member reviews and saves, so
+   the stored name and address are the household's own record under Google's user-saved
+   exception. Coordinates are never stored (Google's terms allow caching them for at most 30
+   days); `restaurants.lat`/`lng` stay unused. Phone and website are not requested from Google.
+2. **No Place Details.** Two callables ship, `searchDestination` and `searchNearby`. Phone,
+   website and opening hours bill at the Enterprise tier and nothing needs them; a member types
+   them by hand if wanted.
+3. **Explicit location.** One search box plus a separate "Near me" button. Tapping "Near me"
+   requests the browser position once, then and there, and submits. Nothing is requested on page
+   load. A text search sends no location and no bias.
+4. **Fixture provider for every non-Google environment.** The callables call a `PlacesProvider`
+   interface; a fixture provider serves the emulator, CI and browser tests, selected by the secret
+   value `fixture` and only inside the emulator. The Google adapter is unit-tested with a mocked
+   `fetch` and one recorded real response. (Alternatives rejected: a local stub of the Google
+   API — another process in three test configurations; record-and-replay — needs a real key the
+   owner has not created yet and goes stale.)
+
+Verified external facts the design rests on (2026-09-22, Google documentation): Text Search is
+`POST https://places.googleapis.com/v1/places:searchText`, Nearby Search is
+`POST …/v1/places:searchNearby`, both take `X-Goog-Api-Key` and `X-Goog-FieldMask` headers and
+`maxResultCount` 1–20; `places.id` is IDs-only tier, `displayName`, `formattedAddress`,
+`location`, `googleMapsUri` and `businessStatus` are Pro tier, phone/website/opening hours are
+Enterprise; billing is per request at the highest tier requested, with 10,000 free requests per
+SKU per month. Places content shown without a Google map must carry the unaltered Google logo.
+Place IDs may be stored indefinitely; other content only when the user saves that place.
+`defineSecret` values are overridden locally by the gitignored `functions/.secret.local`
+(dotenv format); without it the emulator tries production Secret Manager.
+
+#### Pre-work (carried from the Plan 2a final review)
+
+- `abortable()` rejects with the signal's own `reason` (falling back to an `AbortError` only when
+  the reason is undefined), so a timeout abort is distinguishable from a user abort. Existing
+  callers (`SettingsPage`) are unchanged.
+- `anySignal(...signals)` in `web/src/api/callable.ts` combines an `AbortController`'s signal
+  with `AbortSignal.timeout(ms)`. Hand-written: `AbortSignal.any` arrived in iOS 17.4 and the app
+  targets iOS 17. `isTimeoutError(err)` joins `isAbortError(err)`. Unit tests for both.
+
+#### Callables (`functions/src/discovery/`)
+
+Both are `onCall`, `region: europe-west2`, `maxInstances: 2` (global options), bound to the
+secret `PLACES_API_KEY`, and begin with `requireMember(request)`.
+
+| Callable | Input | Provider call |
+|----------|-------|---------------|
+| `searchDestination` | `{ query: string }` — trimmed, 1–120 chars | Text Search, `maxResultCount: 10`, no location bias |
+| `searchNearby` | `{ lat: number, lng: number }` — numbers in range | Nearby Search, circle radius 1,500 m, `maxResultCount: 10`, `includedTypes: ["restaurant"]` |
+
+Response: `{ results: DiscoveryResult[], provider: "google" }` with
+`DiscoveryResult = { placeId, name, address, googleMapsUri }`. Field mask:
+`places.id,places.displayName,places.formattedAddress,places.googleMapsUri,places.businessStatus`
+(`places.location` is not requested; nothing needs coordinates). Results whose `businessStatus`
+is not `OPERATIONAL` are dropped server-side. Invalid input → `invalid-argument`. Unknown extra
+keys are ignored; identity comes only from `request.auth`.
+
+#### Provider selection and the secret
+
+```ts
+interface PlacesProvider {
+  searchText(query: string, limit: number): Promise<DiscoveryResult[]>;
+  searchNearby(lat: number, lng: number, radiusM: number, limit: number): Promise<DiscoveryResult[]>;
+}
+```
+
+- **Google adapter:** `fetch` with `X-Goog-Api-Key`, `X-Goog-FieldMask`, JSON body,
+  `AbortSignal.timeout(8_000)`. Maps the response to `DiscoveryResult[]`; a result missing `id`
+  or `displayName.text` is skipped.
+- **Fixture provider:** a committed list of about twelve fake restaurants (clearly fake names and
+  addresses, no real venues). Magic queries: `__empty__` → no results; `__unavailable__` →
+  throws a provider failure; `__quota__` → throws a provider quota failure; `__slow__` → resolves
+  after 12 s (exercises the client timeout). Nearby fixture results are the same list.
+- **Selection** (one function, unit-tested for all four branches):
+
+| `PLACES_API_KEY` value | `process.env.FUNCTIONS_EMULATOR === "true"` | Result |
+|---|---|---|
+| `fixture` | yes | fixture provider |
+| `fixture` | no | every call → `failed-precondition` "Search is not configured" |
+| empty / missing | any | every call → `failed-precondition` "Search is not configured" |
+| anything else | any | Google adapter |
+
+- `functions/.secret.local` is gitignored (explicit entry; `.env.*` does not match it).
+  `functions/.secret.local.example` is committed with `PLACES_API_KEY=fixture`. The `emu:*`
+  scripts run a tiny `ensure-secret-local` step that copies the example only when the real file
+  is missing, so a developer's local key is never overwritten. **Hard stop in the plan:** before
+  any task builds on it, prove empirically how `firebase emulators:exec` behaves with the secret
+  file absent and with it present, and record the result in the plan.
+
+#### Kill switch, caps, usage
+
+- `config/discovery` `{ enabled: boolean, dailySearchCap: number }` is read through the Admin SDK
+  on every call. **Missing document = switched off** (a fresh project fails closed). The emulator
+  seed writes `{ enabled: true, dailySearchCap: 50 }`. Disabled → `failed-precondition` with
+  message "Search is switched off".
+- `households/{hid}/usage/{yyyymmdd}` (UTC day) `{ searches: number }`. A transaction increments
+  it **before** the provider is called and throws `resource-exhausted` with
+  `details: { reason: "dailyCap" }` when `searches >= dailySearchCap`. Failed provider calls
+  still count (cost-safe: a flapping provider cannot burn unlimited calls).
+- Rules: no `match` for `config` or `usage`, so default-deny applies; a rules test asserts a
+  member can neither read nor write either.
+
+#### Error mapping (server)
+
+| Cause | Code | `details` |
+|-------|------|-----------|
+| Provider HTTP 429 or `RESOURCE_EXHAUSTED` status | `resource-exhausted` | `{ reason: "providerQuota" }` |
+| Timeout, network failure, HTTP 5xx | `unavailable` | — |
+| HTTP 4xx other than 429 (our request shape is wrong) | `internal` | — (status and Google's message logged) |
+| Config disabled or missing | `failed-precondition` | message "Search is switched off" |
+| Not configured (table above) | `failed-precondition` | message "Search is not configured" |
+
+Structured logs carry `{ kind, uid, householdId, resultCount, durationMs, outcome }` and, for
+nearby, coordinates rounded to 2 decimal places. **Never** the query text (a destination reveals
+travel plans) or full coordinates.
+
+#### Client (`web/src/discover/`)
+
+- **`search.ts`** — pure reducer + `useDiscoverySearch()` hook. States: `idle`, `searching`,
+  `results`, `empty`, `error` with `reason ∈ off | dailyCap | providerQuota | unavailable |
+  offline | timeout | locationDenied | locationUnavailable | invalid`. Each submit takes a
+  sequence number, aborts the previous `AbortController`, and calls the callable through
+  `abortable(promise, anySignal(controller.signal, AbortSignal.timeout(20_000)))`. A response
+  (success or error) is applied only if its sequence number is still current. If
+  `navigator.onLine === false` at submit, the state becomes `error/offline` without a call.
+  Callable codes map one-to-one onto reasons (`failed-precondition` "switched off" → `off`;
+  `resource-exhausted` by `details.reason`; `unavailable` → `unavailable`; a timeout abort →
+  `timeout`; a user abort is ignored). The last submitted query stays in the box.
+- **`DiscoverPage.tsx`** — text field + Search button; separate "Near me" button that calls
+  `navigator.geolocation.getCurrentPosition` once on tap (`timeout: 10_000`,
+  `enableHighAccuracy: false`); `PERMISSION_DENIED` → `locationDenied`, anything else →
+  `locationUnavailable`. Nothing is requested on mount. Each state renders a distinct message;
+  none shows sample venues. The results list shows name (linked to `googleMapsUri`), address, a
+  "Directions" link and an "Add to our records" button per result. Directly under the list, the
+  unaltered official Google logo asset from the Places policies page (committed under
+  `web/public/google/`), shown whenever results are present. A result whose `placeId` matches
+  a household record (from the existing `watchRestaurants` listener) shows "In our records"
+  linking to that record instead of the add button.
+- **Links.** Directions:
+  `https://www.google.com/maps/dir/?api=1&destination=<encoded name>&destination_place_id=<id>`.
+  Both external links open in a new tab with `rel="noopener noreferrer"`. `RestaurantDetailPage`
+  gains "Open in Google Maps"
+  (`https://www.google.com/maps/search/?api=1&query=<encoded name>&query_place_id=<id>`) when the
+  record holds a `googlePlaceId`, built from stored fields only.
+- **Add to our records.** Navigates to `/restaurants/new` with router state
+  `{ prefill: { name, address, googlePlaceId } }`. The create form seeds its draft from the
+  prefill (clean until edited), shows a one-line "From Google Maps" notice with the linked place,
+  and `RestaurantInput` gains optional `googlePlaceId`, written by `createRestaurant` (rules
+  already accept it as an optional string ≤ 200). `updateRestaurant` already preserves it; the
+  edit form never touches it. Duplicate guard: the button is replaced by "In our records" when a
+  match exists, and the create submit re-checks the listener's latest snapshot before writing,
+  redirecting to the existing record if one appeared meanwhile.
+- **Nothing persists from a search.** Results live only in component state: no cache, no
+  storage, no offline copy. The terms' caching limits are met by construction.
+
+#### Tests
+
+- **Functions unit (Vitest, no emulator):** provider selection (all four branches); input
+  validation; Google adapter request shape with a mocked `fetch` (URL, headers, body, timeout);
+  response mapping from one recorded real response committed under `functions/test/fixtures/`;
+  error mapping for 429, 5xx, network failure and timeout; UTC usage-day key across a midnight
+  boundary (bracketed, never the exact boundary).
+- **Callable emulator tests (`functions/test/discovery.test.ts`):** member gets fixture results;
+  unauthenticated and non-member refused; spoofed identity ignored; missing config refuses;
+  disabled config refuses; cap reached at exactly the cap; usage counted for a failed provider
+  call; each magic query returns its mapped code; invalid inputs rejected.
+- **Rules:** members cannot read or write `config/discovery` or their household's `usage` docs.
+- **Web unit:** `abortable` reason preservation; `anySignal`; sequencing (a late response for an
+  old sequence is dropped); code→reason mapping; offline short-circuit; `DiscoverPage` per state;
+  prefilled form seeding and the duplicate guard; "In our records" matching; detail page link.
+- **Browser (`web/e2e/discover.spec.ts`):** destination search shows results and the logo;
+  empty; switched off; daily cap; provider unavailable; client timeout via `__slow__`; "Near me"
+  with Playwright's granted geolocation; "Near me" denied; add to records → save → record shows
+  the Google Maps link; duplicate shows "In our records"; a second search supersedes a slow first
+  one. Config and usage are toggled between tests through the existing emulator REST helper.
+
+#### Decisions taken without owner input (override if wrong)
+
+| Decision | Reason |
+|----------|--------|
+| 10 results, 1,500 m nearby radius, 50 searches per household per day | Two users on foot; far inside the free tier |
+| Cap counts failed provider calls | Cost-safe |
+| Missing config document means switched off | Fresh project fails closed |
+| Client timeout 20 s, server 8 s | Cold starts add several seconds on top of the upstream call |
+| Query text never logged | A destination reveals travel plans |
+| `places.location` not requested | Nothing needs coordinates; keeps the record free of 30-day data |
+| Radius and result count fixed server-side (spec §2.5 listed `radiusM`/`limit` as inputs) | Fewer inputs to validate; the client has no use for other values |
+
+#### Not in this plan
+
+Place Details; coordinates on records; offline copies of anything from Google; visited state
+and notes (Plan 4); the square-icon question (Plan 5); staging key creation and secret binding
+(owner action O4 — a prerequisite for staging, not for this plan); Firestore index changes.
