@@ -1,5 +1,5 @@
 import { NavLink, Navigate, Route, Routes } from "react-router";
-import { DiscoverPage } from "./pages/DiscoverPage";
+import { DiscoverPage } from "./discover/DiscoverPage";
 import { ClaimFormPage } from "./records/ClaimFormPage";
 import { RestaurantDetailPage } from "./records/RestaurantDetailPage";
 import { RestaurantFormPage } from "./records/RestaurantFormPage";

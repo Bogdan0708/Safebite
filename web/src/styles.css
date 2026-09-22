@@ -41,3 +41,8 @@ body { margin: 0; }
 .evidence-kind[data-state="needsRechecking"] { border-left-color: #c77700; }
 .evidence-kind[data-state="conflicting"] { border-left-color: #b00020; }
 .evidence-kind[data-state="current"] { border-left-color: #1f7a4d; }
+
+/* Google Maps attribution (Places policies): 16–19 dp high, ≥10 dp clear space above/sides, 5 dp below, never restyled. */
+.attribution { margin: 10px 0 5px; padding: 0 10px; }
+.attribution img { height: 19px; width: auto; display: block; }
+.hint { font-size: 0.9rem; opacity: 0.8; }
