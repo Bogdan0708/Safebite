@@ -1,0 +1,173 @@
+import { expect, test, type Page } from "@playwright/test";
+import { clearRecords, clearUsage, deleteDiscoveryConfig, getRestaurant, listRestaurantIds, seedRestaurant, setDiscoveryConfig, setUsage } from "./emulator-rest";
+
+const PASSWORD = "pilot-password-1";
+// Mirrors functions/src/discovery/fixtureProvider.ts MAGIC (web/e2e cannot import from functions/).
+const MAGIC = { empty: "__empty__", unavailable: "__unavailable__", quota: "__quota__", slow: "__slow__", delayed: "__delayed__" };
+const utcDay = () => new Date().toISOString().slice(0, 10).replace(/-/g, "");
+
+async function signIn(page: Page, email: string) {
+  await page.goto("/");
+  await expect(page.getByTestId("signin-form")).toBeVisible();
+  await page.getByTestId("signin-email").fill(email);
+  await page.getByTestId("signin-password").fill(PASSWORD);
+  await page.getByTestId("signin-submit").click();
+  await expect(page.getByTestId("nav-discover")).toBeVisible();
+}
+
+async function openDiscover(page: Page) {
+  await signIn(page, "ava@safebite.test");
+  await page.getByTestId("nav-discover").click();
+  await expect(page.getByTestId("discover-state")).toHaveAttribute("data-status", "idle");
+}
+
+async function search(page: Page, query: string) {
+  await page.getByTestId("discover-query").fill(query);
+  await page.getByTestId("discover-submit").click();
+}
+
+const stateOf = (page: Page) => page.getByTestId("discover-state");
+
+test.beforeEach(async ({ request }) => {
+  await clearRecords(request);
+  await clearUsage(request);
+  await setDiscoveryConfig(request, { enabled: true, dailySearchCap: 50 });
+});
+
+test("1. a destination search lists fixture results with Google Maps attribution, links and add buttons", async ({ page }) => {
+  await openDiscover(page);
+  await search(page, "Lisbon");
+  await expect(page.getByTestId("discover-result")).toHaveCount(10);
+  await expect(page.getByTestId("discover-result").first()).toContainText("Fixture Trattoria");
+  await expect(page.getByTestId("discover-result").first()).toHaveAttribute("data-place-id", "fixture-01");
+  await expect(page.getByTestId("result-name").first()).toHaveAttribute("href", "https://example.invalid/maps/fixture-01");
+  await expect(page.getByTestId("result-directions").first()).toHaveAttribute("href", /destination_place_id=fixture-01$/);
+  await expect(page.getByTestId("result-add")).toHaveCount(10);
+  const logo = page.getByTestId("google-attribution").locator("img");
+  await expect(logo).toHaveAttribute("alt", "Google Maps");
+  await expect(logo).toBeVisible();
+  expect((await page.request.get("/google/GoogleMaps_Logo_Gray.svg")).ok()).toBe(true);
+  await expect(page.getByTestId("ranking-note")).toContainText("order Google Maps returns them");
+  await expect(page.getByTestId("discover-query")).toHaveValue("Lisbon");
+});
+
+test("2. no results shows the empty state and no attribution", async ({ page }) => {
+  await openDiscover(page);
+  await search(page, MAGIC.empty);
+  await expect(stateOf(page)).toHaveAttribute("data-status", "empty");
+  await expect(stateOf(page)).toContainText("__empty__");
+  await expect(page.getByTestId("google-attribution")).toHaveCount(0);
+  await expect(page.getByTestId("discover-result")).toHaveCount(0);
+});
+
+test("3. the kill switch: disabled and missing config both read as switched off", async ({ page, request }) => {
+  await setDiscoveryConfig(request, { enabled: false, dailySearchCap: 50 });
+  await openDiscover(page);
+  await search(page, "Lisbon");
+  await expect(stateOf(page)).toHaveAttribute("data-reason", "off");
+  await expect(stateOf(page)).toContainText("switched off");
+  await deleteDiscoveryConfig(request);
+  await search(page, "Porto");
+  await expect(stateOf(page)).toHaveAttribute("data-reason", "off");
+  await expect(page.getByTestId("discover-result")).toHaveCount(0);
+});
+
+test("4. the household's daily cap is enforced and usage is not consumed past it", async ({ page, request }) => {
+  await setDiscoveryConfig(request, { enabled: true, dailySearchCap: 2 });
+  await setUsage(request, utcDay(), 1);
+  await openDiscover(page);
+  await search(page, "one");
+  await expect(page.getByTestId("discover-result")).toHaveCount(10);
+  await search(page, "two");
+  await expect(stateOf(page)).toHaveAttribute("data-reason", "dailyCap");
+  await expect(stateOf(page)).toContainText("limit");
+});
+
+test("5. provider failures: unavailable and quota exceeded, never sample venues", async ({ page }) => {
+  await openDiscover(page);
+  await search(page, MAGIC.unavailable);
+  await expect(stateOf(page)).toHaveAttribute("data-reason", "unavailable");
+  await expect(page.getByTestId("discover-result")).toHaveCount(0);
+  await search(page, MAGIC.quota);
+  await expect(stateOf(page)).toHaveAttribute("data-reason", "providerQuota");
+  await expect(page.getByTestId("discover-result")).toHaveCount(0);
+});
+
+test("6. a search that never answers times out on the client", async ({ page }) => {
+  test.setTimeout(90_000);
+  await openDiscover(page);
+  await search(page, MAGIC.slow);
+  await expect(stateOf(page)).toHaveAttribute("data-status", "searching");
+  await expect(stateOf(page)).toHaveAttribute("data-reason", "timeout", { timeout: 30_000 });
+  await expect(page.getByTestId("discover-result")).toHaveCount(0);
+});
+
+test("7. a newer search supersedes a slower one; the late answer never replaces it", async ({ page }) => {
+  await openDiscover(page);
+  await search(page, MAGIC.delayed);
+  await expect(stateOf(page)).toHaveAttribute("data-status", "searching");
+  await search(page, "pizza");
+  await expect(page.getByTestId("discover-result")).toHaveCount(10);
+  await page.waitForTimeout(4_500); // longer than the fixture's 3 s delay
+  await expect(page.getByTestId("discover-result")).toHaveCount(10);
+  await expect(page.getByText("Delayed Diner")).toHaveCount(0);
+});
+
+test.describe("Near me with location granted", () => {
+  test.use({ geolocation: { latitude: 51.5074, longitude: -0.1278 }, permissions: ["geolocation"] });
+
+  test("8. Near me searches around the granted position", async ({ page }) => {
+    await openDiscover(page);
+    await page.getByTestId("discover-nearby").click();
+    await expect(page.getByTestId("discover-result")).toHaveCount(10);
+    await expect(stateOf(page)).toHaveCount(0);
+  });
+});
+
+test("9. Near me without permission shows the denied state and calls nothing", async ({ page, request }) => {
+  await setDiscoveryConfig(request, { enabled: true, dailySearchCap: 1 });
+  await openDiscover(page);
+  await page.getByTestId("discover-nearby").click();
+  // Playwright grants no permissions by default; Chromium answers getCurrentPosition with PERMISSION_DENIED (code 1).
+  await expect(stateOf(page)).toHaveAttribute("data-reason", "locationDenied");
+  // The cap of 1 is untouched: a destination search still succeeds.
+  await search(page, "Lisbon");
+  await expect(page.getByTestId("discover-result")).toHaveCount(10);
+});
+
+test("10. Add to our records prefills the form; the saved record links to Google Maps and the result shows In our records", async ({ page, request }) => {
+  await openDiscover(page);
+  await search(page, "Lisbon");
+  await page.getByTestId("result-add").first().click();
+  await expect(page.getByTestId("field-name")).toHaveValue("Fixture Trattoria");
+  await expect(page.getByTestId("field-address")).toHaveValue("1 Fixture Street, Testville");
+  await expect(page.getByTestId("prefill-notice")).toContainText("From Google Maps");
+  await page.getByTestId("save-restaurant").click();
+  await expect(page.getByTestId("restaurant-name")).toHaveText("Fixture Trattoria");
+  await expect(page.getByTestId("restaurant-maps")).toHaveAttribute("href", /query_place_id=fixture-01$/);
+
+  const [rid] = await listRestaurantIds(request);
+  const stored = await getRestaurant(request, rid!);
+  expect(stored).toMatchObject({ name: "Fixture Trattoria", address: "1 Fixture Street, Testville", googlePlaceId: "fixture-01" });
+  expect(stored).not.toHaveProperty("lat");
+  expect(stored).not.toHaveProperty("lng");
+
+  await page.getByTestId("nav-discover").click();
+  await search(page, "Lisbon");
+  const first = page.getByTestId("discover-result").first();
+  await expect(first.getByTestId("result-in-records")).toHaveAttribute("href", `/restaurants/${rid}`);
+  await expect(first.getByTestId("result-add")).toHaveCount(0);
+  await expect(page.getByTestId("result-add")).toHaveCount(9);
+});
+
+test("11. searching while offline is refused without a request; a seeded record's Maps link needs no network", async ({ page, context, request }) => {
+  await seedRestaurant(request, "r-linked", { name: "Linked Place", googlePlaceId: "fixture-07" });
+  await openDiscover(page);
+  await context.setOffline(true);
+  await search(page, "Lisbon");
+  await expect(stateOf(page)).toHaveAttribute("data-reason", "offline");
+  await expect(page.getByTestId("discover-result")).toHaveCount(0);
+  await context.setOffline(false);
+  await page.goto("/restaurants/r-linked");
+  await expect(page.getByTestId("restaurant-maps")).toHaveAttribute("href", "https://www.google.com/maps/search/?api=1&query=Linked%20Place&query_place_id=fixture-07");
+});

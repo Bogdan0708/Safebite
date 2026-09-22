@@ -190,6 +190,8 @@ npm run emu:seed             # terminal 2, once: creates ava@safebite.test / bog
 npm --prefix web run dev     # terminal 2: http://127.0.0.1:5173
 ```
 
+> Discovery (the Discover tab) calls the `searchDestination` / `searchNearby` functions, which read the `PLACES_API_KEY` secret. Locally the emulator reads `functions/.secret.local` (gitignored); the `emu:*` scripts create it from `functions/.secret.local.example` (`PLACES_API_KEY=fixture`) when it is missing, which selects a fixture provider with twelve invented venues and the magic queries `__empty__`, `__unavailable__`, `__quota__`, `__delayed__` (3 s) and `__slow__` (25 s). To try real results locally, put a key restricted to Places API (New) in `.secret.local` — never commit it. Search is off until `config/discovery` exists (`{ enabled: true, dailySearchCap: 50 }`, written by `npm run emu:seed`).
+
 Emulator UI: http://127.0.0.1:4000
 Records live under households/home/restaurants in the emulator; `npm run emu:e2e` clears them before each scenario via the emulator's REST API.
 
@@ -200,7 +202,7 @@ npm run typecheck   # both packages
 npm run test:unit   # web unit tests (no emulator)
 npm run emu:test    # functions + Firestore rules tests (starts emulators)
 npm run emu:e2e     # Playwright browser tests (starts emulators, seeds, runs Vite)
-npm run emu:e2e:stress   # 12 browser scenarios × 3 repeats, retries disabled (flakiness gate)
+npm run emu:e2e:stress   # 23 browser scenarios × 3 repeats, retries disabled (flakiness gate)
 npm --prefix web run build:check   # compile-only build (no Firebase config needed)
 npm --prefix web run build:e2e        # builds the three synthetic bundles: dist-preview, dist-preview-v2, dist-boot-guard (fixtures in web/.env.preview, .env.preview-v2, .env.boot-guard)
 npm --prefix web run e2e:boot-guard   # compile-only bundle with demo values refuses to start (Chromium, no emulators)
@@ -209,7 +211,7 @@ npm --prefix web run e2e:upgrade      # same-origin release upgrades and the upd
 npm --prefix web run icons            # re-render the PNG icon set from web/assets/safebite-mark.svg
 ```
 
-`npm run test:unit` currently reports 170 tests.
+`npm run test:unit` currently reports 234 tests.
 
 ### Guardrails
 
@@ -224,3 +226,5 @@ npm --prefix web run icons            # re-render the PNG icon set from web/asse
 - The three synthetic test bundles are built only from the committed `web/.env.<mode>` fixtures: `vite build --mode preview|preview-v2|boot-guard` refuses to run if an exported `VITE_*` variable differs from the file, and every build writes `safebite-build.json` (mode, project id, source hash) that the `e2e:*` scripts verify, so a stale or wrong-mode dist is refused with the `build:<mode>` command to run.
 - Records are member-only and written only through Firestore transactions (online-only; a save is reported as saved only after the server accepted it). Restaurants carry a `version` the rules require to increase by exactly one; claims are immutable (add/delete only); deleting a restaurant marks it, sweeps its claims, then removes it, and an interrupted deletion is resumed from the list.
 - Evidence dates are UTC calendar days stored at 00:00 UTC; a claim needs rechecking 12 months after it was checked unless it carries its own expiry. Same-day contradicting claims are shown as "Conflicting evidence". No numerical score anywhere.
+- Discovery is server-side only: the Places key is a Cloud Functions secret, every callable checks membership first, the field mask asks for id, name, address, Maps link and business status only (Pro tier; no coordinates, phone, website or ratings), and nothing from a Places response is cached or stored — a record created from a result keeps only the name and address the member saw plus the place id. A deployed function whose secret is the fixture value refuses every search.
+- Search fails closed: a missing or disabled config/discovery document refuses every search; each household has a per-day cap counted before the provider is called (failed calls count too). Results carry the Google Maps logo and are shown in Google's order; a listing says nothing about gluten-free safety.

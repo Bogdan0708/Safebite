@@ -37,7 +37,7 @@ export async function clearRecords(request: APIRequestContext): Promise<void> {
 const s = (v: string) => ({ stringValue: v });
 const ts = (iso: string) => ({ timestampValue: iso });
 
-export async function seedRestaurant(request: APIRequestContext, id: string, over: { name?: string; deleting?: boolean; version?: number } = {}): Promise<void> {
+export async function seedRestaurant(request: APIRequestContext, id: string, over: { name?: string; deleting?: boolean; version?: number; googlePlaceId?: string } = {}): Promise<void> {
   const res = await request.post(`${BASE}/households/home/restaurants?documentId=${id}`, {
     headers: HEADERS,
     data: {
@@ -49,6 +49,7 @@ export async function seedRestaurant(request: APIRequestContext, id: string, ove
         updatedAt: ts("2026-09-01T10:00:00Z"),
         version: { integerValue: String(over.version ?? 1) },
         deleting: { booleanValue: over.deleting ?? false },
+        ...(over.googlePlaceId ? { googlePlaceId: s(over.googlePlaceId) } : {}),
       },
     },
   });
@@ -95,4 +96,47 @@ export async function listClaimIds(request: APIRequestContext, rid: string): Pro
 export async function restaurantExists(request: APIRequestContext, rid: string): Promise<boolean> {
   const res = await request.get(`${BASE}/households/home/restaurants/${rid}`, { headers: HEADERS });
   return res.status() === 200;
+}
+
+/** Discovery kill switch and cap (functions read it with the Admin SDK; clients have no rules access). */
+export async function setDiscoveryConfig(request: APIRequestContext, config: { enabled: boolean; dailySearchCap: number }): Promise<void> {
+  const res = await request.patch(`${BASE}/config/discovery`, {
+    headers: HEADERS,
+    data: { fields: { enabled: { booleanValue: config.enabled }, dailySearchCap: { integerValue: String(config.dailySearchCap) } } },
+  });
+  if (!res.ok()) throw new Error(`setDiscoveryConfig: ${res.status()} ${await res.text()}`);
+}
+
+export async function deleteDiscoveryConfig(request: APIRequestContext): Promise<void> {
+  const res = await request.delete(`${BASE}/config/discovery`, { headers: HEADERS });
+  if (!res.ok() && res.status() !== 404) throw new Error(`deleteDiscoveryConfig: ${res.status()} ${await res.text()}`);
+}
+
+/** `day` is the UTC yyyymmdd key the functions use (households/home/usage/{day}). */
+export async function setUsage(request: APIRequestContext, day: string, searches: number): Promise<void> {
+  const res = await request.patch(`${BASE}/households/home/usage/${day}`, {
+    headers: HEADERS,
+    data: { fields: { searches: { integerValue: String(searches) } } },
+  });
+  if (!res.ok()) throw new Error(`setUsage ${day}: ${res.status()} ${await res.text()}`);
+}
+
+export async function clearUsage(request: APIRequestContext): Promise<void> {
+  for (const d of await listDocs(request, "households/home/usage")) await del(request, `households/home/usage/${idOf(d)}`);
+}
+
+/** String fields of one restaurant document, or null when it does not exist. */
+export async function getRestaurant(request: APIRequestContext, rid: string): Promise<Record<string, unknown> | null> {
+  const res = await request.get(`${BASE}/households/home/restaurants/${rid}`, { headers: HEADERS });
+  if (res.status() === 404) return null;
+  if (!res.ok()) throw new Error(`getRestaurant ${rid}: ${res.status()} ${await res.text()}`);
+  const body = (await res.json()) as RestDoc;
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(body.fields ?? {})) {
+    const v = value as { stringValue?: string; booleanValue?: boolean; integerValue?: string };
+    if (v.stringValue !== undefined) out[key] = v.stringValue;
+    else if (v.booleanValue !== undefined) out[key] = v.booleanValue;
+    else if (v.integerValue !== undefined) out[key] = Number(v.integerValue);
+  }
+  return out;
 }
