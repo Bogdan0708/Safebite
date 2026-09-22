@@ -657,17 +657,32 @@ Owner rulings taken during the brainstorm:
 4. **Fixture provider for every non-Google environment.** The callables call a `PlacesProvider`
    interface; a fixture provider serves the emulator, CI and browser tests, selected by the secret
    value `fixture` and only inside the emulator. The Google adapter is unit-tested with a mocked
-   `fetch` and one recorded real response. (Alternatives rejected: a local stub of the Google
+   `fetch` and one response in the documented Places API (New) shape (a recorded real response
+   replaces it once owner action O4 provides a key). (Alternatives rejected: a local stub of the Google
    API — another process in three test configurations; record-and-replay — needs a real key the
    owner has not created yet and goes stale.)
+
+##### Open owner decision (audit S1, 2026-09-22)
+
+The "user-saved exception" invoked by ruling 1 above could not be substantiated: the Google Maps
+Platform standard terms §3.2.3(a)(iii) prohibit copying and saving business names and addresses;
+the Places API service-specific terms permit caching only latitude/longitude (30 days) and, by
+policy, place IDs; the EEA terms defer to the Places API EEA Permitted Uses, which the review did
+not find to establish this exact retained/shared/exportable data flow either. Ruling 1 and the
+prefill flow (including F2's fix) are on hold until the owner resolves the applicable permission —
+either documenting the permission that supports this data flow, or revising the design to keep
+only permitted identifiers plus independently supplied household data. Ruling 1's text above is
+unchanged pending that decision.
 
 Verified external facts the design rests on (2026-09-22, Google documentation): Text Search is
 `POST https://places.googleapis.com/v1/places:searchText`, Nearby Search is
 `POST …/v1/places:searchNearby`, both take `X-Goog-Api-Key` and `X-Goog-FieldMask` headers and
 `maxResultCount` 1–20; `places.id` is IDs-only tier, `displayName`, `formattedAddress`,
 `location`, `googleMapsUri` and `businessStatus` are Pro tier, phone/website/opening hours are
-Enterprise; billing is per request at the highest tier requested, with 10,000 free requests per
-SKU per month. Places content shown without a Google map must carry the unaltered Google logo.
+Enterprise; billing is per request at the highest tier requested, with 5,000 free requests per
+SKU per month (Google pricing page, checked 2026-09-22; both Text Search Pro and Nearby Search
+Pro), aggregated across the billing account. Places content shown without a Google map must carry
+the unaltered Google logo.
 Place IDs may be stored indefinitely; other content only when the user saves that place.
 `defineSecret` values are overridden locally by the gitignored `functions/.secret.local`
 (dotenv format); without it the emulator tries production Secret Manager.
@@ -693,10 +708,16 @@ secret `PLACES_API_KEY`, and begin with `requireMember(request)`.
 
 Response: `{ results: DiscoveryResult[], provider: "google" }` with
 `DiscoveryResult = { placeId, name, address, googleMapsUri }`. Field mask:
-`places.id,places.displayName,places.formattedAddress,places.googleMapsUri,places.businessStatus`
+`places.id,places.displayName,places.formattedAddress,places.googleMapsUri,places.businessStatus,places.types`
 (`places.location` is not requested; nothing needs coordinates). Results whose `businessStatus`
 is not `OPERATIONAL` are dropped server-side. Invalid input → `invalid-argument`. Unknown extra
 keys are ignored; identity comes only from `request.auth`.
+
+Text search sends `includedType: "restaurant"` with `strictTypeFiltering: true` (a bare
+`textQuery` is an unrestricted place lookup, not a restaurant search); the mask includes
+`places.types`; and the mapper independently keeps only places whose `types` include
+`restaurant`, dropping localities and any result with no `types` at all, regardless of what
+Google's own filtering does (audit F3, 2026-09-22).
 
 #### Provider selection and the secret
 
@@ -757,6 +778,12 @@ Structured logs carry `{ kind, uid, householdId, resultCount, durationMs, outcom
 nearby, coordinates rounded to 2 decimal places. **Never** the query text (a destination reveals
 travel plans) or full coordinates.
 
+A failure log carries fixed diagnostics only — `outcome`, `status` (ProviderError) or `errorName`
+(unexpected) — and never provider-echoed text: the installed `firebase-functions/logger` discards
+a `message` field on the structured payload in favour of the positional message, so a bounded
+`message` field there never reached the log in the first place; provider text is never trusted
+regardless (audit observation, 2026-09-22).
+
 #### Client (`web/src/discover/`)
 
 - **`search.ts`** — pure reducer + `useDiscoverySearch()` hook. States: `idle`, `searching`,
@@ -800,7 +827,9 @@ travel plans) or full coordinates.
 
 - **Functions unit (Vitest, no emulator):** provider selection (all four branches); input
   validation; Google adapter request shape with a mocked `fetch` (URL, headers, body, timeout);
-  response mapping from one recorded real response committed under `functions/test/fixtures/`;
+  response mapping from one response in the documented Places API (New) shape committed under
+  `functions/test/fixtures/` (a recorded real response replaces it once owner action O4 provides
+  a key);
   error mapping for 429, 5xx, network failure and timeout; UTC usage-day key across a midnight
   boundary (bracketed, never the exact boundary).
 - **Callable emulator tests (`functions/test/discovery.test.ts`):** member gets fixture results;
