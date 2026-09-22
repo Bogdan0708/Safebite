@@ -83,3 +83,4 @@ ui-debug.log
 !/web/.env.preview
 !/web/.env.preview-v2
 !/web/.env.boot-guard
+functions/.secret.local

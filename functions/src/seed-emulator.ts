@@ -66,12 +66,16 @@ export async function seedEmulator(): Promise<void> {
     await db.doc(`users/${account.uid}`).set({ householdId: "home", displayName: account.displayName });
   }
   await db.doc("users/stranger-uid").delete();
+
+  // Discovery kill switch and cap (spec §3.6). A missing document means "switched off", so the
+  // emulator must seed it or every search refuses.
+  await db.doc("config/discovery").set({ enabled: true, dailySearchCap: 50 });
 }
 
 if (require.main === module) {
   seedEmulator()
     .then(() => {
-      console.log("Emulator seeded: ava@safebite.test, bogdan@safebite.test (members), stranger@safebite.test (not a member).");
+      console.log("Emulator seeded: ava@safebite.test, bogdan@safebite.test (members), stranger@safebite.test (not a member). Discovery enabled with a cap of 50 searches/day.");
     })
     .catch((err: unknown) => {
       console.error(err);

@@ -13,6 +13,7 @@ import { parseDestinationInput, parseNearbyInput } from "./validate";
  * select.ts honours only inside the emulator. Staging binds a real Secret Manager value (owner
  * action O4); agents never set one.
  */
+// Probed 2026-09-22 (planning/audits/plan-3-secret-absent-probe.mjs): with no .secret.local the emulator logs a Secret Manager error, value() is "", and searches answer 400 "Search is not configured."
 export const PLACES_API_KEY = defineSecret("PLACES_API_KEY");
 
 function deps(): SearchDeps {

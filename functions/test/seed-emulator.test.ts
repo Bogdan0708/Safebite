@@ -22,6 +22,7 @@ describe("seedEmulator", () => {
     expect((await db.doc("users/ava-uid").get()).get("displayName")).toBe("Ava");
     expect((await db.doc("users/bogdan-uid").get()).get("householdId")).toBe("home");
     expect((await db.doc("users/stranger-uid").get()).exists).toBe(false);
+    expect((await db.doc("config/discovery").get()).data()).toEqual({ enabled: true, dailySearchCap: 50 });
   });
 
   it("refuses to run when emulator hosts are not set", async () => {
