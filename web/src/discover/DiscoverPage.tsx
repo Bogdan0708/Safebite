@@ -1,4 +1,4 @@
-import { useState, type SubmitEvent } from "react";
+import { useEffect, useRef, useState, type SubmitEvent } from "react";
 import { Link, useNavigate } from "react-router";
 import { watchRestaurants } from "../records/repository";
 import type { Restaurant } from "../records/types";
@@ -68,6 +68,12 @@ export function DiscoverPage() {
   const [locating, setLocating] = useState(false);
   const records = useWatch<Restaurant[]>((cb) => watchRestaurants(householdId, cb), [householdId]);
 
+  // Audit F1: a pending Near me request otherwise outlives the search intent that started it (a
+  // later destination search, a second Near me, or the page unmounting). Track the intent that is
+  // currently "wanted" and discard any position/failure that resolves after a newer one started.
+  const intent = useRef(0);
+  useEffect(() => () => { intent.current += 1; }, []);
+
   // Place id → record id for "In our records"; a record being deleted no longer counts.
   const existing = new Map<string, string>();
   if (records.state.status === "ready" || records.state.status === "offline") {
@@ -76,6 +82,8 @@ export function DiscoverPage() {
 
   function onSubmit(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault();
+    intent.current += 1;
+    setLocating(false);
     const trimmed = query.trim();
     if (trimmed === "") {
       fail("invalid", "");
@@ -85,8 +93,10 @@ export function DiscoverPage() {
   }
 
   async function onNearMe() {
+    const mine = ++intent.current;
     setLocating(true);
     const outcome = await requestPosition();
+    if (mine !== intent.current) return; // superseded by a newer search or unmount: discard, never call the controller
     setLocating(false);
     if (outcome.kind === "position") submitNearby(outcome.lat, outcome.lng);
     else fail(outcome.reason, "near you");

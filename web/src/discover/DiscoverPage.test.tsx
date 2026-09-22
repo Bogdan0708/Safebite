@@ -166,3 +166,43 @@ describe("DiscoverPage", () => {
     });
   });
 });
+
+describe("location belongs to its initiating search intent", () => {
+  it("ignores a late position after a newer destination submission", async () => {
+    let resolvePosition!: (x: { kind: "position"; lat: number; lng: number }) => void;
+    m.requestPosition.mockReturnValue(new Promise((resolve) => { resolvePosition = resolve; }));
+    m.searchDestination.mockResolvedValue(ok([result(1)]));
+    m.searchNearby.mockResolvedValue(ok([result(2)]));
+    renderPage();
+    await userEvent.click(screen.getByTestId("discover-nearby"));
+    await search("Lisbon");
+    await waitFor(() => expect(screen.getByTestId("discover-result")).toHaveAttribute("data-place-id", "p1"));
+    await act(async () => resolvePosition({ kind: "position", lat: 51.5, lng: -0.12 }));
+    expect(m.searchNearby).not.toHaveBeenCalled();
+    expect(screen.getByTestId("discover-result")).toHaveAttribute("data-place-id", "p1");
+  });
+
+  it("does not start a paid search after the requesting page unmounts", async () => {
+    let resolvePosition!: (x: { kind: "position"; lat: number; lng: number }) => void;
+    m.requestPosition.mockReturnValue(new Promise((resolve) => { resolvePosition = resolve; }));
+    m.searchNearby.mockResolvedValue(ok());
+    const view = renderPage();
+    await userEvent.click(screen.getByTestId("discover-nearby"));
+    view.unmount();
+    await act(async () => resolvePosition({ kind: "position", lat: 51.5, lng: -0.12 }));
+    expect(m.searchNearby).not.toHaveBeenCalled();
+  });
+
+  it("ignores a late location failure after a newer destination search resolved", async () => {
+    let rejectPosition!: (x: { kind: "error"; reason: "locationDenied" }) => void;
+    m.requestPosition.mockReturnValue(new Promise((resolve) => { rejectPosition = resolve; }));
+    m.searchDestination.mockResolvedValue(ok([result(1)]));
+    renderPage();
+    await userEvent.click(screen.getByTestId("discover-nearby"));
+    await search("Lisbon");
+    await waitFor(() => expect(screen.getByTestId("discover-result")).toHaveAttribute("data-place-id", "p1"));
+    await act(async () => rejectPosition({ kind: "error", reason: "locationDenied" }));
+    expect(screen.getByTestId("discover-result")).toHaveAttribute("data-place-id", "p1");
+    expect(screen.queryByTestId("discover-state")).not.toBeInTheDocument();
+  });
+});

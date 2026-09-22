@@ -3,7 +3,7 @@ import { defineConfig, devices } from "@playwright/test";
 export default defineConfig({
   testDir: "./e2e",
   timeout: 30_000,
-  // Caps global setup (the emulator warm-up) plus the whole suite run — 23 scenarios, one CI retry each; scenario 6 alone waits ~25 s for the client timeout.
+  // Caps global setup (the emulator warm-up) plus the whole suite run — 25 scenarios, one CI retry each; scenario 6 alone waits ~25 s for the client timeout.
   globalTimeout: 900_000,
   fullyParallel: false,
   workers: 1,

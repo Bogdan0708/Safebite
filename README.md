@@ -202,7 +202,7 @@ npm run typecheck   # both packages
 npm run test:unit   # web unit tests (no emulator)
 npm run emu:test    # functions + Firestore rules tests (starts emulators)
 npm run emu:e2e     # Playwright browser tests (starts emulators, seeds, runs Vite)
-npm run emu:e2e:stress   # 23 browser scenarios × 3 repeats, retries disabled (flakiness gate)
+npm run emu:e2e:stress   # 25 browser scenarios × 3 repeats, retries disabled (flakiness gate)
 npm --prefix web run build:check   # compile-only build (no Firebase config needed)
 npm --prefix web run build:e2e        # builds the three synthetic bundles: dist-preview, dist-preview-v2, dist-boot-guard (fixtures in web/.env.preview, .env.preview-v2, .env.boot-guard)
 npm --prefix web run e2e:boot-guard   # compile-only bundle with demo values refuses to start (Chromium, no emulators)

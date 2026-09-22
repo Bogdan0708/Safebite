@@ -28,6 +28,21 @@ async function search(page: Page, query: string) {
 
 const stateOf = (page: Page) => page.getByTestId("discover-state");
 
+// Audit F1 (scenarios 12-13): defer the geolocation callback so a Near me request can be made to
+// resolve after a newer search, or after the page has been left, without waiting on a real device.
+async function delayLocation(page: Page) {
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, "geolocation", {
+      configurable: true,
+      value: {
+        getCurrentPosition(success: PositionCallback) {
+          Reflect.set(window, "__resolveDelayedLocation", () => success({ coords: { latitude: 51.5, longitude: -0.12 } } as GeolocationPosition));
+        },
+      },
+    });
+  });
+}
+
 test.beforeEach(async ({ request }) => {
   await clearRecords(request);
   await clearUsage(request);
@@ -170,4 +185,31 @@ test("11. searching while offline is refused without a request; a seeded record'
   await context.setOffline(false);
   await page.goto("/restaurants/r-linked");
   await expect(page.getByTestId("restaurant-maps")).toHaveAttribute("href", "https://www.google.com/maps/search/?api=1&query=Linked%20Place&query_place_id=fixture-07");
+});
+
+test("12. a late location after a newer destination search never supersedes it (audit F1)", async ({ page }) => {
+  await openDiscover(page);
+  await delayLocation(page);
+  const nearbyRequests: string[] = [];
+  page.on("request", (r) => { if (r.method() === "POST" && r.url().endsWith("/searchNearby")) nearbyRequests.push(r.url()); });
+  await page.getByTestId("discover-nearby").click();
+  await search(page, MAGIC.empty);
+  await expect(stateOf(page)).toHaveAttribute("data-status", "empty");
+  await page.evaluate(() => Reflect.get(window, "__resolveDelayedLocation")());
+  await expect(stateOf(page)).toHaveAttribute("data-status", "empty");
+  await expect(page.getByTestId("discover-result")).toHaveCount(0);
+  expect(nearbyRequests).toHaveLength(0);
+});
+
+test("13. leaving Discover before the position resolves never starts a paid search (audit F1)", async ({ page }) => {
+  await openDiscover(page);
+  await delayLocation(page);
+  const nearbyRequests: string[] = [];
+  page.on("request", (r) => { if (r.method() === "POST" && r.url().endsWith("/searchNearby")) nearbyRequests.push(r.url()); });
+  await page.getByTestId("discover-nearby").click();
+  await page.getByTestId("nav-settings").click();
+  await expect(page.getByTestId("signout")).toBeVisible();
+  await page.evaluate(() => Reflect.get(window, "__resolveDelayedLocation")());
+  await page.waitForTimeout(2_000);
+  expect(nearbyRequests).toHaveLength(0);
 });
