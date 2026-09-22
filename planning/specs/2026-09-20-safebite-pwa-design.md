@@ -643,10 +643,10 @@ indexes, functions changes.
 
 Owner rulings taken during the brainstorm:
 
-1. **"Add to our records" prefills the form.** A result opens `/restaurants/new` prefilled with
-   the result's name and address plus a hidden `googlePlaceId`. The member reviews and saves, so
-   the stored name and address are the household's own record under Google's user-saved
-   exception. Coordinates are never stored (Google's terms allow caching them for at most 30
+1. **"Add to our records" carries the place id only.** A result opens `/restaurants/new` with a
+   hidden `googlePlaceId` in router state; the member types the name and address themselves. No
+   name, address or other Google-derived content crosses to the form or reaches browser history.
+   Coordinates are never stored (Google's terms allow caching them for at most 30
    days); `restaurants.lat`/`lng` stay unused. Phone and website are not requested from Google.
 2. **No Place Details.** Two callables ship, `searchDestination` and `searchNearby`. Phone,
    website and opening hours bill at the Enterprise tier and nothing needs them; a member types
@@ -662,17 +662,16 @@ Owner rulings taken during the brainstorm:
    API — another process in three test configurations; record-and-replay — needs a real key the
    owner has not created yet and goes stale.)
 
-##### Open owner decision (audit S1, 2026-09-22)
+##### Owner ruling (audit S1/F2, 2026-09-22)
 
-The "user-saved exception" invoked by ruling 1 above could not be substantiated: the Google Maps
+Place ID only; the member types name and address. F2 resolved by carrying nothing Google-derived.
+The "user-saved exception" ruling 1 previously invoked could not be substantiated: the Google Maps
 Platform standard terms §3.2.3(a)(iii) prohibit copying and saving business names and addresses;
 the Places API service-specific terms permit caching only latitude/longitude (30 days) and, by
-policy, place IDs; the EEA terms defer to the Places API EEA Permitted Uses, which the review did
-not find to establish this exact retained/shared/exportable data flow either. Ruling 1 and the
-prefill flow (including F2's fix) are on hold until the owner resolves the applicable permission —
-either documenting the permission that supports this data flow, or revising the design to keep
-only permitted identifiers plus independently supplied household data. Ruling 1's text above is
-unchanged pending that decision.
+policy, place IDs. Ruling 1 above now reflects this: Google's name and address are displayed in
+Discover results but never stored and never prefilled into the form; a record created from a
+result holds the place ID (permitted indefinitely by the Places policy) plus a name and address
+the member types.
 
 Verified external facts the design rests on (2026-09-22, Google documentation): Text Search is
 `POST https://places.googleapis.com/v1/places:searchText`, Nearby Search is
@@ -683,7 +682,8 @@ Enterprise; billing is per request at the highest tier requested, with 5,000 fre
 SKU per month (Google pricing page, checked 2026-09-22; both Text Search Pro and Nearby Search
 Pro), aggregated across the billing account. Places content shown without a Google map must carry
 the unaltered Google logo.
-Place IDs may be stored indefinitely; other content only when the user saves that place.
+Place IDs may be stored indefinitely; names and addresses may not be copied and saved (standard
+terms §3.2.3(a)(iii)), so a record's name and address are always typed by the member.
 `defineSecret` values are overridden locally by the gitignored `functions/.secret.local`
 (dotenv format); without it the emulator tries production Secret Manager.
 
@@ -813,9 +813,11 @@ regardless (audit observation, 2026-09-22).
   (`https://www.google.com/maps/search/?api=1&query=<encoded name>&query_place_id=<id>`) when the
   record holds a `googlePlaceId`, built from stored fields only.
 - **Add to our records.** Navigates to `/restaurants/new` with router state
-  `{ prefill: { name, address, googlePlaceId } }`. The create form seeds its draft from the
-  prefill (clean until edited), shows a one-line "From Google Maps" notice with the linked place,
-  and `RestaurantInput` gains optional `googlePlaceId`, written by `createRestaurant` (rules
+  `{ prefill: { googlePlaceId } }` — the place id only (owner ruling, audit S1/F2, 2026-09-22);
+  name and address are never carried. The create form's draft always starts empty in this case,
+  shows a one-line "Linked to a Google Maps place" notice with a link built from the place id
+  alone (`placeIdUrl`), and the member types the name and address themselves.
+  `RestaurantInput` gains optional `googlePlaceId`, written by `createRestaurant` (rules
   already accept it as an optional string ≤ 200). `updateRestaurant` already preserves it; the
   edit form never touches it. Duplicate guard: the button is replaced by "In our records" when a
   match exists, and the create submit re-checks the listener's latest snapshot before writing,

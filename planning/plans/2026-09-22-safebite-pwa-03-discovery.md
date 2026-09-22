@@ -1,5 +1,7 @@
 # SafeBite PWA — Plan 3: Discovery through functions
 
+**Amended 2026-09-22 after the independent review:** see spec §3.6 owner ruling (place ID only) — Tasks 8–10 as executed differ from the text below in that respect.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Land the two `abortable()` pre-work items, then discovery: two member-only callables (`searchDestination`, `searchNearby`) backed by a `PlacesProvider` interface with a Google Places API (New) adapter and a fixture provider, a `PLACES_API_KEY` secret with a deploy-time fixture refusal, a fail-closed kill switch and per-household daily cap, a Discover page with every failure state, Google Maps attribution and links, and "Add to our records" that prefills the existing restaurant form with name, address and place ID — proven by functions unit, callable emulator, rules, web unit and browser tests.
