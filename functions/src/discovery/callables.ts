@@ -31,8 +31,8 @@ export const searchDestination = onCall<unknown, Promise<DiscoveryResponse>>(
   { region: "europe-west2", maxInstances: 2, secrets: [PLACES_API_KEY] },
   async (request) => {
     const member = await requireMember(request);
-    const { query } = parseDestinationInput(request.data);
-    return runSearch(deps(), member, { kind: "destination", query });
+    const { query, mode } = parseDestinationInput(request.data);
+    return runSearch(deps(), member, { kind: "destination", query, mode });
   },
 );
 

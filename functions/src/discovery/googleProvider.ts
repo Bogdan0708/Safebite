@@ -2,7 +2,7 @@ import { ProviderError, type PlacesProvider } from "./provider";
 import type { DiscoveryResult } from "./types";
 
 /**
- * Google Places API (New) adapter (spec §3.6). Exactly five fields are requested; all are Pro
+ * Google Places API (New) adapter (spec §3.6). The field mask reaches Pro
  * tier for Text and Nearby Search, so every call bills at that tier and nothing the client must
  * not store (coordinates) or does not need (phone, website, rating) is ever fetched.
  */
@@ -113,12 +113,14 @@ export function createGoogleProvider(apiKey: string, fetchImpl: typeof fetch = f
   }
 
   return {
-    searchText(query, limit) {
-      // Audit F3 / controller ruling Fix F: a bare textQuery is an unrestricted place lookup (any
-      // locality, address, etc.); bias it toward restaurants at the request level too, on top of the
-      // mapper's own guarantee, but do not strictly filter — that would also exclude the cafés and
-      // bakeries the mapper is meant to keep.
-      return post("places:searchText", { textQuery: query, maxResultCount: limit, includedType: "restaurant" });
+    searchText(query, limit, mode = "venue") {
+      // Google does not apply includedType to geopolitical queries. Explicit category + location
+      // avoids a bare town lookup; venue mode preserves the member's named-place query. Do not
+      // constrain to restaurant: categorical type filtering would hide café-only/bakery-only
+      // matches. The mapper enforces our five accepted venue types for either mode.
+      // https://developers.google.com/maps/documentation/places/web-service/text-search#includedtype
+      const textQuery = mode === "destination" ? `food in ${query}` : query;
+      return post("places:searchText", { textQuery, maxResultCount: limit });
     },
     searchNearby(lat, lng, radiusM, limit) {
       return post("places:searchNearby", {

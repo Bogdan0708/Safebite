@@ -1,5 +1,5 @@
 import { HttpsError } from "firebase-functions/v2/https";
-import { MAX_QUERY_LENGTH } from "./types";
+import { MAX_QUERY_LENGTH, type TextSearchMode } from "./types";
 
 function asRecord(data: unknown): Record<string, unknown> {
   if (typeof data !== "object" || data === null || Array.isArray(data)) {
@@ -8,15 +8,17 @@ function asRecord(data: unknown): Record<string, unknown> {
   return data as Record<string, unknown>;
 }
 
-/** `{ query }`: trimmed, 1–120 characters. Unknown keys are ignored; identity never comes from data. */
-export function parseDestinationInput(data: unknown): { query: string } {
+/** Query: trimmed, 1–120 characters. Omitted mode preserves older clients' raw-query intent. */
+export function parseDestinationInput(data: unknown): { query: string; mode: TextSearchMode } {
   const record = asRecord(data);
   const raw = record.query;
   if (typeof raw !== "string") throw new HttpsError("invalid-argument", "query must be a string.");
   const query = raw.trim();
   if (query.length === 0) throw new HttpsError("invalid-argument", "query must not be blank.");
   if (query.length > MAX_QUERY_LENGTH) throw new HttpsError("invalid-argument", `query must be at most ${MAX_QUERY_LENGTH} characters.`);
-  return { query };
+  const mode = record.mode === undefined ? "venue" : record.mode;
+  if (mode !== "destination" && mode !== "venue") throw new HttpsError("invalid-argument", "mode must be destination or venue.");
+  return { query, mode };
 }
 
 function finiteNumber(value: unknown, name: string, min: number, max: number): number {

@@ -80,7 +80,7 @@ describe("DiscoverPage", () => {
     m.searchDestination.mockResolvedValue(ok());
     renderPage();
     await search("Lisbon");
-    expect(m.searchDestination).toHaveBeenCalledWith({ query: "Lisbon" });
+    expect(m.searchDestination).toHaveBeenCalledWith({ query: "Lisbon", mode: "destination" });
     await waitFor(() => expect(screen.getAllByTestId("discover-result")).toHaveLength(2));
     const first = screen.getAllByTestId("discover-result")[0]!;
     expect(first).toHaveAttribute("data-place-id", "p1");
@@ -102,6 +102,26 @@ describe("DiscoverPage", () => {
     await waitFor(() => expect(screen.getByTestId("discover-state")).toHaveAttribute("data-status", "empty"));
     expect(screen.getByTestId("discover-state")).toHaveTextContent("Nowhere");
     expect(screen.queryByTestId("google-attribution")).not.toBeInTheDocument();
+  });
+
+  it("sends the selected search intent only on submit, preserving the typed query when switching", async () => {
+    m.searchDestination.mockResolvedValue(ok());
+    renderPage();
+    const mode = screen.getByRole("combobox", { name: "Search for" });
+    expect(mode).toHaveValue("destination");
+    expect(screen.getByRole("textbox", { name: "Town or area" })).toHaveAttribute("placeholder", "e.g. Lisbon or Soho");
+    await userEvent.type(screen.getByTestId("discover-query"), "Riverside Café");
+    await userEvent.selectOptions(mode, "venue");
+    expect(screen.getByRole("textbox", { name: "Restaurant or venue name" })).toHaveValue("Riverside Café");
+    expect(m.searchDestination).not.toHaveBeenCalled();
+    expect(m.requestPosition).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByTestId("discover-submit"));
+    expect(m.searchDestination).toHaveBeenLastCalledWith({ query: "Riverside Café", mode: "venue" });
+    await userEvent.selectOptions(mode, "destination");
+    expect(m.searchDestination).toHaveBeenCalledTimes(1);
+    await search("Lisbon");
+    expect(m.searchDestination).toHaveBeenLastCalledWith({ query: "Lisbon", mode: "destination" });
+    expect(m.searchDestination).toHaveBeenCalledTimes(2);
   });
 
   it.each([
@@ -168,14 +188,16 @@ describe("DiscoverPage", () => {
 });
 
 describe("location belongs to its initiating search intent", () => {
-  it("ignores a late position after a newer destination submission", async () => {
+  it("ignores a late position after a newer venue-name submission", async () => {
     let resolvePosition!: (x: { kind: "position"; lat: number; lng: number }) => void;
     m.requestPosition.mockReturnValue(new Promise((resolve) => { resolvePosition = resolve; }));
     m.searchDestination.mockResolvedValue(ok([result(1)]));
     m.searchNearby.mockResolvedValue(ok([result(2)]));
     renderPage();
     await userEvent.click(screen.getByTestId("discover-nearby"));
-    await search("Lisbon");
+    await userEvent.selectOptions(screen.getByRole("combobox", { name: "Search for" }), "venue");
+    await search("Riverside Café");
+    expect(m.searchDestination).toHaveBeenCalledWith({ query: "Riverside Café", mode: "venue" });
     await waitFor(() => expect(screen.getByTestId("discover-result")).toHaveAttribute("data-place-id", "p1"));
     await act(async () => resolvePosition({ kind: "position", lat: 51.5, lng: -0.12 }));
     expect(m.searchNearby).not.toHaveBeenCalled();

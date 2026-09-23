@@ -3,7 +3,7 @@ import { HttpsError } from "firebase-functions/v2/https";
 import * as logger from "firebase-functions/logger";
 import type { Member } from "../membership";
 import { ProviderError, type ProviderSelection } from "./provider";
-import { MAX_RESULTS, NEARBY_RADIUS_M, type DiscoveryResponse } from "./types";
+import { MAX_RESULTS, NEARBY_RADIUS_M, type DiscoveryResponse, type TextSearchMode } from "./types";
 import { usageDayKey } from "./usageDay";
 
 export interface SearchDeps {
@@ -12,7 +12,7 @@ export interface SearchDeps {
   now: () => Date;
 }
 
-export type SearchRequest = { kind: "destination"; query: string } | { kind: "nearby"; lat: number; lng: number };
+export type SearchRequest = { kind: "destination"; query: string; mode?: TextSearchMode } | { kind: "nearby"; lat: number; lng: number };
 
 /** Admin-only kill switch and cap: { enabled: boolean, dailySearchCap: number }. Missing = off. */
 export const CONFIG_PATH = "config/discovery";
@@ -70,7 +70,7 @@ export async function runSearch(deps: SearchDeps, member: Member, request: Searc
   try {
     const results =
       request.kind === "destination"
-        ? await provider.searchText(request.query, MAX_RESULTS)
+        ? await provider.searchText(request.query, MAX_RESULTS, request.mode ?? "venue")
         : await provider.searchNearby(request.lat, request.lng, NEARBY_RADIUS_M, MAX_RESULTS);
     logger.info("discovery.search", { ...logBase, resultCount: results.length, durationMs: Date.now() - started, outcome: "ok" });
     return { results, provider: "google" };

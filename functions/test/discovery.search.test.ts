@@ -113,11 +113,19 @@ describe("runSearch — usage and cap", () => {
     const { provider, selection } = stubProvider();
     const response = await runSearch(deps(selection), member, { kind: "destination", query: "Lisbon" });
     expect(response).toEqual({ results: [result], provider: "google" });
-    expect(provider.searchText).toHaveBeenCalledWith("Lisbon", 10);
+    expect(provider.searchText).toHaveBeenCalledWith("Lisbon", 10, "venue");
     expect((await db.doc(USAGE).get()).get("searches")).toBe(1);
     await runSearch(deps(selection), member, { kind: "nearby", lat: 51.5, lng: -0.12 });
     expect(provider.searchNearby).toHaveBeenCalledWith(51.5, -0.12, 1500, 10);
     expect((await db.doc(USAGE).get()).get("searches")).toBe(2);
+  });
+
+  it.each(["destination", "venue"] as const)("forwards %s mode and counts exactly one provider call", async (mode) => {
+    const { provider, selection } = stubProvider();
+    await runSearch(deps(selection), member, { kind: "destination", query: "Casa Sem Glúten", mode });
+    expect(provider.searchText).toHaveBeenCalledExactlyOnceWith("Casa Sem Glúten", 10, mode);
+    expect(provider.searchNearby).not.toHaveBeenCalled();
+    expect((await db.doc(USAGE).get()).get("searches")).toBe(1);
   });
 
   it("refuses the call that would exceed the cap, at exactly the cap, without calling the provider", async () => {

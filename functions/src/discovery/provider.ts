@@ -1,8 +1,8 @@
-import type { DiscoveryResult } from "./types";
+import type { DiscoveryResult, TextSearchMode } from "./types";
 
 /** What the callables need from a places backend (spec §3.6). */
 export interface PlacesProvider {
-  searchText(query: string, limit: number): Promise<DiscoveryResult[]>;
+  searchText(query: string, limit: number, mode?: TextSearchMode): Promise<DiscoveryResult[]>;
   searchNearby(lat: number, lng: number, radiusM: number, limit: number): Promise<DiscoveryResult[]>;
 }
 

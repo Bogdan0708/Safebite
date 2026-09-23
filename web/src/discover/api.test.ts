@@ -34,6 +34,7 @@ describe("classifySearchError", () => {
 
   it("binds the two callables to their function names", async () => {
     await expect(searchDestination({ query: "x" })).resolves.toEqual({ name: "searchDestination", data: { query: "x" } });
+    await expect(searchDestination({ query: "x", mode: "venue" })).resolves.toEqual({ name: "searchDestination", data: { query: "x", mode: "venue" } });
     await expect(searchNearby({ lat: 1, lng: 2 })).resolves.toEqual({ name: "searchNearby", data: { lat: 1, lng: 2 } });
   });
 });

@@ -13,7 +13,9 @@ export interface DiscoveryResponse {
   provider: "google";
 }
 
-export const searchDestination = callable<{ query: string }, DiscoveryResponse>("searchDestination");
+export type SearchMode = "destination" | "venue";
+
+export const searchDestination = callable<{ query: string; mode?: SearchMode }, DiscoveryResponse>("searchDestination");
 export const searchNearby = callable<{ lat: number; lng: number }, DiscoveryResponse>("searchNearby");
 
 export type SearchErrorReason =

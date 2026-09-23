@@ -139,8 +139,10 @@ describe("useDiscoverySearch", () => {
     const { result: hook } = renderHook(() => useDiscoverySearch({ call }));
     expect(hook.current.state).toEqual({ status: "idle" });
     await act(async () => { hook.current.submitDestination("Lisbon"); await flush(); });
-    expect(call).toHaveBeenCalledWith({ kind: "destination", query: "Lisbon" });
+    expect(call).toHaveBeenCalledWith({ kind: "destination", query: "Lisbon", mode: "destination" });
     expect(hook.current.state).toMatchObject({ status: "results", label: "Lisbon" });
+    await act(async () => { hook.current.submitDestination("Riverside Café", "venue"); await flush(); });
+    expect(call).toHaveBeenLastCalledWith({ kind: "destination", query: "Riverside Café", mode: "venue" });
     await act(async () => { hook.current.submitNearby(51.5, -0.12); await flush(); });
     expect(call).toHaveBeenLastCalledWith({ kind: "nearby", lat: 51.5, lng: -0.12 });
   });

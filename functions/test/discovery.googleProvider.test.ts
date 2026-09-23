@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { FIELD_MASK, REQUEST_TIMEOUT_MS, VENUE_TYPES, createGoogleProvider, mapPlacesResponse } from "../src/discovery/googleProvider";
+import { parseDestinationInput } from "../src/discovery/validate";
 
 const recorded = JSON.parse(readFileSync(path.resolve(__dirname, "fixtures/places-searchText.json"), "utf8")) as unknown;
 
@@ -48,7 +49,7 @@ describe("mapPlacesResponse", () => {
     expect(results.some((r) => r.name === "Sem Tipos")).toBe(false);
   });
 
-  it("keeps bakeries and cafés, drops localities", () => {
+  it("keeps the bakery fixture and drops localities", () => {
     // Controller ruling (Fix F): VENUE_TYPES includes restaurant, cafe, bakery, bar and
     // meal_takeaway, so a dedicated gluten-free bakery like entry #7 must survive the mapper while
     // a locality (types: ["locality", "political"]) is still dropped.
@@ -56,6 +57,20 @@ describe("mapPlacesResponse", () => {
     expect(VENUE_TYPES).toEqual(["restaurant", "cafe", "bakery", "bar", "meal_takeaway"]);
     expect(results.some((r) => r.placeId === "ChIJfixture0000000000000007" && r.name === "Padaria Sem Glúten")).toBe(true);
     expect(results.some((r) => r.name === "Lisboa")).toBe(false);
+  });
+
+  it.each(VENUE_TYPES)("keeps an operational %s without requiring a restaurant type", (venueType) => {
+    expect(mapPlacesResponse({ places: [{
+      id: `fixture-${venueType}`,
+      displayName: { text: `Example ${venueType}` },
+      businessStatus: "OPERATIONAL",
+      types: [venueType, "food", "establishment"],
+    }] })).toEqual([{
+      placeId: `fixture-${venueType}`,
+      name: `Example ${venueType}`,
+      address: "",
+      googleMapsUri: `https://www.google.com/maps/place/?q=place_id:fixture-${venueType}`,
+    }]);
   });
 
   it("treats a response without places as empty", () => {
@@ -68,7 +83,7 @@ describe("createGoogleProvider — requests", () => {
   it("sends Text Search with the key, the exact field mask, the query and the result count", async () => {
     const fetchMock = vi.fn(async () => jsonResponse(200, recorded));
     const provider = createGoogleProvider("test-key", fetchMock as unknown as typeof fetch);
-    await provider.searchText("Lisbon gluten free", 10);
+    await provider.searchText("Lisbon", 10, "destination");
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     expect(url).toBe("https://places.googleapis.com/v1/places:searchText");
@@ -80,12 +95,44 @@ describe("createGoogleProvider — requests", () => {
     });
     const parsedBody = JSON.parse(init.body as string);
     expect(parsedBody).toEqual({
-      textQuery: "Lisbon gluten free",
+      textQuery: "food in Lisbon",
       maxResultCount: 10,
-      includedType: "restaurant",
     });
     expect(parsedBody).not.toHaveProperty("strictTypeFiltering");
     expect(init.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it("preserves a legacy named-venue query from request validation to the Google request", async () => {
+    const fetchMock = vi.fn(async () => jsonResponse(200, recorded));
+    const provider = createGoogleProvider("test-key", fetchMock as unknown as typeof fetch);
+    const { query, mode } = parseDestinationInput({ query: "  Riverside Café, Lisbon  " });
+    await provider.searchText(query, 10, mode);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(JSON.parse(init.body as string)).toEqual({ textQuery: "Riverside Café, Lisbon", maxResultCount: 10 });
+  });
+
+  it("preserves the query when a provider caller omits mode", async () => {
+    const fetchMock = vi.fn(async () => jsonResponse(200, recorded));
+    const provider = createGoogleProvider("test-key", fetchMock as unknown as typeof fetch);
+    await provider.searchText("Riverside Café, Lisbon", 10);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(JSON.parse(init.body as string)).toEqual({ textQuery: "Riverside Café, Lisbon", maxResultCount: 10 });
+  });
+
+  it.each([
+    ["destination", "Lisbon", "food in Lisbon"],
+    ["destination", "New York, NY", "food in New York, NY"],
+    ["venue", "Casa Sem Glúten Lisbon", "Casa Sem Glúten Lisbon"],
+    ["venue", "cafes in Lisbon", "cafes in Lisbon"],
+  ] as const)("sends one %s query for %s without restaurant-only filtering", async (mode, query, textQuery) => {
+    const fetchMock = vi.fn(async () => jsonResponse(200, recorded));
+    const provider = createGoogleProvider("test-key", fetchMock as unknown as typeof fetch);
+    await provider.searchText(query, 10, mode);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(JSON.parse(init.body as string)).toEqual({ textQuery, maxResultCount: 10 });
   });
 
   it("never asks for coordinates, phone, website or rating, but does ask for types", () => {

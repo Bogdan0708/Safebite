@@ -3,11 +3,15 @@ import { parseDestinationInput, parseNearbyInput } from "../src/discovery/valida
 
 describe("parseDestinationInput", () => {
   it("trims the query", () => {
-    expect(parseDestinationInput({ query: "  Lisbon gluten free  " })).toEqual({ query: "Lisbon gluten free" });
+    expect(parseDestinationInput({ query: "  Lisbon  " })).toEqual({ query: "Lisbon", mode: "venue" });
   });
 
   it("ignores unknown keys (identity never comes from data)", () => {
-    expect(parseDestinationInput({ query: "Porto", uid: "ava-uid", householdId: "home" })).toEqual({ query: "Porto" });
+    expect(parseDestinationInput({ query: "Porto", uid: "ava-uid", householdId: "home" })).toEqual({ query: "Porto", mode: "venue" });
+  });
+
+  it.each(["destination", "venue"])("accepts explicit %s mode", (mode) => {
+    expect(parseDestinationInput({ query: "  Porto  ", mode })).toEqual({ query: "Porto", mode });
   });
 
   it.each([
@@ -17,6 +21,10 @@ describe("parseDestinationInput", () => {
     ["non-string query", { query: 42 }],
     ["blank query", { query: "   " }],
     ["too long", { query: "x".repeat(121) }],
+    ["unknown mode", { query: "Porto", mode: "nearby" }],
+    ["null mode", { query: "Porto", mode: null }],
+    ["non-string mode", { query: "Porto", mode: 1 }],
+    ["empty mode", { query: "Porto", mode: "" }],
   ])("rejects %s with invalid-argument", (_label, data) => {
     expect(() => parseDestinationInput(data)).toThrowError(expect.objectContaining({ code: "invalid-argument" }));
   });

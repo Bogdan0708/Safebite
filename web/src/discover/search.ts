@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { abortable, anySignal, isAbortError } from "../api/callable";
-import { classifySearchError, searchDestination, searchNearby, type DiscoveryResponse, type DiscoveryResult, type SearchErrorReason } from "./api";
+import { classifySearchError, searchDestination, searchNearby, type DiscoveryResponse, type DiscoveryResult, type SearchErrorReason, type SearchMode } from "./api";
 
 /** Server-side fetch is 8 s; cold starts add several seconds on top (spec §3.6 decisions). */
 export const CLIENT_TIMEOUT_MS = 20_000;
 
-export type SearchRun = { kind: "destination"; query: string } | { kind: "nearby"; lat: number; lng: number };
+export type SearchRun = { kind: "destination"; query: string; mode?: SearchMode } | { kind: "nearby"; lat: number; lng: number };
 
 export type SearchState =
   | { status: "idle" }
@@ -34,7 +34,7 @@ export interface ControllerOptions {
 }
 
 const defaultCall = (run: SearchRun): Promise<DiscoveryResponse> =>
-  run.kind === "destination" ? searchDestination({ query: run.query }) : searchNearby({ lat: run.lat, lng: run.lng });
+  run.kind === "destination" ? searchDestination({ query: run.query, mode: run.mode ?? "destination" }) : searchNearby({ lat: run.lat, lng: run.lng });
 
 /**
  * One AbortController per submission; each submit takes a sequence number and aborts the previous
@@ -91,7 +91,7 @@ export function createSearchController(options: ControllerOptions): SearchContro
 
 export function useDiscoverySearch(options: Pick<ControllerOptions, "call"> = {}): {
   state: SearchState;
-  submitDestination(query: string): void;
+  submitDestination(query: string, mode?: SearchMode): void;
   submitNearby(lat: number, lng: number): void;
   fail(reason: SearchErrorReason, label: string): void;
 } {
@@ -102,7 +102,7 @@ export function useDiscoverySearch(options: Pick<ControllerOptions, "call"> = {}
   useEffect(() => () => controller.current?.cancel(), []);
   return {
     state,
-    submitDestination: (query) => controller.current!.submit({ kind: "destination", query }),
+    submitDestination: (query, mode = "destination") => controller.current!.submit({ kind: "destination", query, mode }),
     submitNearby: (lat, lng) => controller.current!.submit({ kind: "nearby", lat, lng }),
     fail: (reason, label) => controller.current!.fail(reason, label),
   };

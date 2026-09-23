@@ -703,7 +703,7 @@ secret `PLACES_API_KEY`, and begin with `requireMember(request)`.
 
 | Callable | Input | Provider call |
 |----------|-------|---------------|
-| `searchDestination` | `{ query: string }` — trimmed, 1–120 chars | Text Search, `maxResultCount: 10`, no location bias |
+| `searchDestination` | `{ query: string, mode?: "destination" \| "venue" }` — trimmed, 1–120 chars; omitted mode preserves the raw query (venue) | Text Search, `maxResultCount: 10`, no location bias |
 | `searchNearby` | `{ lat: number, lng: number }` — numbers in range | Nearby Search, circle radius 1,500 m, `maxResultCount: 10`, `includedTypes: ["restaurant", "cafe", "bakery", "bar", "meal_takeaway"]` |
 
 Response: `{ results: DiscoveryResult[], provider: "google" }` with
@@ -713,12 +713,21 @@ Response: `{ results: DiscoveryResult[], provider: "google" }` with
 is not `OPERATIONAL` are dropped server-side. Invalid input → `invalid-argument`. Unknown extra
 keys are ignored; identity comes only from `request.auth`.
 
-Text search sends `includedType: "restaurant"` as a bias (no strict filtering), `places.types`
-in the mask, and the mapper keeps only places typed restaurant, cafe, bakery, bar or
-meal_takeaway (controller ruling 2026-09-22 after the fix-wave review: strict restaurant-only
-filtering would hide dedicated gluten-free bakeries and cafés). Nearby `includedTypes` likewise;
-the mapper drops localities and any result with no `types` at all, regardless of what Google's
-own filtering does (audit F3, 2026-09-22).
+Text search has explicit intent (owner approved 2026-09-23 after the pre-merge review):
+**Town or area** (`mode: "destination"`, the new UI default) sends `food in <query>`;
+**Restaurant or venue name** (`mode: "venue"`) sends the entered query unchanged. Older callers
+that omit `mode` also retain the raw query, so a cached client searching by venue name is not
+reinterpreted as a destination. Deploy functions before hosting. Each submit
+still makes one provider request. No `includedType` or strict restaurant filter is sent:
+Google does not apply that parameter to geopolitical queries, and restaurant-only filtering
+could hide cafés and bakeries. The mapper keeps only places typed restaurant, cafe, bakery,
+bar or meal_takeaway, drops localities and missing types, and preserves Google's result order.
+Nearby `includedTypes` contains those same five venue types. Invalid modes are refused before
+usage is counted. See Google's [Text Search guidance](https://developers.google.com/maps/documentation/places/web-service/text-search).
+
+Real-provider acceptance after O4 must cover a bare town, an area, named restaurants, cafés
+and bakeries using the corresponding mode. Adapter fixtures verify request construction and
+filtering; they do not establish Google's real result relevance or gluten-free safety.
 
 #### Provider selection and the secret
 
@@ -797,7 +806,8 @@ regardless (audit observation, 2026-09-22).
   Callable codes map one-to-one onto reasons (`failed-precondition` "switched off" → `off`;
   `resource-exhausted` by `details.reason`; `unavailable` → `unavailable`; a timeout abort →
   `timeout`; a user abort is ignored). The last submitted query stays in the box.
-- **`DiscoverPage.tsx`** — text field + Search button; separate "Near me" button that calls
+- **`DiscoverPage.tsx`** — search-mode selector (**Town or area**, default, or **Restaurant or
+  venue name**), text field + Search button. Changing mode does not submit a search. A separate "Near me" button calls
   `navigator.geolocation.getCurrentPosition` once on tap (`timeout: 10_000`,
   `enableHighAccuracy: false`); `PERMISSION_DENIED` → `locationDenied`, anything else →
   `locationUnavailable`. Nothing is requested on mount. Each state renders a distinct message;

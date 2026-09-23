@@ -36,6 +36,22 @@ describe("searchDestination (fixture provider via functions/.secret.local)", () 
     expect(res.body.result).toEqual({ results: FIXTURE_RESULTS.slice(0, 10), provider: "google" });
   });
 
+  it.each(["destination", "venue"])("accepts explicit %s mode with one usage increment", async (mode) => {
+    const res = await callFunction("searchDestination", { query: "Lisbon", mode }, avaToken);
+    expect(res.status).toBe(200);
+    expect(res.body.result).toEqual({ results: FIXTURE_RESULTS.slice(0, 10), provider: "google" });
+    const usage = await getFirestore().collection("households/home/usage").get();
+    expect(usage.docs.map((d) => d.get("searches"))).toEqual([1]);
+  });
+
+  it("rejects an invalid mode before usage and provider calls", async () => {
+    // The fixture's quota sentinel would produce RESOURCE_EXHAUSTED if the provider ran.
+    const res = await callFunction("searchDestination", { query: MAGIC.quota, mode: "nearby" }, avaToken);
+    expect(res.status).toBe(400);
+    expect(res.body.error?.status).toBe("INVALID_ARGUMENT");
+    expect((await getFirestore().collection("households/home/usage").get()).empty).toBe(true);
+  });
+
   it("rejects an unauthenticated call", async () => {
     const res = await callFunction("searchDestination", { query: "Lisbon" });
     expect(res.status).toBe(401);

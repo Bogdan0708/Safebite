@@ -66,6 +66,33 @@ test("1. a destination search lists fixture results with Google Maps attribution
   await expect(page.getByTestId("discover-query")).toHaveValue("Lisbon");
 });
 
+test("destination and named-venue intent reach the callable only on submit", async ({ page }) => {
+  const calls: unknown[] = [];
+  page.on("request", (request) => {
+    if (request.method() === "POST" && request.url().endsWith("/searchDestination")) {
+      calls.push(request.postDataJSON());
+    }
+  });
+  await openDiscover(page);
+  await expect(page.getByTestId("discover-mode")).toHaveValue("destination");
+  expect(calls).toEqual([]);
+  await search(page, "Lisbon");
+  await expect(page.getByTestId("discover-result")).toHaveCount(10);
+  expect(calls).toEqual([{ data: { query: "Lisbon", mode: "destination" } }]);
+
+  await page.getByTestId("discover-mode").selectOption("venue");
+  await page.getByTestId("discover-query").fill("Fixture Café");
+  expect(calls).toHaveLength(1);
+  const response = page.waitForResponse((res) => res.request().method() === "POST" && res.url().endsWith("/searchDestination"));
+  await page.getByTestId("discover-submit").click();
+  expect((await response).ok()).toBe(true);
+  await expect(page.getByTestId("discover-result")).toHaveCount(10);
+  expect(calls).toEqual([
+    { data: { query: "Lisbon", mode: "destination" } },
+    { data: { query: "Fixture Café", mode: "venue" } },
+  ]);
+});
+
 test("2. no results shows the empty state and no attribution", async ({ page }) => {
   await openDiscover(page);
   await search(page, MAGIC.empty);

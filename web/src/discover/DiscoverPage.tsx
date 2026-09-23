@@ -4,7 +4,7 @@ import { watchRestaurants } from "../records/repository";
 import type { Restaurant } from "../records/types";
 import { useMember } from "../records/useMember";
 import { useWatch } from "../records/useWatch";
-import type { DiscoveryResult, SearchErrorReason } from "./api";
+import type { DiscoveryResult, SearchErrorReason, SearchMode } from "./api";
 import { requestPosition } from "./geolocation";
 import { directionsUrl } from "./links";
 import { useDiscoverySearch, type SearchState } from "./search";
@@ -18,7 +18,7 @@ export const REASON_TEXT: Record<SearchErrorReason, string> = {
   timeout: "The search took too long. Check your connection and try again.",
   locationDenied: "Location access was refused. Allow location for SafeBite in your browser settings, or search by destination.",
   locationUnavailable: "Your location could not be determined. Try again, or search by destination.",
-  invalid: "Enter a destination to search for.",
+  invalid: "Enter a town, area or venue name to search for.",
 };
 
 /** Router state for /restaurants/new (read by RestaurantFormPage). Only the place id crosses to
@@ -30,7 +30,7 @@ export interface RestaurantPrefill {
 function StateLine({ state }: { state: SearchState }) {
   switch (state.status) {
     case "idle":
-      return <p className="hint" data-testid="discover-state" data-status="idle">Search by destination, or use Near me. Nothing is searched until you ask.</p>;
+      return <p className="hint" data-testid="discover-state" data-status="idle">Search a town, area or venue name, or use Near me. Nothing is searched until you ask.</p>;
     case "searching":
       return <p data-testid="discover-state" data-status="searching" role="status">Searching {state.label === "near you" ? "near you" : `for “${state.label}”`}…</p>;
     case "empty":
@@ -64,6 +64,7 @@ export function DiscoverPage() {
   const navigate = useNavigate();
   const { state, submitDestination, submitNearby, fail } = useDiscoverySearch();
   const [query, setQuery] = useState("");
+  const [mode, setMode] = useState<SearchMode>("destination");
   const [locating, setLocating] = useState(false);
   const records = useWatch<Restaurant[]>((cb) => watchRestaurants(householdId, cb), [householdId]);
 
@@ -88,7 +89,7 @@ export function DiscoverPage() {
       fail("invalid", "");
       return;
     }
-    submitDestination(trimmed);
+    submitDestination(trimmed, mode);
   }
 
   async function onNearMe() {
@@ -111,8 +112,15 @@ export function DiscoverPage() {
       <h2>Discover</h2>
       <form className="form" data-testid="discover-form" onSubmit={onSubmit} noValidate>
         <label>
-          Destination
-          <input data-testid="discover-query" value={query} maxLength={120} placeholder="Town, area or restaurant name" onChange={(e) => setQuery(e.target.value)} />
+          Search for
+          <select data-testid="discover-mode" value={mode} onChange={(e) => setMode(e.target.value === "venue" ? "venue" : "destination")}>
+            <option value="destination">Town or area</option>
+            <option value="venue">Restaurant or venue name</option>
+          </select>
+        </label>
+        <label>
+          {mode === "destination" ? "Town or area" : "Restaurant or venue name"}
+          <input data-testid="discover-query" value={query} maxLength={120} placeholder={mode === "destination" ? "e.g. Lisbon or Soho" : "e.g. Riverside Café, Lisbon"} onChange={(e) => setQuery(e.target.value)} />
         </label>
         <div className="actions">
           <button type="submit" data-testid="discover-submit">Search</button>
@@ -130,7 +138,7 @@ export function DiscoverPage() {
             <img src="/google/GoogleMaps_Logo_Gray.svg" alt="Google Maps" height={19} />
           </p>
           <p className="hint" data-testid="ranking-note">
-            Results are shown in the order Google Maps returns them; SafeBite only leaves out places Google reports as closed. Being listed here says nothing about gluten-free safety — check the evidence and call ahead.
+            Results are shown in the order Google Maps returns them; SafeBite leaves out closed places and places outside its restaurant, café, bakery, bar and takeaway categories. Being listed here says nothing about gluten-free safety — check the evidence and call ahead.
           </p>
         </>
       )}
