@@ -8,7 +8,7 @@ Not reachable. `gcloud projects describe`, the Firebase Management API (403) and
 
 ## O4 — historical key from commit `e7c0268`
 
-The API Keys lookup was denied (`apikeys.keys.lookup`), but the error names the key's parent as project number `776764264965`. The owner could not find that project under any account they hold. The key therefore belongs to a deleted or foreign project and cannot be restricted from here. The pilot never uses it. The replacement Places key will be created in the pilot project (owner supplies it later). Until then, `config/discovery` is absent, so discovery stays switched off.
+The API Keys lookup was denied (`apikeys.keys.lookup`), but the error names the key's parent as project number `776764264965`. The owner could not find that project under any account they hold. The key therefore belongs to a deleted or foreign project and cannot be restricted from here. The pilot never uses it. The replacement key was created in the pilot project on 2026-09-23 (see O5 below). `config/discovery` is still absent, so discovery stays switched off until deploy.
 
 ## O5 — pilot project
 
@@ -23,7 +23,8 @@ The API Keys lookup was denied (`apikeys.keys.lookup`), but the error names the 
 | Auth | Firebase Auth (not Identity Platform), email + password only, **self sign-up disabled** (`client.permissions.disabledUserSignup`; a public `accounts:signUp` returns `ADMIN_ONLY_OPERATION`) |
 | Authorised domains | `localhost`, `safebite-pilot-urfs3v.firebaseapp.com`, `safebite-pilot-urfs3v.web.app` |
 | Web app | "SafeBite PWA", app ID `1:1081260388315:web:6696e3bc27a3170e6041fe`; its `VITE_FIREBASE_*` values come from `firebase apps:sdkconfig` and are not committed |
-| APIs enabled | Firestore, Identity Toolkit, Cloud Functions, Cloud Build, Artifact Registry, Cloud Run, Eventarc, Secret Manager, Places (New), Firebase Rules, Firebase Hosting, Billing Budgets |
+| Places key | API key `<key ID — owner's private notes>` ("SafeBite functions Places (server)"), API restriction `places.googleapis.com` only, no application restriction (server-side use from Cloud Functions). Piped straight into Secret Manager secret `PLACES_API_KEY` (version 1, label `firebase-managed=functions`) without being displayed; verified with one free IDs-only Text Search |
+| APIs enabled | Firestore, Identity Toolkit, Cloud Functions, Cloud Build, Artifact Registry, Cloud Run, Eventarc, Secret Manager, Places (New), Firebase Rules, Firebase Hosting, Billing Budgets, API Keys |
 
 The owner considered reusing `mitch-ai-services`, then chose a new project instead. That project runs an unrelated live Cloud Run service whose default service account holds `roles/editor`, so it could reach household data, and its existing spend would make a £10 SafeBite budget meaningless.
 
@@ -37,10 +38,10 @@ Created with a one-off, uncommitted admin script (REST, the owner's gcloud crede
 - `users/<owner-uid>`: Bogdan (`<owner email>`), `householdId: "home"`
 - `users/<ava-uid>`: Ava (`<Ava's email>`), `householdId: "home"`
 
-Both accounts signed in successfully with their generated temporary passwords, which are held only in `~/.config/safebite/pilot-accounts.txt` (mode 600) on the owner's machine. The app has no password-change or reset flow yet; add one (Plan 5 settings) or reset via the Admin API before handing Ava her password.
+Both accounts signed in successfully. The owner then replaced the generated passwords with chosen ones in `~/.config/safebite/pilot-accounts.txt` (mode 600) on the owner's machine; they were applied through the Admin API and both sign-ins re-verified. The app has no password-change flow yet.
 
 ## Still outstanding before staging acceptance
 
-- New Places key in the pilot project, stored as the functions secret `PLACES_API_KEY`, then `config/discovery` created with `enabled: true` and a daily cap.
+- Create `config/discovery` with `enabled: true` and a daily cap at deploy time.
 - Deploy order (landing review): functions, then rules and hosting together.
 - Real iPhone/Safari acceptance (Plan 5).
