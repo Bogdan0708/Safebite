@@ -41,7 +41,7 @@ function ClaimCard({ claim, today, disabled, onDelete }: { claim: Claim; today: 
         {confirming && (
           <>
             <span>Delete this evidence?</span>
-            <button type="button" data-testid={`claim-delete-confirm-${claim.id}`} onClick={() => onDelete(claim.id)}>Yes, delete</button>
+            <button type="button" data-testid={`claim-delete-confirm-${claim.id}`} disabled={disabled} onClick={() => onDelete(claim.id)}>Yes, delete</button>
             <button type="button" onClick={() => setConfirming(false)}>Cancel</button>
           </>
         )}
@@ -106,7 +106,7 @@ export function RestaurantDetailPage() {
         </Link>
       </p>
       {outcome && <p role="alert" data-testid="claim-outcome" data-kind={outcome}>{outcomeMessage(outcome, "This evidence", "delete")}</p>}
-      {!claimsReady && <ReadStateNotice state={cs} onRetry={claimsWatch.retry} />}
+      {(!claimsReady || (cs.status === "offline" && rs.status !== "offline")) && <ReadStateNotice state={cs} onRetry={claimsWatch.retry} />}
       {claimsReady && (
         <div className="evidence">
           {summary.map((entry) => (
@@ -115,7 +115,7 @@ export function RestaurantDetailPage() {
               <p>{STATE_TEXT[entry.state]}</p>
               {entry.state === "conflicting" && entry.tied.map((c) => <ClaimCard key={c.id} claim={c} today={today} disabled={offline} onDelete={(id) => void onDeleteClaim(id)} />)}
               {(entry.state === "current" || entry.state === "needsRechecking") && (
-                <ClaimCard claim={entry.latest} today={today} disabled={offline} onDelete={(id) => void onDeleteClaim(id)} />
+                <ClaimCard key={entry.latest.id} claim={entry.latest} today={today} disabled={offline} onDelete={(id) => void onDeleteClaim(id)} />
               )}
               {entry.state !== "unknown" && entry.history.length > 0 && (
                 <details>

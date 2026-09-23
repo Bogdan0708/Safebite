@@ -12,6 +12,9 @@ const URL_MESSAGE = "Enter a full web address starting with http:// or https://.
 
 /** Stricter than the rules' `https?://.+` (a bare "http://" fails here); the rules are the floor. */
 export function isHttpUrl(value: string): boolean {
+  // URL() repairs missing slashes and backslashes. Validate the entered spelling
+  // first so the stored string has the explicit prefix required by the rules.
+  if (!/^https?:\/\/[^/\\\s]/i.test(value) || value.includes("\\")) return false;
   try {
     const url = new URL(value);
     return url.protocol === "http:" || url.protocol === "https:";

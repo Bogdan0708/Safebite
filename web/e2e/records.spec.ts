@@ -194,3 +194,56 @@ test("7. after an account switch no record of the previous member is rendered an
   await expect(page.getByTestId("nav-saved")).toHaveCount(0);
   expect(pageErrors).toEqual([]);
 });
+
+test("8. live replacement evidence needs its own delete confirmation", async ({ page, request }) => {
+  await seedRestaurant(request, "r-confirm");
+  await seedClaim(request, "r-confirm", "old", { checkedAt: "2026-09-01" });
+  await signIn(page, "ava@safebite.test");
+  await page.goto("/restaurants/r-confirm");
+  await page.getByTestId("claim-delete-old").click();
+  await expect(page.getByTestId("claim-delete-confirm-old")).toBeVisible();
+
+  await seedClaim(request, "r-confirm", "new", { checkedAt: "2026-09-02" });
+  await expect(page.getByTestId("claim-new")).toBeVisible();
+  await expect(page.getByTestId("claim-delete-confirm-new")).toHaveCount(0);
+  expect((await listClaimIds(request, "r-confirm")).sort()).toEqual(["new", "old"]);
+
+  // Only an explicit confirmation opened on the replacement can remove it.
+  await page.getByTestId("claim-delete-new").click();
+  await page.getByTestId("claim-delete-confirm-new").click();
+  await expect(page.getByTestId("claim-new")).toHaveCount(0);
+  await expect(page.getByTestId("claim-delete-old")).toBeVisible();
+  await expect(page.getByTestId("claim-delete-confirm-old")).toHaveCount(0);
+  expect(await listClaimIds(request, "r-confirm")).toEqual(["old"]);
+});
+
+test("9. malformed website and evidence URLs show field errors and can be corrected", async ({ page, request }) => {
+  await signIn(page, "ava@safebite.test");
+  await page.goto("/restaurants/new");
+  await page.getByTestId("field-name").fill("URL validation");
+  await page.getByTestId("field-address").fill("1 Test Street");
+  await page.getByTestId("field-website").fill("https:example.com");
+  await page.getByTestId("save-restaurant").click();
+  await expect(page.getByTestId("error-website")).toContainText("http:// or https://");
+  await expect(page.getByTestId("save-outcome")).toHaveCount(0);
+  expect(await listRestaurantIds(request)).toEqual([]);
+
+  await page.getByTestId("field-website").fill("HTTPS://example.com");
+  await page.getByTestId("save-restaurant").click();
+  await expect(page.getByTestId("restaurant-website")).toHaveAttribute("href", "https://example.com");
+  const [rid] = await listRestaurantIds(request);
+  await page.getByTestId("add-evidence").click();
+  await page.getByTestId("claim-kind").selectOption("accreditation");
+  await page.getByTestId("claim-source-label").fill("Accrediting body");
+  await page.getByTestId("claim-source-url").fill("https:/example.com/listing");
+  await page.getByTestId("claim-submit").click();
+  await expect(page.getByTestId("claim-error-sourceUrl")).toContainText("http:// or https://");
+  await expect(page.getByTestId("claim-save-outcome")).toHaveCount(0);
+  expect(await listClaimIds(request, rid!)).toEqual([]);
+
+  await page.getByTestId("claim-source-url").fill("HTTPS://example.com/listing");
+  await page.getByTestId("claim-submit").click();
+  await expect(page.getByTestId("evidence-accreditation")).toHaveAttribute("data-state", "current");
+  await expect(page.getByTestId("evidence-accreditation").getByRole("link", { name: "Accrediting body" })).toHaveAttribute("href", "https://example.com/listing");
+  expect(await listClaimIds(request, rid!)).toHaveLength(1);
+});

@@ -96,6 +96,93 @@ describe("RestaurantDetailPage", () => {
     await waitFor(() => expect(m.deleteClaim).toHaveBeenCalledWith("home", "r1", "c1"));
   });
 
+  it.each(["newer arrival", "latest removed"] as const)("requires fresh confirmation when the latest claim changes after %s", async (change) => {
+    const older = claim({ id: "older", checkedAt: "2026-09-01" });
+    const newer = claim({ id: "newer", checkedAt: "2026-09-20" });
+    const before = change === "newer arrival" ? older : newer;
+    const after = change === "newer arrival" ? newer : older;
+    renderPage();
+    act(() => {
+      emitRestaurant({ status: "ready", value: restaurant });
+      emitClaims({ status: "ready", value: change === "newer arrival" ? [older] : [newer, older] });
+    });
+    await userEvent.click(screen.getByTestId(`claim-delete-${before.id}`));
+    expect(screen.getByTestId(`claim-delete-confirm-${before.id}`)).toBeInTheDocument();
+
+    act(() => emitClaims({ status: "ready", value: change === "newer arrival" ? [newer, older] : [older] }));
+    expect(screen.queryByTestId(`claim-delete-confirm-${after.id}`)).not.toBeInTheDocument();
+    expect(m.deleteClaim).not.toHaveBeenCalled();
+
+    await userEvent.click(screen.getByTestId(`claim-delete-${after.id}`));
+    await userEvent.click(screen.getByTestId(`claim-delete-confirm-${after.id}`));
+    expect(m.deleteClaim).toHaveBeenCalledExactlyOnceWith("home", "r1", after.id);
+  });
+
+  it.each([
+    ["ready", "offline", false],
+    ["offline", "ready", false],
+    ["offline", "offline", false],
+    ["ready", "offline", true],
+    ["offline", "ready", true],
+    ["offline", "offline", true],
+  ] as const)("shows one offline notice for restaurant=%s, claims=%s, empty=%s", async (restaurantStatus, claimsStatus, empty) => {
+    renderPage();
+    act(() => {
+      emitRestaurant({ status: restaurantStatus, value: restaurant });
+      emitClaims({ status: claimsStatus, value: empty ? [] : [claim({ id: "c1" })] });
+    });
+    expect(screen.getAllByTestId("read-offline")).toHaveLength(1);
+    const add = screen.getByTestId("add-evidence");
+    expect(add).toHaveAttribute("aria-disabled", "true");
+    await userEvent.click(add);
+    expect(screen.getByTestId("restaurant-name")).toBeInTheDocument();
+    if (empty) {
+      expect(screen.getByTestId("evidence-separateFryer")).toHaveAttribute("data-state", "unknown");
+    } else {
+      expect(screen.getByTestId("claim-c1")).toBeInTheDocument();
+      expect(screen.getByTestId("claim-delete-c1")).toBeDisabled();
+    }
+    act(() => {
+      emitRestaurant({ status: "ready", value: restaurant });
+      emitClaims({ status: "ready", value: empty ? [] : [claim({ id: "c1" })] });
+    });
+    expect(screen.queryByTestId("read-offline")).not.toBeInTheDocument();
+    expect(screen.getByTestId("add-evidence")).not.toHaveAttribute("aria-disabled");
+    if (!empty) expect(screen.getByTestId("claim-delete-c1")).toBeEnabled();
+  });
+
+  it.each(["restaurant", "claims"] as const)("disables an open delete confirmation when %s becomes offline", async (snapshot) => {
+    const claims = [claim({ id: "c1" })];
+    renderPage();
+    act(() => {
+      emitRestaurant({ status: "ready", value: restaurant });
+      emitClaims({ status: "ready", value: claims });
+    });
+    await userEvent.click(screen.getByTestId("claim-delete-c1"));
+    act(() => {
+      if (snapshot === "restaurant") emitRestaurant({ status: "offline", value: restaurant });
+      else emitClaims({ status: "offline", value: claims });
+    });
+    const confirm = screen.getByTestId("claim-delete-confirm-c1");
+    expect(confirm).toBeDisabled();
+    await userEvent.click(confirm);
+    expect(m.deleteClaim).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.getByTestId("claim-delete-c1")).toBeDisabled();
+  });
+
+  it.each(["loading", "error", "denied"] as const)("preserves the claims %s notice alongside a cached restaurant", (status) => {
+    renderPage();
+    act(() => {
+      emitRestaurant({ status: "offline", value: restaurant });
+      if (status === "error") emitClaims({ status: "error", message: "boom" });
+      if (status === "denied") emitClaims({ status: "denied" });
+    });
+    expect(screen.getAllByTestId("read-offline")).toHaveLength(1);
+    expect(screen.getByTestId(`read-${status}`)).toBeInTheDocument();
+    expect(screen.queryByTestId("evidence-dedicatedKitchen")).not.toBeInTheDocument();
+  });
+
   it("keeps evidence unknown-vs-unloaded distinct: loading and error show notices, not six unknowns", () => {
     renderPage();
     act(() => { emitRestaurant({ status: "ready", value: restaurant }); });

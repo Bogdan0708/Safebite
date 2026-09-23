@@ -2,10 +2,22 @@ import { describe, expect, it } from "vitest";
 import type { ClaimInput } from "./types";
 import { LIMITS, isHttpUrl, normaliseRestaurantInput, validateClaimInput, validateRestaurantInput } from "./validation";
 
+// URL() repairs these spellings, but forms must require an explicit web address.
+const MALFORMED_HTTP_URLS = [
+  "https:example.test",
+  "https:/example.test",
+  "https:\\example.test",
+  "https:/\\example.test",
+  "https:\\\\example.test",
+  "https:///example.test",
+  "https://\\example.test",
+];
+
 describe("isHttpUrl", () => {
   it("accepts http(s) URLs and rejects everything else", () => {
     expect(isHttpUrl("https://coeliac.org.uk/venues/1")).toBe(true);
     expect(isHttpUrl("http://example.test")).toBe(true);
+    expect(isHttpUrl("HTTPS://example.test/path?venue=1#details")).toBe(true);
     expect(isHttpUrl("ftp://example.test")).toBe(false);
     expect(isHttpUrl("example.test")).toBe(false);
     expect(isHttpUrl("javascript:alert(1)")).toBe(false);
@@ -40,6 +52,10 @@ describe("validateRestaurantInput", () => {
     expect(validateRestaurantInput({ name: "A", address: "B", website: "damarco.it" }).website).toBe("Enter a full web address starting with http:// or https://.");
     expect(validateRestaurantInput({ name: "A", address: "B", website: "https://damarco.it" })).toEqual({});
   });
+  it.each(MALFORMED_HTTP_URLS)("rejects repaired website spelling %s before writing", (website) => {
+    const input = normaliseRestaurantInput({ name: "A", address: "B", phone: "", website });
+    expect(validateRestaurantInput(input).website).toBe("Enter a full web address starting with http:// or https://.");
+  });
 });
 
 describe("validateClaimInput", () => {
@@ -73,6 +89,9 @@ describe("validateClaimInput", () => {
   it("URL policy: accreditation must come from an accrediting body", () => {
     expect(validateClaimInput({ ...base, kind: "accreditation", source: { type: "thirdParty", label: "Blog", url: "https://blog.test" } }, today).sourceType).toBe("Accreditation must come from the accrediting body.");
     expect(validateClaimInput({ ...base, kind: "accreditation", source: { type: "accreditingBody", label: "AIC", url: "https://celiachia.it/x" } }, today)).toEqual({});
+  });
+  it.each(MALFORMED_HTTP_URLS)("rejects repaired claim-source spelling %s before writing", (url) => {
+    expect(validateClaimInput({ ...base, source: { ...base.source, url } }, today).sourceUrl).toBe("Enter a full web address starting with http:// or https://.");
   });
   it("requires a non-blank source label and caps detail", () => {
     expect(validateClaimInput({ ...base, source: { type: "ownVisit", label: "  " } }, today).sourceLabel).toBe("Say where this information came from.");

@@ -196,7 +196,7 @@ export function RestaurantFormPage({ mode }: { mode: "create" | "edit" }) {
           {confirming && deleteProgress === null && (
             <>
               <span>Delete this restaurant and all of its evidence?</span>
-              <button type="button" data-testid="delete-confirm" disabled={busy} onClick={() => void onDelete()}>Yes, delete</button>
+              <button type="button" data-testid="delete-confirm" disabled={busy || offline} onClick={() => void onDelete()}>Yes, delete</button>
               <button type="button" data-testid="delete-cancel" disabled={busy} onClick={() => setConfirming(false)}>Cancel</button>
             </>
           )}

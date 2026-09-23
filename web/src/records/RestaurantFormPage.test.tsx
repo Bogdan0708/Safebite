@@ -165,6 +165,20 @@ describe("RestaurantFormPage — edit", () => {
     await waitFor(() => expect(screen.getByTestId("list-page")).toBeInTheDocument());
     expect(m.deleteRestaurant).toHaveBeenCalledWith("home", "r1", 3, expect.any(Function));
   });
+
+  it("disables an open delete confirmation when the restaurant becomes cache-backed", async () => {
+    renderAt("/restaurants/r1/edit");
+    act(() => emit({ status: "ready", value: stored }));
+    await userEvent.click(screen.getByTestId("delete-restaurant"));
+    expect(screen.getByTestId("delete-confirm")).toBeEnabled();
+    act(() => emit({ status: "offline", value: stored }));
+    expect(screen.getByTestId("delete-confirm")).toBeDisabled();
+    await userEvent.click(screen.getByTestId("delete-confirm"));
+    expect(m.deleteRestaurant).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByTestId("delete-cancel"));
+    expect(screen.queryByTestId("delete-confirm")).not.toBeInTheDocument();
+    expect(screen.getByTestId("delete-restaurant")).toBeDisabled();
+  });
 });
 
 function renderCreateWithState(state: unknown) {
