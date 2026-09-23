@@ -1,0 +1,3 @@
+{"actualRequestBody":{"textQuery":"Lisbon","maxResultCount":10},"results":[{"placeId":"audit-city-id","name":"Lisbon","address":"Lisbon, Portugal","googleMapsUri":"https://maps.google.com/?q=Lisbon"}]}
+{"kind":"destination","uid":"audit-user","householdId":"audit-home","durationMs":0,"outcome":"badRequest","status":400,"message":"discovery.search","severity":"WARNING"}
+Mapped error: internal

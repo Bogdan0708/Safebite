@@ -1,0 +1,19 @@
+{
+  "name": "safebite-root",
+  "private": true,
+  "description": "Orchestration scripts for the SafeBite PWA (web/ + functions/). Never deploys.",
+  "engines": { "node": "22" },
+  "scripts": {
+    "typecheck": "npm --prefix functions run typecheck && npm --prefix web run typecheck",
+    "build": "npm --prefix functions run build && npm --prefix web run build:check",
+    "test:unit": "npm --prefix web test",
+    "emu:start": "node tooling/ensure-secret-local.mjs && npm --prefix functions run build && FUNCTIONS_DISCOVERY_TIMEOUT=90 firebase emulators:start --only auth,firestore,functions --project demo-safebite",
+    "emu:seed": "FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 FIREBASE_AUTH_EMULATOR_HOST=127.0.0.1:9099 node functions/lib/seed-emulator.js",
+    "emu:test": "node tooling/ensure-secret-local.mjs && npm --prefix functions run build && FUNCTIONS_DISCOVERY_TIMEOUT=90 firebase emulators:exec --only auth,firestore,functions --project demo-safebite \"npm --prefix functions test\"",
+    "emu:e2e": "node tooling/ensure-secret-local.mjs && npm --prefix functions run build && FUNCTIONS_DISCOVERY_TIMEOUT=90 firebase emulators:exec --only auth,firestore,functions --project demo-safebite \"node functions/lib/seed-emulator.js && npm --prefix web run e2e\"",
+    "emu:e2e:stress": "node tooling/ensure-secret-local.mjs && npm --prefix functions run build && FUNCTIONS_DISCOVERY_TIMEOUT=90 firebase emulators:exec --only auth,firestore,functions --project demo-safebite \"node functions/lib/seed-emulator.js && npm --prefix web run e2e -- --repeat-each=3 --retries=0\""
+  },
+  "devDependencies": {
+    "firebase-tools": "^15.30.2"
+  }
+}

@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" id="safebite-mark" fill="none">
+  <!-- Plate -->
+  <circle cx="50" cy="52" r="34" stroke="#ffffff" stroke-width="7"/>
+  <!-- Leaf inside the plate: a wheat-free plate -->
+  <path d="M50 74 C34 66 30 50 40 36 C54 38 62 50 50 74 Z" fill="#ffffff"/>
+  <path d="M50 74 C50 60 46 50 42 42" stroke="#1f7a4d" stroke-width="3.5" stroke-linecap="round"/>
+</svg>

@@ -2,153 +2,158 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // ============================================
-    // HELPER FUNCTIONS
-    // ============================================
-
-    // Check if user is authenticated
-    function isAuthenticated() {
+    function signedIn() {
       return request.auth != null;
     }
 
-    // Check if user owns the document
-    function isOwner(userId) {
-      return isAuthenticated() && request.auth.uid == userId;
+    function household(hid) {
+      return get(/databases/$(database)/documents/households/$(hid));
     }
 
-    // Check if user is an admin (requires custom claim)
-    function isAdmin() {
-      return isAuthenticated() && request.auth.token.admin == true;
+    // A member is a signed-in user listed in the household's memberIds.
+    // memberIds is written only by the Admin SDK (seed script / owner), never by clients.
+    function isMember(hid) {
+      return signedIn() && request.auth.uid in household(hid).data.memberIds;
     }
 
-    // Check if user is a verified reviewer
-    function isVerifiedReviewer() {
-      return isAuthenticated() &&
-        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isVerifiedReviewer == true;
+    // ---- field validators (limits mirror web/src/records/validation.ts LIMITS) ----
+    function nonBlankString(v, max) {
+      return v is string && v.trim() != '' && v.size() <= max;
+    }
+    // Optional strings must be absent or non-empty (the client drops blanks before writing).
+    function optionalString(data, key, max) {
+      return !(key in data) || nonBlankString(data[key], max);
+    }
+    function httpUrl(v, max) {
+      return v is string && v.size() <= max && v.matches('https?://.+');
+    }
+    function optionalHttpUrl(data, key, max) {
+      return !(key in data) || httpUrl(data[key], max);
+    }
+    // Coordinates come as a pair or not at all; optional until Plan 3 fills them from Places.
+    function validCoordinates(data) {
+      return (!('lat' in data) && !('lng' in data))
+        || (('lat' in data) && ('lng' in data)
+            && data.lat is number && data.lng is number
+            && data.lat >= -90 && data.lat <= 90 && data.lng >= -180 && data.lng <= 180);
     }
 
-    // ============================================
-    // USERS COLLECTION
-    // ============================================
+    function validRestaurant(data) {
+      return data.keys().hasOnly(['name', 'address', 'phone', 'website', 'lat', 'lng', 'googlePlaceId', 'createdBy', 'createdAt', 'updatedAt', 'version', 'deleting'])
+        && data.keys().hasAll(['name', 'address', 'createdBy', 'createdAt', 'updatedAt', 'version', 'deleting'])
+        && nonBlankString(data.name, 120)
+        && nonBlankString(data.address, 300)
+        && optionalString(data, 'phone', 40)
+        && optionalHttpUrl(data, 'website', 300)
+        && optionalString(data, 'googlePlaceId', 200)
+        && validCoordinates(data)
+        && data.createdBy is string
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp
+        && data.version is int
+        && data.deleting is bool;
+    }
 
-    match /users/{userId} {
-      // Users can read their own profile
-      allow read: if isOwner(userId);
+    // Deletion protocol step 1 (spec §3.5): the mark changes only these keys.
+    function isMarkingDeleting() {
+      return request.resource.data.deleting == true
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['deleting', 'version', 'updatedAt']);
+    }
 
-      // Users can create their own profile on sign up
-      allow create: if isOwner(userId) &&
-        request.resource.data.keys().hasAll(['email', 'displayName', 'createdAt']) &&
-        request.resource.data.isPremium == false &&
-        request.resource.data.isVerifiedReviewer == false;
+    // Calendar dates are timestamps at 00:00:00 UTC (spec §3.5, audit F3).
+    function utcMidnight(ts) {
+      return ts is timestamp && ts == ts.date();
+    }
 
-      // Users can update their own profile (but not isPremium or isVerifiedReviewer)
-      allow update: if isOwner(userId) &&
-        !request.resource.data.diff(resource.data).affectedKeys().hasAny(['isPremium', 'isVerifiedReviewer', 'reviewCount']);
+    // URL policy: an accrediting body always carries a link to its listing.
+    function validSource(s) {
+      return s is map
+        && s.keys().hasOnly(['type', 'label', 'url'])
+        && s.keys().hasAll(['type', 'label'])
+        && s.type in ['restaurantStatement', 'accreditingBody', 'ownVisit', 'thirdParty']
+        && nonBlankString(s.label, 200)
+        && optionalHttpUrl(s, 'url', 500)
+        && (s.type != 'accreditingBody' || 'url' in s);
+    }
 
-      // Users can delete their own profile (GDPR)
-      allow delete: if isOwner(userId);
+    function validClaim(data) {
+      return data.keys().hasOnly(['kind', 'value', 'detail', 'source', 'checkedAt', 'expiresAt', 'authorUid', 'authorName', 'createdAt'])
+        && data.keys().hasAll(['kind', 'value', 'detail', 'source', 'checkedAt', 'authorUid', 'authorName', 'createdAt'])
+        && data.kind in ['dedicatedKitchen', 'separateFryer', 'trainedStaff', 'gfMenu', 'preparationPractice', 'accreditation']
+        && data.value in ['yes', 'no', 'partial']
+        && data.detail is string && data.detail.size() <= 1000
+        && validSource(data.source)
+        && (data.kind != 'accreditation' || data.source.type == 'accreditingBody')
+        && utcMidnight(data.checkedAt)
+        // A user anywhere from UTC-12 to UTC+14 may enter their local "today"; two days ahead is never valid.
+        && data.checkedAt <= request.time + duration.value(1, 'd')
+        && (!('expiresAt' in data) || (utcMidnight(data.expiresAt) && data.expiresAt > data.checkedAt))
+        && data.authorUid is string
+        && data.authorName is string
+        && data.createdAt is timestamp;
+    }
 
-      // Saved restaurants subcollection
-      match /savedRestaurants/{savedId} {
-        allow read, write: if isOwner(userId);
+    match /users/{uid} {
+      allow read: if signedIn() && request.auth.uid == uid;
+      allow write: if false;
+    }
+
+    match /households/{hid} {
+      // Read the membership list off the document itself: no second get() per read.
+      allow read: if signedIn() && request.auth.uid in resource.data.memberIds;
+      allow write: if false;
+
+      match /restaurants/{rid} {
+        allow read: if isMember(hid);
+
+        allow create: if isMember(hid)
+          && validRestaurant(request.resource.data)
+          && request.resource.data.createdBy == request.auth.uid
+          && request.resource.data.version == 1
+          && request.resource.data.deleting == false
+          && request.resource.data.createdAt == request.time
+          && request.resource.data.updatedAt == request.time;
+
+        // Optimistic concurrency: exactly the next version, server-stamped. Once deleting is true
+        // nothing may change until the document is removed (so a claim sweep cannot be undercut).
+        allow update: if isMember(hid)
+          && validRestaurant(request.resource.data)
+          && resource.data.deleting == false
+          && request.resource.data.createdBy == resource.data.createdBy
+          && request.resource.data.createdAt == resource.data.createdAt
+          && request.resource.data.updatedAt == request.time
+          && request.resource.data.version == resource.data.version + 1
+          && (request.resource.data.deleting == false || isMarkingDeleting());
+
+        // Step 3 of the protocol: only a marked restaurant can go.
+        allow delete: if isMember(hid) && resource.data.deleting == true;
+
+        match /claims/{cid} {
+          function parentRestaurant() {
+            return get(/databases/$(database)/documents/households/$(hid)/restaurants/$(rid));
+          }
+          // The caller's own users/{uid} document; rules get() is not subject to the read rules,
+          // so no peer-user read is introduced (the client also may read its own document).
+          function callerDisplayName() {
+            return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.displayName;
+          }
+
+          allow read: if isMember(hid);
+
+          // Immutable evidence: create with the caller's identity, under an existing parent that is
+          // not being deleted (deletion protocol step 1 makes this false before the sweep).
+          allow create: if isMember(hid)
+            && validClaim(request.resource.data)
+            && exists(/databases/$(database)/documents/households/$(hid)/restaurants/$(rid))
+            && parentRestaurant().data.deleting == false
+            && request.resource.data.authorUid == request.auth.uid
+            && request.resource.data.authorName == callerDisplayName()
+            && request.resource.data.createdAt == request.time;
+
+          allow update: if false;
+          allow delete: if isMember(hid);
+        }
       }
-    }
-
-    // ============================================
-    // RESTAURANTS COLLECTION
-    // ============================================
-
-    match /restaurants/{restaurantId} {
-      // Anyone can read restaurants (even unauthenticated for map view)
-      allow read: if true;
-
-      // Only admins can create/update restaurants
-      allow create, update: if isAdmin();
-
-      // Only admins can delete restaurants
-      allow delete: if isAdmin();
-    }
-
-    // ============================================
-    // REVIEWS COLLECTION
-    // ============================================
-
-    match /reviews/{reviewId} {
-      // Anyone can read reviews
-      allow read: if true;
-
-      // Authenticated users can create reviews
-      allow create: if isAuthenticated() &&
-        request.resource.data.userId == request.auth.uid &&
-        request.resource.data.keys().hasAll(['restaurantId', 'userId', 'content', 'safetyRating', 'createdAt']) &&
-        request.resource.data.safetyRating >= 1 &&
-        request.resource.data.safetyRating <= 5;
-
-      // Users can update their own reviews
-      allow update: if isAuthenticated() &&
-        resource.data.userId == request.auth.uid &&
-        request.resource.data.userId == request.auth.uid;
-
-      // Users can delete their own reviews
-      allow delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
-    }
-
-    // ============================================
-    // INCIDENTS COLLECTION
-    // ============================================
-
-    match /incidents/{incidentId} {
-      // Only authenticated users can read incidents
-      allow read: if isAuthenticated();
-
-      // Authenticated users can report incidents
-      allow create: if isAuthenticated() &&
-        request.resource.data.userId == request.auth.uid &&
-        request.resource.data.keys().hasAll(['restaurantId', 'userId', 'description', 'incidentDate', 'createdAt']);
-
-      // Users can update their own incident reports
-      allow update: if isAuthenticated() && resource.data.userId == request.auth.uid;
-
-      // Users can delete their own incident reports
-      allow delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
-    }
-
-    // ============================================
-    // TRUST SCORES COLLECTION
-    // ============================================
-
-    match /trustScores/{restaurantId} {
-      // Anyone can read trust scores
-      allow read: if true;
-
-      // Only admins or cloud functions can write trust scores
-      allow write: if isAdmin();
-    }
-
-    // ============================================
-    // VERIFICATIONS COLLECTION (Admin only)
-    // ============================================
-
-    match /verifications/{verificationId} {
-      // Only admins can read/write verifications
-      allow read, write: if isAdmin();
-    }
-
-    // ============================================
-    // SAFETY QUIZ RESULTS
-    // ============================================
-
-    match /quizResults/{resultId} {
-      // Users can read their own quiz results
-      allow read: if isAuthenticated() && resource.data.userId == request.auth.uid;
-
-      // Users can submit quiz results
-      allow create: if isAuthenticated() &&
-        request.resource.data.userId == request.auth.uid;
-
-      // No updates or deletes allowed
-      allow update, delete: if false;
     }
   }
 }

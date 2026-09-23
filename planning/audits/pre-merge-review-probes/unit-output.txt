@@ -1,0 +1,62 @@
+
+> web@0.0.0 test
+> vitest run src/records/audit-premerge.test.tsx
+
+
+ RUN  v5.0.1 /home/godja/Dev/AvaGF/.claude/worktrees/pwa-01-foundation/web
+
+ ❯ src/records/audit-premerge.test.tsx (2 tests | 2 failed) 336ms
+   ❯ audit: uncovered detail-page states (2)
+     × labels cached claims even when the restaurant snapshot is server-backed 73ms
+     × does not delete a replacement claim using the original claim confirmation 260ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/records/audit-premerge.test.tsx > audit: uncovered detail-page states > labels cached claims even when the restaurant snapshot is server-backed
+Error: expect(received).toBeInTheDocument()
+
+received value must be an HTMLElement or an SVGElement.
+Received has type:  Null
+Received has value: null
+ ❯ src/records/audit-premerge.test.tsx:50:50
+     48|       emitClaims({ status: "offline", value: [claim({ id: "cached" })]…
+     49|     });
+     50|     expect(screen.queryByTestId("read-offline")).toBeInTheDocument();
+       |                                                  ^
+     51|   });
+     52|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  src/records/audit-premerge.test.tsx > audit: uncovered detail-page states > does not delete a replacement claim using the original claim confirmation
+AssertionError: expected "vi.fn()" to be called with arguments: [ 'home', 'r1', 'old' ]
+
+Received:
+
+  1st vi.fn() call:
+
+  [
+    "home",
+    "r1",
+-   "old",
++   "new",
+  ]
+
+
+Number of calls: 1
+
+ ❯ src/records/audit-premerge.test.tsx:65:27
+     63|     act(() => emitClaims({ status: "ready", value: [old, claim({ id: "…
+     64|     await user.click(screen.getByTestId("claim-delete-confirm-new"));
+     65|     expect(m.deleteClaim).toHaveBeenCalledWith("home", "r1", "old");
+       |                           ^
+     66|   });
+     67| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed (2)
+   Start at  21:13:55
+   Duration  2.17s (environment 50%, tests 17%, import 14%, transform 12%, setup 8%)

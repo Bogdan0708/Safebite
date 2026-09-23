@@ -1,0 +1,73 @@
+
+> web@0.0.0 test
+> vitest run src/discover/audit-plan3.test.tsx
+
+
+ RUN  v5.0.1 /home/godja/Dev/AvaGF/.claude/worktrees/pwa-01-foundation/web
+
+ ❯ src/discover/audit-plan3.test.tsx (14 tests | 2 failed) 1079ms
+   ❯ audit: geolocation belongs to its initiating search intent (2)
+     × ignores a late position after a newer destination submission 88ms
+     × does not start a paid search after the requesting page unmounts 20ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/discover/audit-plan3.test.tsx > audit: geolocation belongs to its initiating search intent > ignores a late position after a newer destination submission
+AssertionError: expected "vi.fn()" to not be called at all, but actually been called 1 times
+
+Received:
+
+  1st vi.fn() call:
+
+    Array [
+      Object {
+        "lat": 51.5,
+        "lng": -0.12,
+      },
+    ]
+
+
+Number of calls: 1
+
+ ❯ src/discover/audit-plan3.test.tsx:182:32
+    180|     await waitFor(() => expect(screen.getByTestId("discover-result")).…
+    181|     await act(async () => resolvePosition({kind: "position", lat: 51.5…
+    182|     expect(m.searchNearby).not.toHaveBeenCalled();
+       |                                ^
+    183|     expect(screen.getByTestId("discover-result")).toHaveAttribute("dat…
+    184|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  src/discover/audit-plan3.test.tsx > audit: geolocation belongs to its initiating search intent > does not start a paid search after the requesting page unmounts
+AssertionError: expected "vi.fn()" to not be called at all, but actually been called 1 times
+
+Received:
+
+  1st vi.fn() call:
+
+    Array [
+      Object {
+        "lat": 51.5,
+        "lng": -0.12,
+      },
+    ]
+
+
+Number of calls: 1
+
+ ❯ src/discover/audit-plan3.test.tsx:194:32
+    192|     view.unmount();
+    193|     await act(async () => resolvePosition({kind: "position", lat: 51.5…
+    194|     expect(m.searchNearby).not.toHaveBeenCalled();
+       |                                ^
+    195|   });
+    196| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 12 passed (14)
+   Start at  18:32:35
+   Duration  2.89s (tests 41%, environment 39%, transform 8%, setup 8%, import 5%)

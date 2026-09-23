@@ -168,3 +168,63 @@ For questions or support, please open an issue on GitHub.
 ---
 
 **SafeBite** - Eat safely, anywhere in Europe.
+
+## Web app (PWA) — private pilot
+
+The active codebase is the web app in `web/` with callable functions in
+`functions/`. The Swift project under `SafeBite/` is kept as a reference only.
+
+### Prerequisites
+
+- Node 22, npm 10
+- Java 21+ (Firebase emulators)
+- `npm ci` in `./`, `web/`, and `functions/`
+- On WSL, keep the checkout on the Linux filesystem (for example `~/dev/AvaGF`), not `/mnt/c`: Windows-mounted paths make emulator cold starts take over a minute.
+
+### Local development (emulators only)
+
+```bash
+npm run emu:start            # terminal 1: Auth, Firestore, Functions emulators (project demo-safebite)
+npm run emu:seed             # terminal 2, once: creates ava@safebite.test / bogdan@safebite.test (members)
+                             #                and stranger@safebite.test (not a member); password pilot-password-1
+npm --prefix web run dev     # terminal 2: http://127.0.0.1:5173
+```
+
+> Discovery (the Discover tab) calls the `searchDestination` / `searchNearby` functions, which read the `PLACES_API_KEY` secret. Locally the emulator reads `functions/.secret.local` (gitignored); the `emu:*` scripts create it from `functions/.secret.local.example` (`PLACES_API_KEY=fixture`) when it is missing, which selects a fixture provider with twelve invented venues and the magic queries `__empty__`, `__unavailable__`, `__quota__`, `__delayed__` (3 s) and `__slow__` (25 s). To try real results locally, put a key restricted to Places API (New) in `.secret.local` — never commit it. Search is off until `config/discovery` exists (`{ enabled: true, dailySearchCap: 50 }`, written by `npm run emu:seed`).
+
+Emulator UI: http://127.0.0.1:4000
+Records live under households/home/restaurants in the emulator; `npm run emu:e2e` clears them before each scenario via the emulator's REST API.
+
+### Tests
+
+```bash
+npm run typecheck   # both packages
+npm run test:unit   # web unit tests (no emulator)
+npm run emu:test    # functions + Firestore rules tests (starts emulators)
+npm run emu:e2e     # Playwright browser tests (starts emulators, seeds, runs Vite)
+npm run emu:e2e:stress   # 29 browser scenarios × 3 repeats, retries disabled (flakiness gate)
+npm --prefix web run build:check   # compile-only build (no Firebase config needed)
+npm --prefix web run build:e2e        # builds the three synthetic bundles: dist-preview, dist-preview-v2, dist-boot-guard (fixtures in web/.env.preview, .env.preview-v2, .env.boot-guard)
+npm --prefix web run e2e:boot-guard   # compile-only bundle with demo values refuses to start (Chromium, no emulators)
+npm --prefix web run e2e:preview      # manifest, service worker, offline shell (Chromium, no emulators)
+npm --prefix web run e2e:upgrade      # same-origin release upgrades and the update prompt (Chromium, no emulators)
+npm --prefix web run icons            # re-render the PNG icon set from web/assets/safebite-mark.svg
+```
+
+`npm run test:unit` currently reports 270 tests.
+
+### Guardrails
+
+- Local work targets the emulator-only project `demo-safebite`. Nothing here deploys.
+- Membership (`users/{uid}`, `households/{hid}`) is written only with the Admin SDK; there is no sign-up.
+- Never reuse the legacy seed data from git history; its safety claims were invented.
+- `npm --prefix web run build` (used by `firebase deploy`) refuses missing, blank, demo-, or legacy-project Firebase values; the resulting bundle also refuses to start against them.
+- Any `vite build` refuses to run with `NODE_ENV` set to anything but `production` (including via `.env` files), even for `build:check`. A built bundle's startup guard keys on the `__SAFEBITE_BUILD__` marker from `vite.config.ts`, not on `import.meta.env.PROD`, so `NODE_ENV` cannot switch it off.
+- A misconfigured built bundle shows a plain "this build is misconfigured" screen, loads no Firebase code, unregisters every service worker, deletes every cache and leaves the old worker's control; a clean bundle registers the Workbox worker only after that check. A non-deployable build ships a self-destroying worker (no precache), so an installed worker that picks it up as an update never caches it and triggers a clean-up; the misconfiguration screen completes the purge (`npm --prefix web run e2e:upgrade` proves both paths).
+- Updates are prompted, never forced: a new release shows a "new version ready" banner and only the tab whose Reload is tapped reloads; other open tabs get an "updated in another tab" banner and keep their typed input until they reload (`e2e:upgrade` proves both).
+- The PWA icon set is generated, never hand-edited: change `web/assets/safebite-mark.svg` and run `npm --prefix web run icons`.
+- The three synthetic test bundles are built only from the committed `web/.env.<mode>` fixtures: `vite build --mode preview|preview-v2|boot-guard` refuses to run if an exported `VITE_*` variable differs from the file, and every build writes `safebite-build.json` (mode, project id, source hash) that the `e2e:*` scripts verify, so a stale or wrong-mode dist is refused with the `build:<mode>` command to run.
+- Records are member-only and written only through Firestore transactions (online-only; a save is reported as saved only after the server accepted it). Restaurants carry a `version` the rules require to increase by exactly one; claims are immutable (add/delete only); deleting a restaurant marks it, sweeps its claims, then removes it, and an interrupted deletion is resumed from the list.
+- Evidence dates are UTC calendar days stored at 00:00 UTC; a claim needs rechecking 12 months after it was checked unless it carries its own expiry. Same-day contradicting claims are shown as "Conflicting evidence". No numerical score anywhere.
+- Discovery is server-side only: the Places key is a Cloud Functions secret, every callable checks membership first, the field mask asks for id, name, address, Maps link, business status and types only (Pro tier; no coordinates, phone, website or ratings), Town or area searches request `food in <query>`, while Restaurant or venue name searches preserve the entered name; both make one request and the mapper keeps only restaurants, cafés, bakeries, bars and takeaways (no restaurant-only request filter), and nothing from a Places response is cached or stored — a record created from a result keeps only the place id; the member types the name and address. A deployed function whose secret is the fixture value refuses every search.
+- Search fails closed: a missing or disabled config/discovery document refuses every search; each household has a per-day cap counted before the provider is called (failed calls count too). Results carry the Google Maps logo and are shown in Google's order; a listing says nothing about gluten-free safety.

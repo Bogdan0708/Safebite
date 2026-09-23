@@ -1,0 +1,144 @@
+/**
+ * Single source of truth for "is this Firebase configuration deployable?".
+ * Used at build time by the Vite plugin in vite.config.ts and at runtime by firebase.ts.
+ * Pure: no imports, no environment access.
+ */
+export interface FirebaseEnvLike {
+  VITE_FIREBASE_API_KEY?: string;
+  VITE_FIREBASE_AUTH_DOMAIN?: string;
+  VITE_FIREBASE_PROJECT_ID?: string;
+  VITE_FIREBASE_APP_ID?: string;
+  VITE_USE_EMULATORS?: string;
+}
+
+export const REQUIRED_FIREBASE_VARS = [
+  "VITE_FIREBASE_API_KEY",
+  "VITE_FIREBASE_AUTH_DOMAIN",
+  "VITE_FIREBASE_PROJECT_ID",
+  "VITE_FIREBASE_APP_ID",
+] as const;
+
+const LEGACY_PRODUCTION_PROJECT = "safebite-production-13ba1";
+const DEMO_PLACEHOLDERS: Partial<Record<(typeof REQUIRED_FIREBASE_VARS)[number], string>> = {
+  VITE_FIREBASE_API_KEY: "demo-api-key",
+  VITE_FIREBASE_APP_ID: "demo-app-id",
+};
+
+const SHAPE_CHECKS: Partial<Record<(typeof REQUIRED_FIREBASE_VARS)[number], { ok: (v: string) => boolean; problem: string }>> = {
+  VITE_FIREBASE_API_KEY: {
+    ok: (v) => /^AIza[0-9A-Za-z_-]{26,}$/.test(v),
+    problem: "does not look like a Firebase web API key (expected AIza… of at least 30 characters)",
+  },
+  VITE_FIREBASE_APP_ID: {
+    ok: (v) => /^\d+:\d+:web:[0-9a-f]+$/.test(v),
+    problem: "does not look like a Firebase web app id (expected <digits>:<digits>:web:<hex>)",
+  },
+  VITE_FIREBASE_AUTH_DOMAIN: {
+    ok: (v) => v.includes("."),
+    problem: "does not look like a domain (expected something like <project>.firebaseapp.com)",
+  },
+};
+
+function blank(value: string | undefined): boolean {
+  return value === undefined || value.trim().length === 0;
+}
+
+/** Returns a list of human-readable problems; empty means the configuration is deployable. */
+export function validateFirebaseEnv(env: FirebaseEnvLike): string[] {
+  const problems: string[] = [];
+  for (const name of REQUIRED_FIREBASE_VARS) {
+    const value = env[name] ?? "";
+    if (blank(value)) {
+      problems.push(`${name} is missing or blank`);
+      continue;
+    }
+    const placeholder = DEMO_PLACEHOLDERS[name];
+    if (placeholder !== undefined && value === placeholder) {
+      problems.push(`${name} is the demo placeholder`);
+      continue;
+    }
+    const shape = SHAPE_CHECKS[name];
+    if (shape !== undefined && !shape.ok(value)) {
+      problems.push(`${name} ${shape.problem}`);
+    }
+  }
+  const projectId = env.VITE_FIREBASE_PROJECT_ID;
+  if (projectId !== undefined && !blank(projectId)) {
+    if (projectId.startsWith("demo-")) {
+      problems.push(`VITE_FIREBASE_PROJECT_ID must not be an emulator-only demo- project (got ${projectId})`);
+    } else if (projectId === LEGACY_PRODUCTION_PROJECT) {
+      problems.push(
+        `VITE_FIREBASE_PROJECT_ID must not be the legacy project ${LEGACY_PRODUCTION_PROJECT} (the pilot uses a separate project)`,
+      );
+    }
+  }
+  if (env.VITE_USE_EMULATORS === "true") {
+    problems.push("VITE_USE_EMULATORS must not be true for a deployable build");
+  }
+  return problems;
+}
+
+/** Throws when the configuration is not deployable. `context` names where the check ran. */
+export function assertDeployableFirebaseEnv(env: FirebaseEnvLike, context: string): void {
+  const problems = validateFirebaseEnv(env);
+  if (problems.length > 0) {
+    throw new Error(
+      `Firebase configuration is not deployable (${context}):\n- ${problems.join("\n- ")}\n` +
+        "Set VITE_FIREBASE_* for the pilot project, or use `npm run build:check` for a compile-only build.",
+    );
+  }
+}
+
+export interface ViteBuildGuardInput {
+  /** Vite's resolved `config.isProduction` (false when NODE_ENV is overridden to something else). */
+  isProduction: boolean;
+  /** `process.env.NODE_ENV` as seen by the build, for the error message only. */
+  nodeEnv: string | undefined;
+  /** `SAFEBITE_UNVALIDATED_BUILD=1`: compile-only build, Firebase values are not validated. */
+  unvalidated: boolean;
+  env: FirebaseEnvLike;
+  context: string;
+  /**
+   * What `vite.config.ts` already decided about deployability when it chose which service worker
+   * to emit (`selfDestroying` vs. precaching), resolved independently via `loadEnv` before this
+   * plugin runs. Checked against `validateFirebaseEnv(input.env)` here so the two resolutions of
+   * "is this deployable?" cannot silently disagree (e.g. a root/envDir/mode mismatch causing
+   * `loadEnv` to see different values than `config.env`).
+   */
+  expectedDeployable?: boolean;
+}
+
+/**
+ * Decides what a `vite build` may do. A non-production build is refused outright, before the
+ * compile-only bypass: with NODE_ENV=development Vite strips `import.meta.env.PROD` guards and
+ * keeps dev-only code, so the bundle could run against demo values. Returns "skipped" for a
+ * compile-only build and "validated" once the Firebase values passed.
+ */
+export function guardViteBuild(input: ViteBuildGuardInput): "skipped" | "validated" {
+  if (!input.isProduction) {
+    throw new Error(
+      `Refusing a non-production Vite build (${input.context}): NODE_ENV=${input.nodeEnv ?? "<unset>"} ` +
+        "resolved to a development bundle. Unset NODE_ENV (or set it to production); " +
+        "use `npm run dev` for the emulator-backed development server.",
+    );
+  }
+  if (input.expectedDeployable !== undefined && input.expectedDeployable !== (validateFirebaseEnv(input.env).length === 0)) {
+    throw new Error(
+      `[safebite] build-time worker decision disagrees with Vite's resolved env (${input.context}): ` +
+        "check root/envDir/mode — refusing to build",
+    );
+  }
+  if (input.unvalidated) {
+    return "skipped";
+  }
+  assertDeployableFirebaseEnv(input.env, input.context);
+  return "validated";
+}
+
+/**
+ * What blocks this bundle from starting. Outside a built bundle (dev server, Vitest) nothing
+ * does: the emulator-backed development server runs on demo values by design.
+ */
+export function startupProblems(env: FirebaseEnvLike, isBuild: boolean): string[] {
+  return isBuild ? validateFirebaseEnv(env) : [];
+}

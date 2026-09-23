@@ -1,0 +1,167 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  web-and-functions:
+    runs-on: ubuntu-latest
+    # 35: the browser suite grew from 12 to 23 scenarios, its globalTimeout is now 900s, and scenario 6
+    # alone waits ~25s by design.
+    timeout-minutes: 35
+    env:
+      CI: "true"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            web/package-lock.json
+            functions/package-lock.json
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Install dependencies
+        run: |
+          npm ci
+          npm ci --prefix web
+          npm ci --prefix functions
+
+      - name: Guardrail — no production project id in tracked files
+        run: |
+          if git grep -n "safebite-production-13ba1" -- ':!SafeBite/**' ':!*.md' ':!docs/**' ':!.github/workflows/ci.yml' ':!web/src/config/firebaseEnv.ts' ':!web/src/config/firebaseEnv.test.ts'; then
+            echo "Production project id found in tracked files"; exit 1
+          fi
+
+      - name: Guardrail — discovery never caches Places data or carries a key
+        run: |
+          if git grep -n "localStorage\|sessionStorage\|indexedDB" -- web/src/discover; then
+            echo "Discovery code touches browser storage — Places results must never be cached client-side"; exit 1
+          fi
+          # web/src/config legitimately mentions API key shapes (the config validator and its test);
+          # committed .env.* fixtures live outside web/src and are not covered by this grep.
+          if git grep -n "AIza" -- web/src ':!web/src/config/**'; then
+            echo "Looks like a Google API key literal in web/src"; exit 1
+          fi
+          # *.md excluded: AGENTS.md documents the unrelated legacy iOS GOOGLE_PLACES_API_KEY var, whose
+          # name contains this substring. functions/.secret.local.example legitimately sets the fixture value.
+          if git grep -n "PLACES_API_KEY=" -- ':!*.md' | grep -v "PLACES_API_KEY=fixture"; then
+            echo "A non-fixture PLACES_API_KEY value is committed"; exit 1
+          fi
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit tests (web)
+        run: npm run test:unit
+
+      - name: Cache Firebase emulators
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/firebase/emulators
+          key: firebase-emulators-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      - name: Functions + rules tests (emulators)
+        run: npm run emu:test
+
+      - name: Install Playwright Chromium
+        run: cd web && npx playwright install --with-deps chromium
+
+      - name: Browser tests (emulators)
+        run: npm run emu:e2e
+
+      - name: Build (compile check, unvalidated)
+        run: npm run build
+
+      - name: Deployable build is rejected without Firebase configuration
+        env:
+          VITE_FIREBASE_API_KEY: ""
+          VITE_FIREBASE_AUTH_DOMAIN: ""
+          VITE_FIREBASE_PROJECT_ID: ""
+          VITE_FIREBASE_APP_ID: ""
+        run: |
+          set +e
+          out=$(npm --prefix web run build 2>&1)
+          status=$?
+          set -e
+          if [ "$status" -eq 0 ]; then
+            echo "$out"; echo "Deployable build succeeded without configuration — validator is broken"; exit 1
+          fi
+          if ! echo "$out" | grep -q "Firebase configuration is not deployable"; then
+            echo "$out"; echo "Build failed, but not because of the config validator"; exit 1
+          fi
+          echo "Validator rejected the unconfigured deployable build as expected"
+
+      - name: Non-production build is rejected (NODE_ENV=development, compile-only)
+        env:
+          NODE_ENV: development
+          SAFEBITE_UNVALIDATED_BUILD: "1"
+          VITE_FIREBASE_API_KEY: demo-api-key
+          VITE_FIREBASE_AUTH_DOMAIN: localhost
+          VITE_FIREBASE_PROJECT_ID: demo-safebite
+          VITE_FIREBASE_APP_ID: demo-app-id
+          VITE_USE_EMULATORS: "true"
+        run: |
+          set +e
+          out=$(npm --prefix web run build 2>&1)
+          status=$?
+          set -e
+          if [ "$status" -eq 0 ]; then
+            echo "$out"; echo "NODE_ENV=development compile-only build succeeded — the non-production guard is broken"; exit 1
+          fi
+          if ! echo "$out" | grep -q "Refusing a non-production Vite build"; then
+            echo "$out"; echo "Build failed, but not because of the non-production guard"; exit 1
+          fi
+          echo "Non-production build rejected as expected"
+
+      - name: Synthetic build refuses an ambient VITE_ override (fixture identity)
+        env:
+          VITE_FIREBASE_PROJECT_ID: not-the-fixture
+        run: |
+          set +e
+          out=$(npm --prefix web run build:preview 2>&1)
+          status=$?
+          set -e
+          if [ "$status" -eq 0 ]; then
+            echo "$out"; echo "build:preview succeeded with an ambient VITE_FIREBASE_PROJECT_ID — the fixture check is broken"; exit 1
+          fi
+          if ! echo "$out" | grep -q "is not hermetic"; then
+            echo "$out"; echo "Build failed, but not because of the fixture check"; exit 1
+          fi
+          echo "Fixture identity check rejected the override as expected"
+
+      - name: Build the three synthetic test bundles (preview, preview-v2, boot-guard)
+        run: npm --prefix web run build:e2e
+
+      - name: Compile-only bundle refuses to start in a browser
+        run: npm --prefix web run e2e:boot-guard
+
+      - name: PWA shell — manifest, service worker, offline reload (preview bundle)
+        run: npm --prefix web run e2e:preview
+
+      - name: Service worker upgrades and update prompt (upgrade suite)
+        run: npm --prefix web run e2e:upgrade
+
+      - name: Upload Playwright artifacts (report, traces, screenshots, videos)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-artifacts
+          path: |
+            web/playwright-report
+            web/test-results
+          if-no-files-found: ignore
+          retention-days: 14

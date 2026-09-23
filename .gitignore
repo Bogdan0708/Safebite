@@ -62,3 +62,25 @@ fastlane/test_output
 *.xcconfig
 service-account.json
 node_modules/
+
+# Compiler caches
+.clang-module-cache/
+
+# Web app / functions
+web/dist/
+web/dist-boot-guard/
+web/dist-preview/
+web/dist-preview-v2/
+web/test-results/
+web/playwright-report/
+functions/lib/
+.emulator-data/
+firebase-debug.log
+firestore-debug.log
+ui-debug.log
+*.log
+!/web/.env.development
+!/web/.env.preview
+!/web/.env.preview-v2
+!/web/.env.boot-guard
+functions/.secret.local

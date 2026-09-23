@@ -1,0 +1,90 @@
+Running 2 tests using 1 worker
+
+(node:188523) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+AUDIT delete confirmation opened for old; remaining documents: [ 'old' ]
+  ✘  1 [mobile-chromium] › e2e/audit-review.spec.ts:38:1 › audit: live evidence replacement must not inherit another claim's delete confirmation (6.1s)
+(node:188757) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] 11:27:56 PM [vite] (client) [console.warn] [2026-09-21T22:27:56.480Z]  @firebase/firestore: Firestore (12.19.0): RestConnection RPC 'Commit' 0x2624967f failed with error:  {"code":"permission-denied","name":"FirebaseError"} url:  http://127.0.0.1:8080/v1/projects/demo-safebite/databases/(default)/documents:commit?key=demo-api-key request: {"writes":[{"update":{"name":"projects/demo-safebite/databases/(default)/documents/households/home/restaurants/jOwo2dq5PZtmqx53opYH","fields":{"name":{"stringValue":"URL Probe"},"address":{"stringValue":"Via Roma 1"},"createdBy":{"stringValue":"ava-uid"},"version":{"integerValue":"1"},"deleting":{"booleanValue":false},"website":{"stringValue":"https:example.com"}}},"updateTransforms":[{"fieldPath":"createdAt","setToServerValue":"REQUEST_TIME"},{"fieldPath":"updatedAt","setToServerValue":"REQUEST_TIME"}]}]}
+AUDIT malformed URL yielded: That change was refused. You may no longer have access to this household — try signing out and back in.
+  ✘  2 [mobile-chromium] › e2e/audit-review.spec.ts:55:1 › audit: malformed HTTPS syntax must produce a field error rather than permission denied (4.8s)
+
+
+  1) [mobile-chromium] › e2e/audit-review.spec.ts:38:1 › audit: live evidence replacement must not inherit another claim's delete confirmation
+
+    Error: expect(received).toContain(expected) // indexOf
+
+    Expected value: "new"
+    Received array: ["old"]
+
+      50 |   const ids = await listClaimIds(request, "r-audit");
+      51 |   console.log("AUDIT delete confirmation opened for old; remaining documents:", ids);
+    > 52 |   expect(ids).toContain("new");
+         |               ^
+      53 | });
+      54 |
+      55 | test("audit: malformed HTTPS syntax must produce a field error rather than permission denied", async ({ page }) => {
+        at /home/godja/Dev/AvaGF/.claude/worktrees/pwa-01-foundation/web/e2e/audit-review.spec.ts:52:15
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/audit-review-audit-live-ev-f69d0-claim-s-delete-confirmation-mobile-chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: video (video/webm) ──────────────────────────────────────────────────────────────
+    test-results/audit-review-audit-live-ev-f69d0-claim-s-delete-confirmation-mobile-chromium/video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/audit-review-audit-live-ev-f69d0-claim-s-delete-confirmation-mobile-chromium/error-context.md
+
+    attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/audit-review-audit-live-ev-f69d0-claim-s-delete-confirmation-mobile-chromium/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/audit-review-audit-live-ev-f69d0-claim-s-delete-confirmation-mobile-chromium/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  2) [mobile-chromium] › e2e/audit-review.spec.ts:55:1 › audit: malformed HTTPS syntax must produce a field error rather than permission denied
+
+    Error: expect(locator).toBeVisible() failed
+
+    Locator: getByTestId('error-website')
+    Expected: visible
+    Timeout: 1000ms
+    Error: element(s) not found
+
+    Call log:
+      - Expect "toBeVisible" getByTestId('error-website') with timeout 1000ms
+      - waiting for getByTestId('error-website')
+
+
+      62 |   await expect(page.getByTestId("save-outcome")).toHaveAttribute("data-kind", "permission");
+      63 |   console.log("AUDIT malformed URL yielded:", await page.getByTestId("save-outcome").textContent());
+    > 64 |   await expect(page.getByTestId("error-website")).toBeVisible({ timeout: 1000 });
+         |                                                   ^
+      65 | });
+      66 |
+        at /home/godja/Dev/AvaGF/.claude/worktrees/pwa-01-foundation/web/e2e/audit-review.spec.ts:64:51
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/audit-review-audit-malform-62128-ther-than-permission-denied-mobile-chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: video (video/webm) ──────────────────────────────────────────────────────────────
+    test-results/audit-review-audit-malform-62128-ther-than-permission-denied-mobile-chromium/video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/audit-review-audit-malform-62128-ther-than-permission-denied-mobile-chromium/error-context.md
+
+    attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/audit-review-audit-malform-62128-ther-than-permission-denied-mobile-chromium/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/audit-review-audit-malform-62128-ther-than-permission-denied-mobile-chromium/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  2 failed
+    [mobile-chromium] › e2e/audit-review.spec.ts:38:1 › audit: live evidence replacement must not inherit another claim's delete confirmation
+    [mobile-chromium] › e2e/audit-review.spec.ts:55:1 › audit: malformed HTTPS syntax must produce a field error rather than permission denied

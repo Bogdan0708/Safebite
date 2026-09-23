@@ -1,0 +1,47 @@
+import { expect, test, type Page } from "@playwright/test";
+import { clearRecords, listClaimIds, seedClaim, seedRestaurant } from "./emulator-rest";
+
+const PASSWORD = "pilot-password-1";
+
+async function signIn(page: Page, email: string) {
+  await page.goto("/");
+  await expect(page.getByTestId("signin-form")).toBeVisible();
+  await page.getByTestId("signin-email").fill(email);
+  await page.getByTestId("signin-password").fill(PASSWORD);
+  await page.getByTestId("signin-submit").click();
+  await expect(page.getByTestId("nav-saved").or(page.getByTestId("not-invited"))).toBeVisible();
+}
+
+test.beforeEach(async ({ request }) => {
+  await clearRecords(request);
+});
+
+
+test("audit: live evidence replacement must not inherit another claim's delete confirmation", async ({ page, request }) => {
+  await seedRestaurant(request, "r-audit", { name: "Audit Place" });
+  await seedClaim(request, "r-audit", "old", { kind: "separateFryer", checkedAt: "2026-09-01" });
+  await signIn(page, "ava@safebite.test");
+  await page.goto("/restaurants/r-audit");
+  await page.getByTestId("claim-delete-old").click();
+  await expect(page.getByTestId("claim-delete-confirm-old")).toBeVisible();
+  await seedClaim(request, "r-audit", "new", { kind: "separateFryer", checkedAt: "2026-09-02" });
+  await expect(page.getByTestId("claim-new")).toBeVisible();
+  // Diagnostic click proves which document is actually deleted after the live update.
+  await page.getByTestId("claim-delete-confirm-new").click();
+  await expect(page.getByTestId("claim-new")).toHaveCount(0);
+  const ids = await listClaimIds(request, "r-audit");
+  console.log("AUDIT delete confirmation opened for old; remaining documents:", ids);
+  expect(ids).toContain("new");
+});
+
+test("audit: malformed HTTPS syntax must produce a field error rather than permission denied", async ({ page }) => {
+  await signIn(page, "ava@safebite.test");
+  await page.goto("/restaurants/new");
+  await page.getByTestId("field-name").fill("URL Probe");
+  await page.getByTestId("field-address").fill("Via Roma 1");
+  await page.getByTestId("field-website").fill("https:example.com");
+  await page.getByTestId("save-restaurant").click();
+  await expect(page.getByTestId("save-outcome")).toHaveAttribute("data-kind", "permission");
+  console.log("AUDIT malformed URL yielded:", await page.getByTestId("save-outcome").textContent());
+  await expect(page.getByTestId("error-website")).toBeVisible({ timeout: 1000 });
+});

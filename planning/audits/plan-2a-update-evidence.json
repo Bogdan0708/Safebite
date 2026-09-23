@@ -1,0 +1,123 @@
+{
+  "first": {
+    "registrations": 1,
+    "caches": [
+      "workbox-precache-v2-http://127.0.0.1:45707/"
+    ]
+  },
+  "updated": "activated",
+  "afterReload": {
+    "controlled": true,
+    "registrations": 0,
+    "cachedPaths": {
+      "workbox-precache-v2-http://127.0.0.1:45707/": [
+        "/pwa-maskable-512.png",
+        "/pwa-512.png",
+        "/pwa-192.png",
+        "/manifest.webmanifest",
+        "/favicon.svg",
+        "/apple-touch-icon-180.png",
+        "/assets/workbox-window.prod.es5-Bd17z0YL.js",
+        "/assets/index-DLBR8FcK.css",
+        "/index.html",
+        "/assets/index-BgZpe6f4.js",
+        "/assets/App-X_Wv5tc7.js"
+      ]
+    }
+  },
+  "errors": [],
+  "requests": [
+    {
+      "build": "good",
+      "path": "/index.html"
+    },
+    {
+      "build": "good",
+      "path": "/assets/index-D9FBFolR.js"
+    },
+    {
+      "build": "good",
+      "path": "/assets/index-DLBR8FcK.css"
+    },
+    {
+      "build": "good",
+      "path": "/assets/App-BoVR-aHK.js"
+    },
+    {
+      "build": "good",
+      "path": "/assets/workbox-window.prod.es5-Bd17z0YL.js"
+    },
+    {
+      "build": "good",
+      "path": "/sw.js"
+    },
+    {
+      "build": "good",
+      "path": "/workbox-9c191d2f.js"
+    },
+    {
+      "build": "good",
+      "path": "/pwa-maskable-512.png"
+    },
+    {
+      "build": "good",
+      "path": "/pwa-512.png"
+    },
+    {
+      "build": "good",
+      "path": "/pwa-192.png"
+    },
+    {
+      "build": "good",
+      "path": "/manifest.webmanifest"
+    },
+    {
+      "build": "good",
+      "path": "/index.html"
+    },
+    {
+      "build": "good",
+      "path": "/favicon.svg"
+    },
+    {
+      "build": "good",
+      "path": "/apple-touch-icon-180.png"
+    },
+    {
+      "build": "good",
+      "path": "/assets/workbox-window.prod.es5-Bd17z0YL.js"
+    },
+    {
+      "build": "good",
+      "path": "/assets/index-DLBR8FcK.css"
+    },
+    {
+      "build": "good",
+      "path": "/assets/index-D9FBFolR.js"
+    },
+    {
+      "build": "good",
+      "path": "/assets/App-BoVR-aHK.js"
+    },
+    {
+      "build": "bad",
+      "path": "/sw.js"
+    },
+    {
+      "build": "bad",
+      "path": "/workbox-9c191d2f.js"
+    },
+    {
+      "build": "bad",
+      "path": "/index.html"
+    },
+    {
+      "build": "bad",
+      "path": "/assets/index-BgZpe6f4.js"
+    },
+    {
+      "build": "bad",
+      "path": "/assets/App-X_Wv5tc7.js"
+    }
+  ]
+}
