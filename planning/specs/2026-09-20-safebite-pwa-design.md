@@ -227,14 +227,16 @@ Real-iPhone acceptance (owner + Ava) happens after staging deploy, outside CI.
 
 ### 3.1 Owner-only prerequisites (agents must never do these)
 
+Owner ruling (2026-09-23): the primary assistant may carry out O3–O6 through the official `gcloud`/`firebase` CLIs, confirming each billing or irreversible step first. Delegated subagents still may not. Deploys and pushes remain governed by §3.2.
+
 | ID | Action | Needed before |
 |----|--------|---------------|
 | O1 | `git pull --ff-only` to bring `a3403d1` into local `main` | Plan 1 |
 | O2 | Install a JDK (21+) so Firebase emulators run locally | Plan 1 verification |
-| O3 | `firebase login --reauth`; then inventory `safebite-production-13ba1` read-only (owners, Firestore location, deployed rules, users, billing, API restrictions). Record findings in `planning/specs/firebase-inventory.md` | Plan 5 staging |
-| O4 | Check the historical key from commit `e7c0268` in Google Cloud Console: restrict or delete it. Create a **new** server key restricted to Places API (New) for the pilot project only | Plan 3 staging |
-| O5 | Create a new Firebase project for the pilot (Firestore in `europe-west2`), Blaze plan with a budget alert at £10, add alias `staging` to `.firebaserc` | Plan 5 |
-| O6 | Create the two member accounts in the pilot project's Auth and their `users/` + `households/` docs via console or admin script | Plan 5 |
+| O3 | ~~`firebase login --reauth`; inventory `safebite-production-13ba1` read-only~~ Done 2026-09-23: legacy project not reachable from the owner account; see `planning/specs/firebase-inventory.md` | Plan 5 staging |
+| O4 | Historical key from `e7c0268`: its parent project (`776764264965`) is not held by any owner account, so it cannot be restricted (2026-09-23). **Still open:** the owner creates a **new** server key restricted to Places API (New) in the pilot project and supplies it as secret `PLACES_API_KEY` | Plan 3 staging |
+| O5 | ~~Create the pilot Firebase project~~ Done 2026-09-23: `safebite-pilot-urfs3v`, Firestore `europe-west2`, Blaze, project-scoped £10 budget, alias `staging`, self sign-up disabled | Plan 5 |
+| O6 | ~~Create the two member accounts and their `users/` + `households/` docs~~ Done 2026-09-23 by admin script; both sign-ins verified | Plan 5 |
 | O7 | ~~Decide whether `docs/` remains a GitHub Pages site~~ Done: `docs/` stays public Pages; planning docs live in `planning/` | — |
 | O8 | Approve this spec and Plan 1 | Any implementation |
 
