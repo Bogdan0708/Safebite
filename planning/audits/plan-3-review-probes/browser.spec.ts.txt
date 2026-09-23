@@ -1,0 +1,82 @@
+import { expect, test, type Page } from "@playwright/test";
+import { clearRecords, clearUsage, listRestaurantIds, setDiscoveryConfig } from "./emulator-rest";
+
+const PASSWORD = "pilot-password-1";
+async function signIn(page: Page, email: string) {
+  await page.goto("/");
+  await expect(page.getByTestId("signin-form")).toBeVisible();
+  await page.getByTestId("signin-email").fill(email);
+  await page.getByTestId("signin-password").fill(PASSWORD);
+  await page.getByTestId("signin-submit").click();
+  await expect(page.getByTestId("nav-discover")).toBeVisible();
+}
+
+async function openDiscover(page: Page) {
+  await signIn(page, "ava@safebite.test");
+  await page.getByTestId("nav-discover").click();
+  await expect(page.getByTestId("discover-state")).toHaveAttribute("data-status", "idle");
+}
+
+async function search(page: Page, query: string) {
+  await page.getByTestId("discover-query").fill(query);
+  await page.getByTestId("discover-submit").click();
+}
+
+
+test.beforeEach(async ({ request }) => {
+  await clearRecords(request);
+  await clearUsage(request);
+  await setDiscoveryConfig(request, { enabled: true, dailySearchCap: 50 });
+});
+
+
+async function delayLocation(page: Page) {
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, "geolocation", { configurable: true, value: {
+      getCurrentPosition(success: PositionCallback) {
+        Reflect.set(window, "__auditResolveLocation", () => success({coords: { latitude: 51.5, longitude: -0.12 }} as GeolocationPosition));
+      }
+    }});
+  });
+}
+
+test("audit: late location must not supersede a newer destination", async ({page}) => {
+  await openDiscover(page);
+  await delayLocation(page);
+  const requests: string[] = [];
+  page.on("request", r => { if(r.method() === "POST" && r.url().endsWith("/searchNearby")) requests.push(r.url()); });
+  await page.getByTestId("discover-nearby").click();
+  await search(page, "__empty__");
+  await expect(page.getByTestId("discover-state")).toHaveAttribute("data-status", "empty");
+  await page.evaluate(() => Reflect.get(window, "__auditResolveLocation")());
+  await expect(page.getByTestId("discover-result")).toHaveCount(10);
+  console.log("AUDIT newer empty destination result replaced by nearby results; POST count:", requests.length);
+  expect(requests).toHaveLength(0);
+});
+
+test("audit: no nearby request after leaving Discover", async ({page}) => {
+  await openDiscover(page);
+  await delayLocation(page);
+  const requests: string[] = [];
+  page.on("request", r => { if(r.method() === "POST" && r.url().endsWith("/searchNearby")) requests.push(r.url()); });
+  await page.getByTestId("discover-nearby").click();
+  await page.getByTestId("nav-settings").click();
+  await expect(page.getByTestId("signout")).toBeVisible();
+  await page.evaluate(() => Reflect.get(window, "__auditResolveLocation")());
+  await expect.poll(() => requests.length).toBe(1);
+  console.log("AUDIT location callback after unmount started searchNearby; POST count:", requests.length);
+  expect(requests).toHaveLength(0);
+});
+
+test("audit: unsaved prefill must not survive a page reload in browser history", async ({page, request}) => {
+  await openDiscover(page);
+  await search(page, "Lisbon");
+  await page.getByTestId("result-add").first().click();
+  await expect(page.getByTestId("field-name")).toHaveValue("Fixture Trattoria");
+  expect(await listRestaurantIds(request)).toEqual([]);
+  await page.reload();
+  await expect(page.getByTestId("field-name")).toHaveValue("Fixture Trattoria");
+  const savedState = await page.evaluate(() => window.history.state);
+  console.log("AUDIT without Save, after reload:", JSON.stringify(savedState));
+  expect(savedState.usr?.prefill).toBeUndefined();
+});

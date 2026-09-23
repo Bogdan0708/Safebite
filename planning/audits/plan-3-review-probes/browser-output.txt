@@ -1,0 +1,151 @@
+Running 3 tests using 1 worker
+
+(node:848650) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+i  functions: Beginning execution of "europe-west2-searchDestination"
+i  functions: Finished "europe-west2-searchDestination" in 5.981207ms
+i  functions: Beginning execution of "europe-west2-searchDestination"
+>  {"verifications":{"app":"MISSING","auth":"VALID"},"logging.googleapis.com/labels":{"firebase-log-type":"callable-request-verification"},"severity":"DEBUG","message":"Callable request verification passed"}
+>  {"kind":"destination","uid":"ava-uid","householdId":"home","resultCount":0,"durationMs":0,"outcome":"ok","severity":"INFO","message":"discovery.search"}
+i  functions: Finished "europe-west2-searchDestination" in 440.815301ms
+i  functions: Beginning execution of "europe-west2-searchNearby"
+i  functions: Finished "europe-west2-searchNearby" in 6.157625ms
+i  functions: Beginning execution of "europe-west2-searchNearby"
+>  {"verifications":{"app":"MISSING","auth":"VALID"},"logging.googleapis.com/labels":{"firebase-log-type":"callable-request-verification"},"severity":"DEBUG","message":"Callable request verification passed"}
+>  {"kind":"nearby","uid":"ava-uid","householdId":"home","lat":51.5,"lng":-0.12,"resultCount":10,"durationMs":0,"outcome":"ok","severity":"INFO","message":"discovery.search"}
+i  functions: Finished "europe-west2-searchNearby" in 370.628818ms
+AUDIT newer empty destination result replaced by nearby results; POST count: 1
+  ✘  1 [mobile-chromium] › e2e/audit-plan3.spec.ts:43:1 › audit: late location must not supersede a newer destination (8.1s)
+(node:848904) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+i  functions: Beginning execution of "europe-west2-whoami"
+i  functions: Finished "europe-west2-whoami" in 12.042219ms
+i  functions: Beginning execution of "europe-west2-whoami"
+>  {"verifications":{"app":"MISSING","auth":"VALID"},"logging.googleapis.com/labels":{"firebase-log-type":"callable-request-verification"},"severity":"DEBUG","message":"Callable request verification passed"}
+i  functions: Beginning execution of "europe-west2-searchNearby"
+AUDIT location callback after unmount started searchNearby; POST count: 1
+i  functions: Finished "europe-west2-searchNearby" in 6.177323ms
+i  functions: Beginning execution of "europe-west2-searchNearby"
+>  {"verifications":{"app":"MISSING","auth":"VALID"},"logging.googleapis.com/labels":{"firebase-log-type":"callable-request-verification"},"severity":"DEBUG","message":"Callable request verification passed"}
+>  {"kind":"nearby","uid":"ava-uid","householdId":"home","lat":51.5,"lng":-0.12,"resultCount":10,"durationMs":0,"outcome":"ok","severity":"INFO","message":"discovery.search"}
+i  functions: Finished "europe-west2-searchNearby" in 79.962431ms
+i  functions: Finished "europe-west2-whoami" in 389.039387ms
+  ✘  2 [mobile-chromium] › e2e/audit-plan3.spec.ts:57:1 › audit: no nearby request after leaving Discover (2.5s)
+(node:849092) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+i  functions: Beginning execution of "europe-west2-searchDestination"
+i  functions: Finished "europe-west2-searchDestination" in 4.870772ms
+i  functions: Beginning execution of "europe-west2-searchDestination"
+>  {"verifications":{"app":"MISSING","auth":"VALID"},"logging.googleapis.com/labels":{"firebase-log-type":"callable-request-verification"},"severity":"DEBUG","message":"Callable request verification passed"}
+>  {"kind":"destination","uid":"ava-uid","householdId":"home","resultCount":10,"durationMs":0,"outcome":"ok","severity":"INFO","message":"discovery.search"}
+i  functions: Finished "europe-west2-searchDestination" in 70.584824ms
+AUDIT without Save, after reload: {"usr":{"prefill":{"name":"Fixture Trattoria","address":"1 Fixture Street, Testville","googlePlaceId":"fixture-01"}},"key":"5dfve61x","idx":1}
+  ✘  3 [mobile-chromium] › e2e/audit-plan3.spec.ts:71:1 › audit: unsaved prefill must not survive a page reload in browser history (3.9s)
+
+
+  1) [mobile-chromium] › e2e/audit-plan3.spec.ts:43:1 › audit: late location must not supersede a newer destination
+
+    Error: expect(received).toHaveLength(expected)
+
+    Expected length: 0
+    Received length: 1
+    Received array:  ["http://127.0.0.1:5001/demo-safebite/europe-west2/searchNearby"]
+
+      52 |   await expect(page.getByTestId("discover-result")).toHaveCount(10);
+      53 |   console.log("AUDIT newer empty destination result replaced by nearby results; POST count:", requests.length);
+    > 54 |   expect(requests).toHaveLength(0);
+         |                    ^
+      55 | });
+      56 |
+      57 | test("audit: no nearby request after leaving Discover", async ({page}) => {
+        at /home/godja/Dev/AvaGF/.claude/worktrees/pwa-01-foundation/web/e2e/audit-plan3.spec.ts:54:20
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/audit-plan3-audit-late-loc-3dce4-persede-a-newer-destination-mobile-chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: video (video/webm) ──────────────────────────────────────────────────────────────
+    test-results/audit-plan3-audit-late-loc-3dce4-persede-a-newer-destination-mobile-chromium/video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/audit-plan3-audit-late-loc-3dce4-persede-a-newer-destination-mobile-chromium/error-context.md
+
+    attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/audit-plan3-audit-late-loc-3dce4-persede-a-newer-destination-mobile-chromium/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/audit-plan3-audit-late-loc-3dce4-persede-a-newer-destination-mobile-chromium/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  2) [mobile-chromium] › e2e/audit-plan3.spec.ts:57:1 › audit: no nearby request after leaving Discover
+
+    Error: expect(received).toHaveLength(expected)
+
+    Expected length: 0
+    Received length: 1
+    Received array:  ["http://127.0.0.1:5001/demo-safebite/europe-west2/searchNearby"]
+
+      66 |   await expect.poll(() => requests.length).toBe(1);
+      67 |   console.log("AUDIT location callback after unmount started searchNearby; POST count:", requests.length);
+    > 68 |   expect(requests).toHaveLength(0);
+         |                    ^
+      69 | });
+      70 |
+      71 | test("audit: unsaved prefill must not survive a page reload in browser history", async ({page, request}) => {
+        at /home/godja/Dev/AvaGF/.claude/worktrees/pwa-01-foundation/web/e2e/audit-plan3.spec.ts:68:20
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/audit-plan3-audit-no-nearby-request-after-leaving-Discover-mobile-chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: video (video/webm) ──────────────────────────────────────────────────────────────
+    test-results/audit-plan3-audit-no-nearby-request-after-leaving-Discover-mobile-chromium/video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/audit-plan3-audit-no-nearby-request-after-leaving-Discover-mobile-chromium/error-context.md
+
+    attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/audit-plan3-audit-no-nearby-request-after-leaving-Discover-mobile-chromium/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/audit-plan3-audit-no-nearby-request-after-leaving-Discover-mobile-chromium/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  3) [mobile-chromium] › e2e/audit-plan3.spec.ts:71:1 › audit: unsaved prefill must not survive a page reload in browser history
+
+    Error: expect(received).toBeUndefined()
+
+    Received: {"address": "1 Fixture Street, Testville", "googlePlaceId": "fixture-01", "name": "Fixture Trattoria"}
+
+      79 |   const savedState = await page.evaluate(() => window.history.state);
+      80 |   console.log("AUDIT without Save, after reload:", JSON.stringify(savedState));
+    > 81 |   expect(savedState.usr?.prefill).toBeUndefined();
+         |                                   ^
+      82 | });
+      83 |
+        at /home/godja/Dev/AvaGF/.claude/worktrees/pwa-01-foundation/web/e2e/audit-plan3.spec.ts:81:35
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/audit-plan3-audit-unsaved--4080c-e-reload-in-browser-history-mobile-chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: video (video/webm) ──────────────────────────────────────────────────────────────
+    test-results/audit-plan3-audit-unsaved--4080c-e-reload-in-browser-history-mobile-chromium/video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/audit-plan3-audit-unsaved--4080c-e-reload-in-browser-history-mobile-chromium/error-context.md
+
+    attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/audit-plan3-audit-unsaved--4080c-e-reload-in-browser-history-mobile-chromium/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/audit-plan3-audit-unsaved--4080c-e-reload-in-browser-history-mobile-chromium/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  3 failed
+    [mobile-chromium] › e2e/audit-plan3.spec.ts:43:1 › audit: late location must not supersede a newer destination
+    [mobile-chromium] › e2e/audit-plan3.spec.ts:57:1 › audit: no nearby request after leaving Discover
+    [mobile-chromium] › e2e/audit-plan3.spec.ts:71:1 › audit: unsaved prefill must not survive a page reload in browser history

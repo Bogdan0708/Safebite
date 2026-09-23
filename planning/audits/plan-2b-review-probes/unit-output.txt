@@ -1,0 +1,54 @@
+
+> web@0.0.0 test
+> vitest run src/records/audit-review.test.tsx
+
+
+ RUN  v5.0.1 /home/godja/Dev/AvaGF/.claude/worktrees/pwa-01-foundation/web
+
+ ❯ src/records/audit-review.test.tsx (7 tests | 2 failed) 563ms
+   ❯ audit: uncovered detail-page states (2)
+     × labels cached claims even when the restaurant snapshot is server-backed 19ms
+     × does not transfer a delete confirmation to a new latest claim 45ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/records/audit-review.test.tsx > audit: uncovered detail-page states > labels cached claims even when the restaurant snapshot is server-backed
+Error: expect(received).toBeInTheDocument()
+
+received value must be an HTMLElement or an SVGElement.
+Received has type:  Null
+Received has value: null
+ ❯ src/records/audit-review.test.tsx:135:50
+    133|       emitClaims({ status: "offline", value: [claim({ id: "cached" })]…
+    134|     });
+    135|     expect(screen.queryByTestId("read-offline")).toBeInTheDocument();
+       |                                                  ^
+    136|   });
+    137|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  src/records/audit-review.test.tsx > audit: uncovered detail-page states > does not transfer a delete confirmation to a new latest claim
+Error: expect(element).not.toBeInTheDocument()
+
+expected document not to contain element, found <button
+  data-testid="claim-delete-confirm-new"
+  type="button"
+>
+  Yes, delete
+</button> instead
+ ❯ src/records/audit-review.test.tsx:149:66
+    147|     expect(screen.getByTestId("claim-delete-confirm-old")).toBeInTheDo…
+    148|     act(() => emitClaims({ status: "ready", value: [old, claim({ id: "…
+    149|     expect(screen.queryByTestId("claim-delete-confirm-new")).not.toBeI…
+       |                                                                  ^
+    150|   });
+    151| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 5 passed (7)
+   Start at  23:25:59
+   Duration  2.91s (environment 49%, tests 21%, import 11%, transform 10%, setup 8%)

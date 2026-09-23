@@ -1,0 +1,66 @@
+import { MemoryRouter, Route, Routes } from "react-router";
+import { act, render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { Claim, Restaurant } from "./types";
+import type { Snapshot } from "./repository";
+
+const m = vi.hoisted(() => ({ watchRestaurant: vi.fn(), watchClaims: vi.fn(), deleteClaim: vi.fn() }));
+vi.mock("./repository", () => m);
+vi.mock("../auth/AuthProvider", () => ({
+  useAuth: () => ({ state: { status: "member", uid: "ava-uid", email: "ava@safebite.test", householdId: "home", displayName: "Ava" }, signOut: vi.fn() }),
+}));
+vi.mock("./useToday", () => ({ useToday: () => "2026-09-21" }));
+
+import { RestaurantDetailPage } from "./RestaurantDetailPage";
+
+let emitRestaurant: (s: Snapshot<Restaurant>) => void = () => {};
+let emitClaims: (s: Snapshot<Claim[]>) => void = () => {};
+const restaurant: Restaurant = { id: "r1", name: "Da Marco", address: "Via Roma 1", phone: "+39 06 1", website: "https://damarco.it", createdBy: "ava-uid", createdAt: new Date(), updatedAt: new Date(), version: 2, deleting: false };
+const claim = (over: Partial<Claim> & Pick<Claim, "id">): Claim => ({
+  kind: "separateFryer", value: "yes", detail: "", source: { type: "restaurantStatement", label: "Manager" }, checkedAt: "2026-09-01",
+  authorUid: "ava-uid", authorName: "Ava", createdAt: new Date("2026-09-01T10:00:00Z"), ...over,
+});
+
+beforeEach(() => {
+  m.watchRestaurant.mockImplementation((_h: string, _r: string, cb: (s: Snapshot<Restaurant>) => void) => { emitRestaurant = cb; return () => {}; });
+  m.watchClaims.mockImplementation((_h: string, _r: string, cb: (s: Snapshot<Claim[]>) => void) => { emitClaims = cb; return () => {}; });
+  m.deleteClaim.mockResolvedValue({ kind: "ok", value: undefined });
+});
+afterEach(() => vi.clearAllMocks());
+
+function renderPage() {
+  return render(
+    <MemoryRouter initialEntries={["/restaurants/r1"]}>
+      <Routes>
+        <Route path="/restaurants/:rid" element={<RestaurantDetailPage />} />
+      </Routes>
+    </MemoryRouter>,
+  );
+}
+
+// Independent audit probes: these assert the intended behaviour and currently fail.
+describe("audit: uncovered detail-page states", () => {
+  it("labels cached claims even when the restaurant snapshot is server-backed", () => {
+    renderPage();
+    act(() => {
+      emitRestaurant({ status: "ready", value: restaurant });
+      emitClaims({ status: "offline", value: [claim({ id: "cached" })] });
+    });
+    expect(screen.queryByTestId("read-offline")).toBeInTheDocument();
+  });
+
+  it("does not transfer a delete confirmation to a new latest claim", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    const old = claim({ id: "old", checkedAt: "2026-09-01" });
+    act(() => {
+      emitRestaurant({ status: "ready", value: restaurant });
+      emitClaims({ status: "ready", value: [old] });
+    });
+    await user.click(screen.getByTestId("claim-delete-old"));
+    expect(screen.getByTestId("claim-delete-confirm-old")).toBeInTheDocument();
+    act(() => emitClaims({ status: "ready", value: [old, claim({ id: "new", checkedAt: "2026-09-02" })] }));
+    expect(screen.queryByTestId("claim-delete-confirm-new")).not.toBeInTheDocument();
+  });
+});
