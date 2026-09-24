@@ -100,6 +100,62 @@ describe("NotesSection", () => {
     expect(screen.getByTestId("note-a")).toHaveTextContent("Theirs");
   });
 
+  it("locks the composer while its save is in flight, so nothing typed meanwhile is lost; success clears it", async () => {
+    let finish!: (x: unknown) => void;
+    m.addNote.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    renderSection({ status: "ready", value: [] });
+    const box = screen.getByTestId("note-add-text");
+    await userEvent.type(box, "First note");
+    await userEvent.click(screen.getByTestId("note-add-save"));
+    expect(box).toHaveAttribute("readonly");
+    await userEvent.type(box, " plus more");
+    expect(box).toHaveValue("First note");
+    await act(async () => finish({ kind: "ok", value: "new" }));
+    expect(m.addNote).toHaveBeenCalledWith("home", "r1", AVA, "First note");
+    expect(box).toHaveValue("");
+    expect(box).not.toHaveAttribute("readonly");
+  });
+
+  it("locks the edit box while its save is in flight; success closes the editor", async () => {
+    let finish!: (x: unknown) => void;
+    m.updateNote.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    renderSection({ status: "ready", value: [note({ id: "a" })] });
+    await userEvent.click(screen.getByTestId("note-edit-a"));
+    const box = screen.getByTestId("note-edit-text-a");
+    await userEvent.clear(box);
+    await userEvent.type(box, "Saved revision");
+    await userEvent.click(screen.getByTestId("note-save-a"));
+    expect(box).toHaveAttribute("readonly");
+    await userEvent.type(box, " plus more");
+    expect(box).toHaveValue("Saved revision");
+    await act(async () => finish({ kind: "ok", value: 2 }));
+    expect(m.updateNote).toHaveBeenCalledWith("home", "r1", "a", 1, "Saved revision");
+    expect(screen.queryByTestId("note-edit-text-a")).toBeNull();
+  });
+
+  it("locks the edit box while Keep mine is in flight; a failure unlocks it with the draft intact", async () => {
+    const view = renderSection({ status: "ready", value: [note({ id: "a", version: 1 })] });
+    await userEvent.click(screen.getByTestId("note-edit-a"));
+    const box = screen.getByTestId("note-edit-text-a");
+    await userEvent.clear(box);
+    await userEvent.type(box, "My draft");
+    view.update({ status: "ready", value: [note({ id: "a", version: 2, text: "Changed on the phone" })] });
+    m.updateNote.mockResolvedValueOnce({ kind: "conflict" });
+    await userEvent.click(screen.getByTestId("note-save-a"));
+    await waitFor(() => expect(screen.getByTestId("note-conflict-a")).toBeInTheDocument());
+    expect(box).not.toHaveAttribute("readonly");
+    let finish!: (x: unknown) => void;
+    m.updateNote.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    await userEvent.click(screen.getByTestId("note-keep-mine-a"));
+    expect(box).toHaveAttribute("readonly");
+    await userEvent.type(box, " plus more");
+    expect(box).toHaveValue("My draft");
+    await act(async () => finish({ kind: "offline" }));
+    expect(screen.getByTestId("note-outcome-a")).toHaveAttribute("data-kind", "offline");
+    expect(box).toHaveValue("My draft");
+    expect(box).not.toHaveAttribute("readonly");
+  });
+
   it("delete needs a confirmation bound to the version shown, and deletes that version", async () => {
     const view = renderSection({ status: "ready", value: [note({ id: "a", version: 1 })] });
     await userEvent.click(screen.getByTestId("note-delete-a"));

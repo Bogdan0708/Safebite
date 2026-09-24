@@ -68,7 +68,8 @@ function NoteComposer({ householdId, rid, author, disabled }: { householdId: str
     <div className="note-composer">
       <label>
         Add a note
-        <textarea data-testid="note-add-text" value={text} rows={3} onChange={(e) => setText(e.target.value)} />
+        {/* Read-only while saving: the save sends the text as clicked, so later typing would be lost (audit F2). */}
+        <textarea data-testid="note-add-text" value={text} rows={3} readOnly={busy} onChange={(e) => setText(e.target.value)} />
       </label>
       <span className="hint" data-testid="note-add-counter">{text.trim().length} / {LIMITS.note}</span>
       <button type="button" data-testid="note-add-save" disabled={disabled || busy} onClick={() => void save()}>{busy ? "Saving…" : "Save note"}</button>
@@ -136,7 +137,8 @@ function NoteCard({ householdId, rid, note, own, disabled }: { householdId: stri
       </p>
       {editing && (
         <div className="note-editor">
-          <textarea data-testid={`note-edit-text-${note.id}`} value={editing.draft} rows={3} onChange={(e) => setEditing({ ...editing, draft: e.target.value })} />
+          {/* Read-only while Save or Keep mine is in flight, as in the composer (audit F2). */}
+          <textarea data-testid={`note-edit-text-${note.id}`} value={editing.draft} rows={3} readOnly={busy} onChange={(e) => setEditing({ ...editing, draft: e.target.value })} />
           {conflict ? (
             <div className="notice" role="status" data-testid={`note-conflict-${note.id}`}>
               <p>This note changed on another device. It now reads:</p>
