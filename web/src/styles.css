@@ -46,3 +46,8 @@ body { margin: 0; }
 .attribution { margin: 10px 0 5px; padding: 0 10px; }
 .attribution img { height: 19px; width: auto; display: block; }
 .hint { font-size: 0.9rem; opacity: 0.8; }
+
+.filter { display: flex; gap: 0.5rem; }
+.filter button[aria-pressed="true"] { font-weight: 600; text-decoration: underline; }
+.labels { display: flex; gap: 0.4rem; flex-wrap: wrap; margin-top: 0.3rem; }
+.label { font-size: 0.8rem; border: 1px solid #8886; border-radius: 999px; padding: 0.05rem 0.5rem; }

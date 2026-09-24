@@ -22,3 +22,15 @@ const DELETE_PROGRESS: Record<DeleteStep, string> = {
 export function deleteProgressText(step: DeleteStep): string {
   return DELETE_PROGRESS[step];
 }
+
+/** The Saved page's "Finish deleting" outcomes (the parked Plan 2b resume wording). */
+export function finishOutcomeText(kind: WriteOutcome["kind"]): string {
+  switch (kind) {
+    case "ok": return "";
+    case "offline": return "You are offline. Connect, then tap Finish deleting.";
+    case "notFound": return "Already removed.";
+    case "permission": return outcomeMessage("permission", "This restaurant");
+    case "conflict":
+    case "failed": return "Could not finish deleting. Tap Finish deleting to try again.";
+  }
+}

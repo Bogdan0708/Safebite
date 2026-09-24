@@ -51,6 +51,7 @@ test("1. a member adds a restaurant and sees it with six unknown kinds and the c
   await expect(page.getByTestId("call-ahead")).toContainText("Italian");
 
   await page.getByTestId("nav-saved").click();
+  await page.getByTestId("filter-all").click();
   await expect(page.getByTestId("restaurant-row")).toContainText("Da Marco");
 });
 
@@ -185,6 +186,7 @@ test("7. after an account switch no record of the previous member is rendered an
 
   await signIn(page, "ava@safebite.test");
   await page.getByTestId("nav-saved").click();
+  await page.getByTestId("filter-all").click();
   await expect(page.getByTestId("restaurant-row")).toContainText("Ava's place");
   await signOutAndWait(page);
 
