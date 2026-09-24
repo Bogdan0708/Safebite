@@ -7,10 +7,12 @@ import { anyOffline, isData } from "./combine";
 import { formatCalendarDate } from "./dates";
 import { evidenceStatus, summariseEvidence, type KindEvidence } from "./evidence";
 import { outcomeMessage } from "./messages";
+import { NotesSection } from "./NotesSection";
+import { watchNotes } from "./notes";
 import { deleteClaim, watchClaims, watchRestaurant, type WriteOutcome } from "./repository";
 import { ReadStateNotice } from "./ReadStateNotice";
 import { StatusBlock } from "./StatusBlock";
-import { CLAIM_KIND_LABELS, CLAIM_VALUE_LABELS, SOURCE_TYPE_LABELS, type CalendarDate, type Claim, type CollectionState, type Restaurant } from "./types";
+import { CLAIM_KIND_LABELS, CLAIM_VALUE_LABELS, SOURCE_TYPE_LABELS, type CalendarDate, type Claim, type CollectionState, type Note, type Restaurant } from "./types";
 import { useMember } from "./useMember";
 import { useToday } from "./useToday";
 import { useWatch } from "./useWatch";
@@ -60,6 +62,7 @@ export function RestaurantDetailPage() {
   const restaurantWatch = useWatch<Restaurant>((cb) => watchRestaurant(householdId, rid!, cb), [householdId, rid]);
   const claimsWatch = useWatch<Claim[]>((cb) => watchClaims(householdId, rid!, cb), [householdId, rid]);
   const stateWatch = useWatch<CollectionState | null>((cb) => watchCollectionEntry(householdId, rid!, cb), [householdId, rid]);
+  const notesWatch = useWatch<Note[]>((cb) => watchNotes(householdId, rid!, cb), [householdId, rid]);
   const [outcome, setOutcome] = useState<WriteOutcome["kind"] | null>(null);
 
   const rs = restaurantWatch.state;
@@ -74,7 +77,7 @@ export function RestaurantDetailPage() {
   const restaurant = rs.value;
   const ss = stateWatch.state;
   // One notice for every cache-backed listener on the page (spec §3.7); writes need the server.
-  const offline = anyOffline(rs, cs, ss);
+  const offline = anyOffline(rs, cs, ss, notesWatch.state);
   const claimsReady = isData(cs);
   const claims = claimsReady ? cs.value : [];
   const summary = summariseEvidence(claims, today);
@@ -133,6 +136,8 @@ export function RestaurantDetailPage() {
           ))}
         </div>
       )}
+
+      <NotesSection householdId={householdId} rid={restaurant.id} author={{ uid, displayName }} state={notesWatch.state} disabled={offline} onRetry={notesWatch.retry} />
 
       <section className="notice" data-testid="call-ahead">
         <h3>Call ahead and ask</h3>

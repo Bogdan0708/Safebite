@@ -51,3 +51,9 @@ body { margin: 0; }
 .filter button[aria-pressed="true"] { font-weight: 600; text-decoration: underline; }
 .labels { display: flex; gap: 0.4rem; flex-wrap: wrap; margin-top: 0.3rem; }
 .label { font-size: 0.8rem; border: 1px solid #8886; border-radius: 999px; padding: 0.05rem 0.5rem; }
+
+.notes textarea { width: 100%; box-sizing: border-box; font: inherit; }
+.note-composer { display: grid; gap: 0.4rem; margin-bottom: var(--gap); }
+.note { margin-top: 0.5rem; }
+.note-text { white-space: pre-wrap; }
+.note blockquote { margin: 0.4rem 0; padding-left: 0.6rem; border-left: 3px solid #8886; white-space: pre-wrap; }

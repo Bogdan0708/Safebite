@@ -61,6 +61,7 @@ export function RestaurantFormPage({ mode }: { mode: "create" | "edit" }) {
   const [draft, setDraft] = useState<Draft | null>(mode === "create" ? { form: EMPTY, seededFrom: EMPTY, baseVersion: 0 } : null);
   const [errors, setErrors] = useState<FieldErrors<RestaurantField>>({});
   const [outcome, setOutcome] = useState<WriteOutcome["kind"] | null>(null);
+  const [outcomeVerb, setOutcomeVerb] = useState<"save" | "delete">("save");
   const [busy, setBusy] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [deleteProgress, setDeleteProgress] = useState<string | null>(null);
@@ -95,6 +96,7 @@ export function RestaurantFormPage({ mode }: { mode: "create" | "edit" }) {
     const problems = validateRestaurantInput(input);
     setErrors(problems);
     setOutcome(null);
+    setOutcomeVerb("save");
     if (Object.keys(problems).length > 0) return;
     if (mode === "create" && existingId) {
       // A member added this place meanwhile (or before): open it rather than create a twin.
@@ -122,6 +124,7 @@ export function RestaurantFormPage({ mode }: { mode: "create" | "edit" }) {
     }
     setDeleteProgress(null);
     setConfirming(false);
+    setOutcomeVerb("delete");
     setOutcome(result.kind);
   }
 
@@ -181,7 +184,7 @@ export function RestaurantFormPage({ mode }: { mode: "create" | "edit" }) {
         </button>
         {outcome && outcome !== "ok" && (
           <div role="alert" data-testid="save-outcome" data-kind={outcome}>
-            <p>{outcomeMessage(outcome, "This restaurant")}</p>
+            <p>{outcomeMessage(outcome, "This restaurant", outcomeVerb)}</p>
             {outcome === "conflict" && !changedElsewhere && <button type="button" data-testid="reload-draft" onClick={reloadDraft}>Reload draft</button>}
             {outcome === "notFound" && <Link to="/restaurants">Back to Saved</Link>}
           </div>
@@ -194,7 +197,7 @@ export function RestaurantFormPage({ mode }: { mode: "create" | "edit" }) {
           )}
           {confirming && deleteProgress === null && (
             <>
-              <span>Delete this restaurant and all of its evidence?</span>
+              <span data-testid="delete-question">Deletes the restaurant, its evidence, and both members' notes.</span>
               <button type="button" data-testid="delete-confirm" disabled={busy || offline} onClick={() => void onDelete()}>Yes, delete</button>
               <button type="button" data-testid="delete-cancel" disabled={busy} onClick={() => setConfirming(false)}>Cancel</button>
             </>

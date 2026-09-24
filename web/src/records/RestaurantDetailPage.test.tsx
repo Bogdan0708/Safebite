@@ -2,12 +2,24 @@ import { MemoryRouter, Route, Routes } from "react-router";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { Claim, CollectionState, Restaurant } from "./types";
+import type { Claim, CollectionState, Note, Restaurant } from "./types";
 import type { Snapshot } from "./repository";
 
-const m = vi.hoisted(() => ({ watchRestaurant: vi.fn(), watchClaims: vi.fn(), deleteClaim: vi.fn(), watchCollectionEntry: vi.fn(), setShortlisted: vi.fn(), setVisited: vi.fn() }));
+const m = vi.hoisted(() => ({
+  watchRestaurant: vi.fn(),
+  watchClaims: vi.fn(),
+  deleteClaim: vi.fn(),
+  watchCollectionEntry: vi.fn(),
+  setShortlisted: vi.fn(),
+  setVisited: vi.fn(),
+  watchNotes: vi.fn(),
+  addNote: vi.fn(),
+  updateNote: vi.fn(),
+  deleteNote: vi.fn(),
+}));
 vi.mock("./repository", () => m);
 vi.mock("./collection", () => m);
+vi.mock("./notes", () => m);
 vi.mock("../auth/AuthProvider", () => ({
   useAuth: () => ({ state: { status: "member", uid: "ava-uid", email: "ava@safebite.test", householdId: "home", displayName: "Ava" }, signOut: vi.fn() }),
 }));
@@ -18,6 +30,7 @@ import { RestaurantDetailPage } from "./RestaurantDetailPage";
 let emitRestaurant: (s: Snapshot<Restaurant>) => void = () => {};
 let emitClaims: (s: Snapshot<Claim[]>) => void = () => {};
 let emitState: (s: Snapshot<CollectionState | null>) => void = () => {};
+let emitNotes: (s: Snapshot<Note[]>) => void = () => {};
 const restaurant: Restaurant = { id: "r1", name: "Da Marco", address: "Via Roma 1", phone: "+39 06 1", website: "https://damarco.it", createdBy: "ava-uid", createdAt: new Date(), updatedAt: new Date(), version: 2, deleting: false };
 const claim = (over: Partial<Claim> & Pick<Claim, "id">): Claim => ({
   kind: "separateFryer", value: "yes", detail: "", source: { type: "restaurantStatement", label: "Manager" }, checkedAt: "2026-09-01",
@@ -31,6 +44,11 @@ beforeEach(() => {
   m.watchCollectionEntry.mockImplementation((_h: string, _r: string, cb: (s: Snapshot<CollectionState | null>) => void) => {
     emitState = cb;
     cb({ status: "ready", value: null });
+    return () => {};
+  });
+  m.watchNotes.mockImplementation((_h: string, _r: string, cb: (s: Snapshot<Note[]>) => void) => {
+    emitNotes = cb;
+    cb({ status: "ready", value: [] });
     return () => {};
   });
 });
@@ -264,5 +282,33 @@ describe("RestaurantDetailPage — status block", () => {
     });
     expect(screen.getByTestId("status-block")).toHaveTextContent("boom");
     expect(screen.getByTestId("evidence-gfMenu")).toBeInTheDocument();
+  });
+});
+
+describe("RestaurantDetailPage — notes", () => {
+  it("places notes between the evidence and the call-ahead prompts", () => {
+    renderPage();
+    act(() => {
+      emitRestaurant({ status: "ready", value: restaurant });
+      emitClaims({ status: "ready", value: [] });
+      emitNotes({ status: "ready", value: [{ id: "n1", text: "Asked twice, confident answers", authorUid: "bogdan-uid", authorName: "Bogdan", createdAt: new Date(), updatedAt: new Date(), version: 1 }] });
+    });
+    const notes = screen.getByTestId("notes-section");
+    expect(notes).toHaveTextContent("Asked twice, confident answers");
+    const evidence = screen.getByTestId("evidence-gfMenu");
+    const callAhead = screen.getByTestId("call-ahead");
+    expect(evidence.compareDocumentPosition(notes) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(notes.compareDocumentPosition(callAhead) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("counts cached notes in the single offline notice", () => {
+    renderPage();
+    act(() => {
+      emitRestaurant({ status: "ready", value: restaurant });
+      emitClaims({ status: "ready", value: [] });
+      emitNotes({ status: "offline", value: [] });
+    });
+    expect(screen.getAllByTestId("read-offline")).toHaveLength(1);
+    expect(screen.getByTestId("note-add-save")).toBeDisabled();
   });
 });
