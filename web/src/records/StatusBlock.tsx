@@ -28,7 +28,8 @@ export function StatusBlock({ householdId, rid, author, state, disabled, onRetry
   const today = useToday();
   const [busy, setBusy] = useState(false);
   const [outcome, setOutcome] = useState<WriteOutcome["kind"] | null>(null);
-  const [editingDate, setEditingDate] = useState<string | null>(null);
+  // The draft keeps the version it was opened at: a live snapshot never rebases it (audit F1).
+  const [draft, setDraft] = useState<{ date: string; baseVersion: number } | null>(null);
   const [dateError, setDateError] = useState<string | null>(null);
 
   if (!isData(state)) {
@@ -53,15 +54,21 @@ export function StatusBlock({ householdId, rid, author, state, disabled, onRetry
     return result.kind === "ok";
   }
 
+  function openDraft(date: string) {
+    setDraft({ date, baseVersion: base });
+    setDateError(null);
+  }
+
   async function saveDate() {
-    if (editingDate === null) return;
-    const problem = validateVisitedOn(editingDate, today);
+    if (draft === null) return;
+    const problem = validateVisitedOn(draft.date, today);
     setDateError(problem);
     if (problem) return;
-    // Close the editor on any outcome, ok or not: the current state is always shown, per the
-    // status-outcome message below (a conflict or other failure must not hide it behind the editor).
-    await run(() => setVisited(householdId, rid, author, base, editingDate));
-    setEditingDate(null);
+    // Write against the version the draft was opened at, so a change another member made meanwhile
+    // returns a conflict instead of being overwritten. Close the editor on any outcome, ok or not:
+    // the current state is always shown, per the status-outcome message below.
+    await run(() => setVisited(householdId, rid, author, draft.baseVersion, draft.date));
+    setDraft(null);
   }
 
   return (
@@ -77,24 +84,24 @@ export function StatusBlock({ householdId, rid, author, state, disabled, onRetry
         )}
       </p>
       <p className="actions">
-        {editingDate === null && current?.visited && current.visitedOn && (
+        {draft === null && current?.visited && current.visitedOn && (
           <>
             <span data-testid="visited-state">Visited {formatCalendarDate(current.visitedOn)}</span>
-            <button type="button" data-testid="visited-change" disabled={locked} onClick={() => { setEditingDate(current.visitedOn ?? today); setDateError(null); }}>Change date</button>
+            <button type="button" data-testid="visited-change" disabled={locked} onClick={() => openDraft(current.visitedOn ?? today)}>Change date</button>
             <button type="button" data-testid="visited-clear" disabled={locked} onClick={() => void run(() => setVisited(householdId, rid, author, base, null))}>Clear</button>
           </>
         )}
-        {editingDate === null && !current?.visited && (
-          <button type="button" data-testid="visited-mark" disabled={locked} onClick={() => { setEditingDate(today); setDateError(null); }}>Mark visited</button>
+        {draft === null && !current?.visited && (
+          <button type="button" data-testid="visited-mark" disabled={locked} onClick={() => openDraft(today)}>Mark visited</button>
         )}
-        {editingDate !== null && (
+        {draft !== null && (
           <>
             <label>
               Visit date
-              <input type="date" data-testid="visited-date" value={editingDate} max={today} onChange={(e) => setEditingDate(e.target.value)} />
+              <input type="date" data-testid="visited-date" value={draft.date} max={today} onChange={(e) => { const date = e.target.value; setDraft((d) => d && { ...d, date }); }} />
             </label>
             <button type="button" data-testid="visited-save" disabled={locked} onClick={() => void saveDate()}>Save</button>
-            <button type="button" data-testid="visited-cancel" disabled={busy} onClick={() => { setEditingDate(null); setDateError(null); }}>Cancel</button>
+            <button type="button" data-testid="visited-cancel" disabled={busy} onClick={() => { setDraft(null); setDateError(null); }}>Cancel</button>
             {dateError && <span className="field-error" data-testid="visited-error">{dateError}</span>}
           </>
         )}

@@ -2,6 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import {
   clearRecords,
   collectionExists,
+  getCollectionVisit,
   listClaimIds,
   listNoteIds,
   markDeletingViaRest,
@@ -12,6 +13,7 @@ import {
   seedRestaurant,
   sweepClaimsViaRest,
   updateNoteViaRest,
+  writeVisitedByBogdanViaRest,
 } from "./emulator-rest";
 
 const PASSWORD = "pilot-password-1";
@@ -176,4 +178,39 @@ test("C7. while offline the page says so once and every write control is disable
   await context.setOffline(false);
   await expect(page.getByTestId("shortlist-add")).toBeEnabled({ timeout: 15_000 });
   expect(await collectionExists(request, "r-off")).toBe(false);
+});
+
+test("C8. a visit-date draft left open while the other member saves a date ends in a conflict, not an overwrite", async ({ page, request }) => {
+  await seedRestaurant(request, "r-d", { name: "Draft Diner" });
+  await seedCollection(request, "r-d", { shortlisted: false, visitedOn: "2026-05-03", version: 1 });
+  await signIn(page, "ava@safebite.test");
+  await page.goto("/restaurants/r-d");
+  await expect(page.getByTestId("visited-state")).toHaveText("Visited 3 May 2026");
+  await page.getByTestId("visited-change").click();
+  await page.getByTestId("visited-date").fill("2026-05-04");
+
+  await writeVisitedByBogdanViaRest(request, "r-d", "2026-05-10", 2);
+  await expect(page.getByTestId("status-changed-by")).toHaveText("Last changed by Bogdan");
+  await expect(page.getByTestId("visited-date")).toHaveValue("2026-05-04");
+  await page.getByTestId("visited-save").click();
+
+  await expect(page.getByTestId("status-outcome")).toHaveAttribute("data-kind", "conflict");
+  await expect(page.getByTestId("visited-state")).toHaveText("Visited 10 May 2026");
+  expect(await getCollectionVisit(request, "r-d")).toEqual({ visitedOn: "2026-05-10T00:00:00Z", version: 2, updatedByName: "Bogdan" });
+});
+
+test("C8b. a Mark visited draft opened before any state existed conflicts once the other member creates it", async ({ page, request }) => {
+  await seedRestaurant(request, "r-d0", { name: "Draft Zero" });
+  await signIn(page, "ava@safebite.test");
+  await page.goto("/restaurants/r-d0");
+  await page.getByTestId("visited-mark").click();
+  await page.getByTestId("visited-date").fill("2026-05-04");
+
+  await writeVisitedByBogdanViaRest(request, "r-d0", "2026-05-10", 1);
+  await expect(page.getByTestId("status-changed-by")).toHaveText("Last changed by Bogdan");
+  await page.getByTestId("visited-save").click();
+
+  await expect(page.getByTestId("status-outcome")).toHaveAttribute("data-kind", "conflict");
+  await expect(page.getByTestId("visited-state")).toHaveText("Visited 10 May 2026");
+  expect(await getCollectionVisit(request, "r-d0")).toEqual({ visitedOn: "2026-05-10T00:00:00Z", version: 1, updatedByName: "Bogdan" });
 });

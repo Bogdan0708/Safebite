@@ -85,6 +85,25 @@ describe("StatusBlock", () => {
     expect(screen.getByTestId("visited-state")).toHaveTextContent("Visited 3 May 2026");
   });
 
+  it("an open date draft keeps the version it was opened at when another member's change arrives", async () => {
+    const { rerender } = renderBlock({ status: "ready", value: st({ visited: true, visitedOn: "2026-05-03", updatedByName: "Ava" }) });
+    await userEvent.click(screen.getByTestId("visited-change"));
+    fireEvent.change(screen.getByTestId("visited-date"), { target: { value: "2026-05-04" } });
+    rerender(<StatusBlock householdId="home" rid="r1" author={AVA} state={{ status: "ready", value: st({ visited: true, visitedOn: "2026-05-10", version: 4 }) }} disabled={false} onRetry={() => {}} />);
+    expect(screen.getByTestId("visited-date")).toHaveValue("2026-05-04");
+    await userEvent.click(screen.getByTestId("visited-save"));
+    expect(m.setVisited).toHaveBeenCalledWith("home", "r1", AVA, 3, "2026-05-04");
+  });
+
+  it("a date draft opened before the document existed keeps base version 0 after another member creates it", async () => {
+    const { rerender } = renderBlock({ status: "ready", value: null });
+    await userEvent.click(screen.getByTestId("visited-mark"));
+    fireEvent.change(screen.getByTestId("visited-date"), { target: { value: "2026-05-04" } });
+    rerender(<StatusBlock householdId="home" rid="r1" author={AVA} state={{ status: "ready", value: st({ visited: true, visitedOn: "2026-05-10", version: 1 }) }} disabled={false} onRetry={() => {}} />);
+    await userEvent.click(screen.getByTestId("visited-save"));
+    expect(m.setVisited).toHaveBeenCalledWith("home", "r1", AVA, 0, "2026-05-04");
+  });
+
   it.each([
     ["cached", { status: "offline", value: null } as const, false],
     ["from a page that is offline", { status: "ready", value: null } as const, true],

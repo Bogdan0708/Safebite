@@ -214,3 +214,34 @@ export async function sweepClaimsViaRest(request: APIRequestContext, rid: string
     await del(request, `households/home/restaurants/${rid}/claims/${idOf(c)}`);
   }
 }
+
+/**
+ * Models Bogdan saving a visit date on his own device: writes the whole collection document
+ * (creating it when missing) as `version`, attributed to Bogdan.
+ */
+export async function writeVisitedByBogdanViaRest(request: APIRequestContext, rid: string, visitedOn: string, version: number): Promise<void> {
+  const res = await request.patch(`${BASE}/households/home/collection/${rid}`, {
+    headers: HEADERS,
+    data: {
+      fields: {
+        shortlisted: { booleanValue: false },
+        visited: { booleanValue: true },
+        visitedOn: ts(`${visitedOn}T00:00:00Z`),
+        updatedBy: s("bogdan-uid"),
+        updatedByName: s("Bogdan"),
+        updatedAt: ts(new Date().toISOString()),
+        version: { integerValue: String(version) },
+      },
+    },
+  });
+  if (!res.ok()) throw new Error(`writeVisitedByBogdan ${rid}: ${res.status()} ${await res.text()}`);
+}
+
+/** The stored visit date (UTC ISO timestamp) and version of one collection document, or null when missing. */
+export async function getCollectionVisit(request: APIRequestContext, rid: string): Promise<{ visitedOn: string | null; version: number; updatedByName: string } | null> {
+  const res = await request.get(`${BASE}/households/home/collection/${rid}`, { headers: HEADERS });
+  if (res.status() === 404) return null;
+  if (!res.ok()) throw new Error(`getCollectionVisit ${rid}: ${res.status()} ${await res.text()}`);
+  const f = ((await res.json()) as RestDoc).fields as Record<string, { timestampValue?: string; integerValue?: string; stringValue?: string }>;
+  return { visitedOn: f.visitedOn?.timestampValue ?? null, version: Number(f.version?.integerValue), updatedByName: f.updatedByName?.stringValue ?? "" };
+}
