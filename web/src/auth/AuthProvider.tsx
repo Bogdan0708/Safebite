@@ -3,9 +3,11 @@ import { onAuthStateChanged, signInWithEmailAndPassword, signOut as firebaseSign
 import { doc, getDoc } from "firebase/firestore";
 import { auth, db } from "../firebase";
 import { resolveMembership } from "./membership";
+import { resetDocument } from "./resetDocument";
 
 export type AuthState =
   | { status: "loading" }
+  | { status: "resetting" }
   | { status: "signedOut" }
   | { status: "notMember"; email: string | null }
   | { status: "member"; uid: string; email: string | null; householdId: string; displayName: string }
@@ -49,6 +51,7 @@ async function stateForUser(user: User): Promise<AuthState> {
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AuthState>({ status: "loading" });
   const generationRef = useRef(0);
+  const lastUidRef = useRef<string | null>(null);
 
   const resolveForUser = useCallback((user: User) => {
     const mine = ++generationRef.current;
@@ -66,11 +69,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
+      const previous = lastUidRef.current;
+      // Auth state is shared by every same-origin tab (audit F2): whichever tab signed out or
+      // switched user, each document that had a user resets itself. Starting signed out, or a
+      // repeat of the same UID, is not a change.
+      if (previous !== null && (user === null || user.uid !== previous)) {
+        generationRef.current += 1;
+        setState({ status: "resetting" });
+        resetDocument();
+        return;
+      }
       if (!user) {
         generationRef.current += 1;
         setState({ status: "signedOut" });
         return;
       }
+      lastUidRef.current = user.uid;
       resolveForUser(user);
     });
     return unsubscribe;
@@ -81,6 +95,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signOut = useCallback(async () => {
+    // The listener resets this document (and every other tab) when the user becomes null.
     await firebaseSignOut(auth);
   }, []);
 
