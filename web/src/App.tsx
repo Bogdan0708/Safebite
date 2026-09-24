@@ -11,6 +11,8 @@ function Gate() {
   switch (state.status) {
     case "loading":
       return <main className="screen"><p>Loading…</p></main>;
+    case "resetting":
+      return <main className="screen" data-testid="resetting"><p>Signing out…</p></main>;
     case "signedOut":
       return <SignInScreen />;
     case "notMember":

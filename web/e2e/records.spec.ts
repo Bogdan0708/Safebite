@@ -5,7 +5,7 @@ const PASSWORD = "pilot-password-1";
 
 async function signIn(page: Page, email: string) {
   await page.goto("/");
-  await expect(page.getByTestId("signin-form")).toBeVisible();
+  await expect(page.getByTestId("signin-form")).toBeVisible({ timeout: 15_000 });
   await page.getByTestId("signin-email").fill(email);
   await page.getByTestId("signin-password").fill(PASSWORD);
   await page.getByTestId("signin-submit").click();
@@ -15,7 +15,7 @@ async function signIn(page: Page, email: string) {
 async function signOutAndWait(page: Page) {
   await page.getByTestId("nav-settings").click();
   await page.getByTestId("signout").click();
-  await expect(page.getByTestId("signin-form")).toBeVisible();
+  await expect(page.getByTestId("signin-form")).toBeVisible({ timeout: 15_000 });
 }
 
 const KINDS = ["dedicatedKitchen", "separateFryer", "trainedStaff", "gfMenu", "preparationPractice", "accreditation"];
@@ -51,6 +51,7 @@ test("1. a member adds a restaurant and sees it with six unknown kinds and the c
   await expect(page.getByTestId("call-ahead")).toContainText("Italian");
 
   await page.getByTestId("nav-saved").click();
+  await page.getByTestId("filter-all").click();
   await expect(page.getByTestId("restaurant-row")).toContainText("Da Marco");
 });
 
@@ -185,6 +186,7 @@ test("7. after an account switch no record of the previous member is rendered an
 
   await signIn(page, "ava@safebite.test");
   await page.getByTestId("nav-saved").click();
+  await page.getByTestId("filter-all").click();
   await expect(page.getByTestId("restaurant-row")).toContainText("Ava's place");
   await signOutAndWait(page);
 

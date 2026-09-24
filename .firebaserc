@@ -1,5 +1,6 @@
 {
   "projects": {
-    "default": "demo-safebite"
+    "default": "demo-safebite",
+    "staging": "safebite-pilot-urfs3v"
   }
 }

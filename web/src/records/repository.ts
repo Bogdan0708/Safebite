@@ -10,6 +10,7 @@ import {
   runTransaction,
   serverTimestamp,
   Timestamp,
+  type CollectionReference,
   type DocumentData,
   type DocumentSnapshot,
   type FirestoreError,
@@ -41,19 +42,22 @@ export type WriteOutcome<T = void> =
   | { kind: "offline" }
   | { kind: "failed"; message: string };
 
-export type DeleteStep = "marking" | "sweeping" | "removing";
+export type DeleteStep = "marking" | "sweeping" | "sweepingNotes" | "removing";
 
-/** Claims deleted per transaction during a sweep (well under Firestore's per-transaction limit). */
+/** Documents deleted per transaction during a sweep (well under Firestore's per-transaction limit). */
 export const SWEEP_PAGE = 100;
 
-class ConflictError extends Error {}
-class NotFoundError extends Error {}
+// The helpers below are exported for the sibling record modules (collection.ts, notes.ts) only.
+export class ConflictError extends Error {}
+export class NotFoundError extends Error {}
 
 const restaurantsCol = (hid: string) => collection(db, "households", hid, "restaurants");
-const restaurantRef = (hid: string, rid: string) => doc(db, "households", hid, "restaurants", rid);
+export const restaurantRef = (hid: string, rid: string) => doc(db, "households", hid, "restaurants", rid);
 const claimsCol = (hid: string, rid: string) => collection(db, "households", hid, "restaurants", rid, "claims");
+export const notesCol = (hid: string, rid: string) => collection(db, "households", hid, "restaurants", rid, "notes");
+export const collectionRef = (hid: string, rid: string) => doc(db, "households", hid, "collection", rid);
 
-function toDate(value: unknown): Date {
+export function toDate(value: unknown): Date {
   return value instanceof Timestamp ? value.toDate() : new Date(0);
 }
 
@@ -97,12 +101,12 @@ export function toClaim(snap: DocumentSnapshot): Claim {
   return c;
 }
 
-function listenerFailure(err: FirestoreError): Snapshot<never> {
+export function listenerFailure(err: FirestoreError): Snapshot<never> {
   return err.code === "permission-denied" ? { status: "denied" } : { status: "error", message: err.message };
 }
 
 /** includeMetadataChanges: a cache→server transition with identical data must still flip offline→ready. */
-const LISTEN = { includeMetadataChanges: true } as const;
+export const LISTEN = { includeMetadataChanges: true } as const;
 
 export function watchRestaurants(hid: string, cb: (s: Snapshot<Restaurant[]>) => void): () => void {
   return onSnapshot(
@@ -138,7 +142,7 @@ export function watchClaims(hid: string, rid: string, cb: (s: Snapshot<Claim[]>)
   );
 }
 
-function classify(err: unknown): WriteOutcome<never> {
+export function classify(err: unknown): WriteOutcome<never> {
   if (err instanceof ConflictError) return { kind: "conflict" };
   if (err instanceof NotFoundError) return { kind: "notFound" };
   const code = (err as { code?: string }).code;
@@ -148,7 +152,7 @@ function classify(err: unknown): WriteOutcome<never> {
 }
 
 /** All writes go through here: offline pre-check, one transaction, typed outcome. Never throws. */
-async function write<T>(run: (tx: Transaction) => Promise<T>): Promise<WriteOutcome<T>> {
+export async function write<T>(run: (tx: Transaction) => Promise<T>): Promise<WriteOutcome<T>> {
   if (typeof navigator !== "undefined" && navigator.onLine === false) return { kind: "offline" };
   try {
     const value = await runTransaction(db, run);
@@ -209,42 +213,90 @@ export function markDeleting(hid: string, rid: string, baseVersion: number): Pro
   });
 }
 
-/** Deletion step 2: server-read pages of claims, each deleted in one transaction, until none remain. */
-export async function sweepClaims(hid: string, rid: string): Promise<WriteOutcome<number>> {
+/**
+ * Deletion steps 2–3 (spec §3.7): server-read pages; each page's documents are re-read inside one
+ * transaction and only those still present are deleted, so two finishers and retries converge
+ * instead of one of them failing on an already-deleted document.
+ */
+async function sweep(col: CollectionReference): Promise<WriteOutcome<number>> {
   let deleted = 0;
   for (;;) {
     let page;
     try {
-      page = await getDocsFromServer(query(claimsCol(hid, rid), limit(SWEEP_PAGE)));
+      page = await getDocsFromServer(query(col, limit(SWEEP_PAGE)));
     } catch (err) {
       return classify(err);
     }
     if (page.empty) return { kind: "ok", value: deleted };
     const refs = page.docs.map((d) => d.ref);
     const outcome = await write(async (tx) => {
-      for (const ref of refs) tx.delete(ref);
+      const snaps = await Promise.all(refs.map((ref) => tx.get(ref)));
+      let removed = 0;
+      for (const snap of snaps) {
+        if (snap.exists()) {
+          tx.delete(snap.ref);
+          removed += 1;
+        }
+      }
+      return removed;
     });
     if (outcome.kind !== "ok") return outcome;
-    deleted += refs.length;
+    deleted += outcome.value;
   }
 }
 
-/** Deletion step 3. The rules refuse this unless the restaurant is marked deleting. */
+export function sweepClaims(hid: string, rid: string): Promise<WriteOutcome<number>> {
+  return sweep(claimsCol(hid, rid));
+}
+
+export function sweepNotes(hid: string, rid: string): Promise<WriteOutcome<number>> {
+  return sweep(notesCol(hid, rid));
+}
+
+/** Deletion step 4: the shortlist/visited document, if any. */
+export function removeCollectionState(hid: string, rid: string): Promise<WriteOutcome> {
+  return write(async (tx) => {
+    const snap = await tx.get(collectionRef(hid, rid));
+    if (snap.exists()) tx.delete(snap.ref);
+  });
+}
+
+/** Deletion step 5, the completion gate. Already removed or already done counts as done. */
+export function markCleanupDone(hid: string, rid: string): Promise<WriteOutcome> {
+  return write(async (tx) => {
+    const snap = await tx.get(restaurantRef(hid, rid));
+    if (!snap.exists()) return;
+    const d = snap.data() as DocumentData;
+    if (d.deleting !== true) throw new NotFoundError();
+    if (d.cleanupDone === true) return;
+    tx.update(snap.ref, { cleanupDone: true, version: Number(d.version) + 1, updatedAt: serverTimestamp() });
+  });
+}
+
+/** Deletion step 6. The rules refuse this unless the gate is satisfied. Already removed counts as done. */
 export function removeRestaurant(hid: string, rid: string): Promise<WriteOutcome> {
   return write(async (tx) => {
-    tx.delete(restaurantRef(hid, rid));
+    const snap = await tx.get(restaurantRef(hid, rid));
+    if (snap.exists()) tx.delete(snap.ref);
   });
 }
 
 export async function finishDeleting(hid: string, rid: string, onProgress?: (step: DeleteStep) => void): Promise<WriteOutcome> {
   onProgress?.("sweeping");
-  const swept = await sweepClaims(hid, rid);
-  if (swept.kind !== "ok") return swept;
+  const claims = await sweepClaims(hid, rid);
+  if (claims.kind !== "ok") return claims;
+  onProgress?.("sweepingNotes");
+  const notes = await sweepNotes(hid, rid);
+  if (notes.kind !== "ok") return notes;
   onProgress?.("removing");
+  const state = await removeCollectionState(hid, rid);
+  if (state.kind !== "ok") return state;
+  const done = await markCleanupDone(hid, rid);
+  if (done.kind !== "ok") return done;
   return removeRestaurant(hid, rid);
 }
 
-/** The whole protocol (spec §3.5 "Deletion protocol"). Stops at the first non-ok step. */
+/** The whole protocol (spec §3.5, extended by §3.7). Stops at the first non-ok step. */
 export async function deleteRestaurant(hid: string, rid: string, baseVersion: number, onProgress?: (step: DeleteStep) => void): Promise<WriteOutcome> {
   onProgress?.("marking");
   const marked = await markDeleting(hid, rid, baseVersion);

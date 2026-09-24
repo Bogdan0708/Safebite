@@ -2,12 +2,17 @@ import { useState } from "react";
 import { Link, useParams } from "react-router";
 import { placeUrl } from "../discover/links";
 import { CALL_AHEAD_GROUPS } from "./callAhead";
+import { watchCollectionEntry } from "./collection";
+import { anyOffline, isData } from "./combine";
 import { formatCalendarDate } from "./dates";
 import { evidenceStatus, summariseEvidence, type KindEvidence } from "./evidence";
 import { outcomeMessage } from "./messages";
+import { NotesSection } from "./NotesSection";
+import { watchNotes } from "./notes";
 import { deleteClaim, watchClaims, watchRestaurant, type WriteOutcome } from "./repository";
 import { ReadStateNotice } from "./ReadStateNotice";
-import { CLAIM_KIND_LABELS, CLAIM_VALUE_LABELS, SOURCE_TYPE_LABELS, type CalendarDate, type Claim, type Restaurant } from "./types";
+import { StatusBlock } from "./StatusBlock";
+import { CLAIM_KIND_LABELS, CLAIM_VALUE_LABELS, SOURCE_TYPE_LABELS, type CalendarDate, type Claim, type CollectionState, type Note, type Restaurant } from "./types";
 import { useMember } from "./useMember";
 import { useToday } from "./useToday";
 import { useWatch } from "./useWatch";
@@ -51,11 +56,13 @@ function ClaimCard({ claim, today, disabled, onDelete }: { claim: Claim; today: 
 }
 
 export function RestaurantDetailPage() {
-  const { householdId } = useMember();
+  const { householdId, uid, displayName } = useMember();
   const { rid } = useParams();
   const today = useToday();
   const restaurantWatch = useWatch<Restaurant>((cb) => watchRestaurant(householdId, rid!, cb), [householdId, rid]);
   const claimsWatch = useWatch<Claim[]>((cb) => watchClaims(householdId, rid!, cb), [householdId, rid]);
+  const stateWatch = useWatch<CollectionState | null>((cb) => watchCollectionEntry(householdId, rid!, cb), [householdId, rid]);
+  const notesWatch = useWatch<Note[]>((cb) => watchNotes(householdId, rid!, cb), [householdId, rid]);
   const [outcome, setOutcome] = useState<WriteOutcome["kind"] | null>(null);
 
   const rs = restaurantWatch.state;
@@ -68,8 +75,11 @@ export function RestaurantDetailPage() {
     );
   }
   const restaurant = rs.value;
-  const offline = rs.status === "offline" || cs.status === "offline";
-  const claims = cs.status === "ready" || cs.status === "offline" ? cs.value : [];
+  const ss = stateWatch.state;
+  // One notice for every cache-backed listener on the page (spec §3.7); writes need the server.
+  const offline = anyOffline(rs, cs, ss, notesWatch.state);
+  const claimsReady = isData(cs);
+  const claims = claimsReady ? cs.value : [];
   const summary = summariseEvidence(claims, today);
 
   async function onDeleteClaim(cid: string) {
@@ -77,11 +87,9 @@ export function RestaurantDetailPage() {
     setOutcome(result.kind === "ok" ? null : result.kind);
   }
 
-  const claimsReady = cs.status === "ready" || cs.status === "offline";
-
   return (
     <section>
-      <ReadStateNotice state={rs} onRetry={restaurantWatch.retry} />
+      {offline && <ReadStateNotice state={{ status: "offline", value: null }} onRetry={restaurantWatch.retry} />}
       <h2 data-testid="restaurant-name">{restaurant.name}</h2>
       <p data-testid="restaurant-address">{restaurant.address}</p>
       <p className="actions">
@@ -92,6 +100,7 @@ export function RestaurantDetailPage() {
         )}
         <Link data-testid="edit-restaurant" to={`/restaurants/${restaurant.id}/edit`}>Edit</Link>
       </p>
+      <StatusBlock householdId={householdId} rid={restaurant.id} author={{ uid, displayName }} state={ss} disabled={offline} onRetry={stateWatch.retry} />
 
       <h3>Evidence</h3>
       <p>
@@ -106,7 +115,7 @@ export function RestaurantDetailPage() {
         </Link>
       </p>
       {outcome && <p role="alert" data-testid="claim-outcome" data-kind={outcome}>{outcomeMessage(outcome, "This evidence", "delete")}</p>}
-      {(!claimsReady || (cs.status === "offline" && rs.status !== "offline")) && <ReadStateNotice state={cs} onRetry={claimsWatch.retry} />}
+      {!claimsReady && <ReadStateNotice state={cs} onRetry={claimsWatch.retry} />}
       {claimsReady && (
         <div className="evidence">
           {summary.map((entry) => (
@@ -127,6 +136,8 @@ export function RestaurantDetailPage() {
           ))}
         </div>
       )}
+
+      <NotesSection householdId={householdId} rid={restaurant.id} author={{ uid, displayName }} state={notesWatch.state} disabled={offline} onRetry={notesWatch.retry} />
 
       <section className="notice" data-testid="call-ahead">
         <h3>Call ahead and ask</h3>
