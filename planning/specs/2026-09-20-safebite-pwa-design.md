@@ -944,13 +944,44 @@ remove the other member's notes).
 Neither document carries anything a safety label could be derived from, and neither write touches a
 claim, so visiting or noting can never refresh a verification date (§2.1).
 
-#### Deletion protocol (extends §3.5)
+#### Deletion protocol (extends §3.5; amended after audit F1)
 
-Mark `deleting` → sweep claims → sweep notes (same paged, server-read, transactional sweep) →
-delete `collection/{rid}` if present → delete the restaurant. Every step is idempotent. The
-existing resume path ("Finish deleting" on the Saved page, automatic resume once per mount) runs
-the extended sequence. Progress text gains "Removing notes…". The deletion confirmation reads:
-"Deletes the restaurant, its evidence, and both members' notes."
+Mark `deleting` → sweep claims → sweep notes → delete `collection/{rid}` if present → set
+`cleanupDone: true` → delete the restaurant. The existing resume path ("Finish deleting" on the
+Saved page, automatic resume once per mount) runs the extended sequence. Progress text gains
+"Removing notes…". The deletion confirmation reads: "Deletes the restaurant, its evidence, and
+both members' notes."
+
+**Completion gate (rules).** A Plan 3-era client finishes a deletion by sweeping claims and deleting
+the restaurant; Firestore does not cascade to subcollections, so under the old delete rule it
+would orphan notes and collection state. The gate makes that impossible for any client version:
+
+- `restaurants` gains an optional `cleanupDone` (bool; added to `validRestaurant`'s `hasOnly`).
+  Creation and ordinary updates must not set it (the create rule requires it absent; the ordinary
+  update branch requires it unchanged).
+- A new update branch **marks cleanup done**: `resource.data.deleting == true`,
+  `request.resource.data.cleanupDone == true`, affected keys only `cleanupDone`, `version`,
+  `updatedAt`, version `+ 1`, `updatedAt == request.time`.
+- Delete requires `deleting == true && cleanupDone == true &&
+  !exists(.../collection/$(rid))`.
+
+After the `deleting` mark no new claim, note or collection document can be created (their
+create rules require a parent with `deleting == false`). The client therefore sets
+`cleanupDone` only after its sweeps have returned empty from the server, and the flag cannot go
+stale. Rules cannot prove that a subcollection is empty. The gate relies on that ordering, and
+the `exists()` check guards the one sibling document it can see.
+
+An old client's final delete is refused. The restaurant stays listed as "Deleting…", and any
+Plan 4 client completes it (automatic resume or "Finish deleting"). The old tab shows its
+existing permission message, and its update banner offers the reload.
+
+**Idempotent, concurrent sweeps.** Each page is read from the server. The transaction then
+`tx.get`s every document on the page and deletes only those that still exist. Deleting
+`collection/{rid}`, setting `cleanupDone` and deleting the restaurant also read first. An
+already-missing document or an already-set flag counts as done, never as a failure. Two
+sweepers, a sweeper racing an old-client resumer, and a retry after any intermediate step
+therefore all converge without a misleading permission error. (The existing Plan 2b
+`sweepClaims`/`removeRestaurant`, which delete blind, change to the same pattern.)
 
 #### Client
 
@@ -984,16 +1015,57 @@ either is cached. Deleting rows appear under both filters. No toggles in the lis
 - The page shows one offline notice for all its listeners, which closes the Plan 2b parked double-notice item.
   The parked Plan 2b wording items (resume-flow text, the form's shared outcome block) are fixed here.
 
-**Account switch.** `signOut` = Firebase sign-out, then `window.location.replace("/")`: a full
-reload discards every listener, the Firestore memory cache and all React state. The
+**Account switch (amended after audit F2).** Firebase synchronises auth state across same-origin
+tabs, so the reset belongs in the auth listener, not in the sign-out button. `AuthProvider` keeps
+`lastUid`, the last signed-in UID observed *in this document*. When `onAuthStateChanged` reports
+`null` or a different UID while `lastUid` is set, the provider bumps its generation counter,
+immediately renders a neutral "Signing out…" state (old UI hidden, pending callbacks void), and
+calls `window.location.replace("/")`. A full reload discards every listener, the Firestore memory
+cache and all React state in that tab. Every tab that had a member signed in resets itself, whichever
+tab initiated the change. Explicit `signOut()` only calls Firebase sign-out, and the listener
+performs the reset in the initiating tab too. No loops: a document that starts signed out has no
+`lastUid`, and after the reload it starts fresh. Token refreshes do not fire
+`onAuthStateChanged`, and reauthentication keeps the same UID, so neither triggers a reset. The
 service-worker precache holds only the app shell.
 
-**Change password (Settings).** Current password, new password, confirmation.
-`reauthenticateWithCredential` then `updatePassword`. The minimum is 8 characters (stricter than
-Firebase's 6). The messages map the wrong current password (`auth/invalid-credential`,
-`auth/wrong-password`), `auth/too-many-requests`, `auth/network-request-failed` / offline, and a
-mismatched confirmation. Success: "Password changed", and the member stays signed in. No email reset
-(needs templates and a trusted domain). A forgotten password is reset via the Admin API.
+**Change password (Settings; amended after audit F3).** Current password, new password,
+confirmation. Client validation: at least 8 characters, and the confirmation matches. This is a client
+rule only: the pilot project has no server password policy (verified 2026-09-24), and one could
+be added later. Sequence: `reauthenticateWithCredential`. If it fails, stop and **never** call
+`updatePassword`. Otherwise call `updatePassword`. Messages:
+
+| Condition | Message |
+|---|---|
+| wrong current password (`auth/invalid-credential`, `auth/wrong-password`) | "That isn't your current password." |
+| `auth/too-many-requests` | "Too many attempts. Wait a few minutes and try again." |
+| `auth/network-request-failed` or offline | the standard offline message |
+| server policy rejects the new password (`auth/weak-password`, `auth/password-does-not-meet-requirements`) | "Your new password doesn't meet this account's password rules. Choose a different one." |
+| `auth/requires-recent-login` | "For security, sign out and back in, then try again." |
+| anything else | "Couldn't change your password. Your old password still works." |
+
+"Password changed" appears only after `updatePassword` resolves. After any failure the form stays
+usable and submit is re-enabled. A wrong current password clears only that field. A policy rejection
+clears the two new-password fields. Offline and unknown errors keep every field. The member stays
+signed in on success (same UID, so no reset). No email reset (it needs templates and a trusted domain).
+A forgotten password is reset via the Admin API.
+
+**Read states for joined data (audit clarification).** The Saved list and the restaurant page each
+combine two or more listeners. The combined view is loading until every listener has produced a
+snapshot. A `denied` or `error` from any listener is shown (errors are never hidden behind the offline
+notice). A missing `collection/{rid}` means "not shortlisted, not visited" (base version 0) only
+when the collection snapshot is server-backed (`ready`). While it is loading, errored or only cached,
+the status controls are disabled and no "Nothing on the shortlist" empty state is shown. Authoritative
+empty messages need `ready` snapshots, as in §3.5. One offline notice covers all listeners that
+are `offline`.
+
+**Notes: confirmation identity and conflicts (audit clarification).** A pending delete confirmation
+is bound to the note's id and version, like the claim confirmations in Plan 2b (37cc46b). It resets if
+that note changes or disappears. An edit conflict shows the current server text next to the
+member's draft. Choosing "Keep mine" writes the draft with the *current* server version as its
+base; choosing "Use theirs" discards the draft. Either way the next write carries the version the
+chooser displayed, so a third change triggers a fresh conflict. A note edited or deleted from
+another device while the restaurant is being deleted gets the ordinary `notFound`/`conflict`
+outcomes.
 
 #### Tests
 
@@ -1004,13 +1076,29 @@ mismatched confirmation. Success: "Password changed", and the member stays signe
   edit-conflict chooser; single offline notice; change-password states; sign-out reload.
 - **Rules (`functions/test`, emulator):** collection create/update/version, the `visitedOn`
   conditions, `updatedBy`/`updatedByName` spoofing, parent missing or `deleting`, delete only while
-  `deleting`; notes create/update author-only, immutable fields, `authorName` spoofing, 2000-character
-  limit, delete by non-author refused unless the parent is `deleting`; non-member refused throughout.
+  `deleting`; notes create/update author-only, immutable fields, `authorName` spoofing, text at
+  exactly 2,000 characters accepted and at 2,001 refused, delete by non-author refused unless the parent is `deleting`,
+  author edit/delete while the parent is `deleting`; completion gate: `cleanupDone` refused on
+  create and on ordinary updates, allowed only by the mark-done branch, restaurant delete refused
+  without `cleanupDone` or while `collection/{rid}` exists; non-member refused throughout.
+- **Mixed-version deletion (emulator, repository level):** the Plan 3-era sequence (sweep claims,
+  delete restaurant, blind deletes as in the merged Plan 3 `repository.ts`) run against the new rules with seeded notes and
+  collection state is refused at the final delete, the parent stays marked and resumable, and the
+  new `finishDeleting` then completes all cleanup; an old resumer racing a new deleter; two new
+  sweepers concurrently; a retry after each intermediate step (claims swept, notes swept,
+  collection removed, `cleanupDone` set) completes without a permission outcome.
 - **Browser (`web/e2e`, two members):** a shortlist change seen live by the other member; filter;
   mark visited, change date, clear; notes by both members with author-only controls; deleting a
   restaurant sweeps both members' notes and the collection document, including an interrupted
   deletion resumed from the Saved page; simultaneous toggle conflict; change password, then sign in with the
-  new one; sign out as a member and sign in as the non-member with no restaurant name rendered at any point.
+  new one (the test uses its own user or restores the fixture password in cleanup);
+  **cross-tab reset:** two pages in one browser context, both showing records and notes. Sign out in
+  page A. Both pages reset (a marker set on `window` before the sign-out is gone afterwards) and show
+  the sign-in form without any test-driven `goto`/`reload`. Then sign in as the non-member in page B,
+  again without test navigation, and no restaurant name is ever rendered. Unit tests: no reload on
+  initial signed-out start, on the same UID, or on token refresh.
+- **Test isolation:** the emulator clean-up helpers also remove notes and collection documents.
+  Account-switch tests never rely on manual reloads.
 - **Gate:** typecheck; web unit; functions + rules; browser (retries 0); boot-guard, preview and
   upgrade; guardrail greps.
 
@@ -1021,12 +1109,16 @@ mismatched confirmation. Success: "Password changed", and the member stays signe
 | Note limit 2,000 characters; password minimum 8 | Room for a visit account; stricter than Firebase's floor |
 | Filter choice not persisted | No new browser storage before Plan 5's offline design |
 | No quick toggles in the list | Avoids accidental taps while scrolling |
-| Sign-out does a full reload | The only reset that provably clears the Firestore memory cache and every listener |
+| Account change resets each tab by a full reload | Discards the Firestore memory cache, listeners and React state in one step; the cross-tab browser test is the guarantee |
 
-#### Deploy note
+#### Deploy note (amended after audit F1)
 
-The new rules must deploy with the new hosting build. The old client never touches these paths,
-so deploying rules first is safe.
+Old clients never write the new paths. The completion gate stops them finishing a deletion that
+would orphan notes or collection state, so old tabs, cached bundles and a hosting rollback remain
+safe after the new rules deploy. Deploy order: rules and functions first, then hosting. Staging has
+never served hosting (verified 2026-09-24: live channel with no releases, site returns 404), so
+the first deploy has no older clients in the wild. The gate is not relied on for that; it covers
+rollbacks and later releases.
 
 #### Not in this plan
 
