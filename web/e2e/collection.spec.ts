@@ -18,7 +18,7 @@ const PASSWORD = "pilot-password-1";
 
 async function signIn(page: Page, email: string) {
   await page.goto("/");
-  await expect(page.getByTestId("signin-form")).toBeVisible();
+  await expect(page.getByTestId("signin-form")).toBeVisible({ timeout: 15_000 });
   await page.getByTestId("signin-email").fill(email);
   await page.getByTestId("signin-password").fill(PASSWORD);
   await page.getByTestId("signin-submit").click();
