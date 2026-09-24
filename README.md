@@ -192,6 +192,8 @@ npm --prefix web run dev     # terminal 2: http://127.0.0.1:5173
 
 > Discovery (the Discover tab) calls the `searchDestination` / `searchNearby` functions, which read the `PLACES_API_KEY` secret. Locally the emulator reads `functions/.secret.local` (gitignored); the `emu:*` scripts create it from `functions/.secret.local.example` (`PLACES_API_KEY=fixture`) when it is missing, which selects a fixture provider with twelve invented venues and the magic queries `__empty__`, `__unavailable__`, `__quota__`, `__delayed__` (3 s) and `__slow__` (25 s). To try real results locally, put a key restricted to Places API (New) in `.secret.local` — never commit it. Search is off until `config/discovery` exists (`{ enabled: true, dailySearchCap: 50 }`, written by `npm run emu:seed`).
 
+Saved shows the household's shortlist by default; "All records" shows everything. Each restaurant has shortlist and visited controls plus "Our notes": notes are personal and never evidence. Deleting a restaurant also deletes both members' notes and its shortlist state. Settings has "Change password".
+
 Emulator UI: http://127.0.0.1:4000
 Records live under households/home/restaurants in the emulator; `npm run emu:e2e` clears them before each scenario via the emulator's REST API.
 
@@ -202,7 +204,7 @@ npm run typecheck   # both packages
 npm run test:unit   # web unit tests (no emulator)
 npm run emu:test    # functions + Firestore rules tests (starts emulators)
 npm run emu:e2e     # Playwright browser tests (starts emulators, seeds, runs Vite)
-npm run emu:e2e:stress   # 29 browser scenarios × 3 repeats, retries disabled (flakiness gate)
+npm run emu:e2e:stress   # 38 browser scenarios × 3 repeats, retries disabled (flakiness gate)
 npm --prefix web run build:check   # compile-only build (no Firebase config needed)
 npm --prefix web run build:e2e        # builds the three synthetic bundles: dist-preview, dist-preview-v2, dist-boot-guard (fixtures in web/.env.preview, .env.preview-v2, .env.boot-guard)
 npm --prefix web run e2e:boot-guard   # compile-only bundle with demo values refuses to start (Chromium, no emulators)
@@ -211,7 +213,7 @@ npm --prefix web run e2e:upgrade      # same-origin release upgrades and the upd
 npm --prefix web run icons            # re-render the PNG icon set from web/assets/safebite-mark.svg
 ```
 
-`npm run test:unit` currently reports 270 tests.
+`npm run test:unit` currently reports 352 tests. `npm run emu:test` currently reports 352 tests (functions + rules). `npm run emu:e2e` currently reports 38 browser scenarios.
 
 ### Guardrails
 

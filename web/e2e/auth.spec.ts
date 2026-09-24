@@ -1,4 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
+import { setPasswordViaAdmin } from "./auth-rest";
+import { clearRecords, seedNote, seedRestaurant } from "./emulator-rest";
 
 const PASSWORD = "pilot-password-1";
 
@@ -7,6 +9,14 @@ async function signIn(page: Page, email: string) {
   await expect(page.getByTestId("signin-form")).toBeVisible();
   await page.getByTestId("signin-email").fill(email);
   await page.getByTestId("signin-password").fill(PASSWORD);
+  await page.getByTestId("signin-submit").click();
+}
+
+/** Fills the sign-in form already on screen. No navigation: a reload would hide a broken reset. */
+async function fillSignIn(page: Page, email: string, password = PASSWORD) {
+  await expect(page.getByTestId("signin-form")).toBeVisible();
+  await page.getByTestId("signin-email").fill(email);
+  await page.getByTestId("signin-password").fill(password);
   await page.getByTestId("signin-submit").click();
 }
 
@@ -61,4 +71,74 @@ test("switching accounts on the same device never shows the previous member's sh
   await signIn(page, "stranger@safebite.test");
   await expect(page.getByTestId("not-invited")).toBeVisible();
   await expect(page.getByTestId("nav-discover")).toHaveCount(0);
+});
+
+test("signing out in one tab resets every tab, and the next account never sees the previous household", async ({ page, request }) => {
+  await clearRecords(request);
+  await seedRestaurant(request, "r-tabs", { name: "Tab Test Bistro" });
+  await seedNote(request, "r-tabs", "n1", { text: "Tab test note" });
+
+  await signIn(page, "ava@safebite.test");
+  await expect(page.getByTestId("nav-discover")).toBeVisible();
+  const second = await page.context().newPage(); // same browser context: shared auth persistence
+  await page.goto("/restaurants/r-tabs");
+  await second.goto("/restaurants/r-tabs");
+  for (const p of [page, second]) {
+    await expect(p.getByTestId("restaurant-name")).toHaveText("Tab Test Bistro");
+    await expect(p.getByTestId("notes-section")).toContainText("Tab test note");
+    await p.evaluate(() => {
+      (window as unknown as { __beforeSignOut?: boolean }).__beforeSignOut = true;
+    });
+  }
+  // Every later document in the second tab records whether it ever renders the old household.
+  await second.addInitScript(() => {
+    const w = window as unknown as { __sawOldData?: boolean };
+    w.__sawOldData = false;
+    new MutationObserver(() => {
+      const text = document.body?.innerText ?? "";
+      if (text.includes("Tab Test Bistro") || text.includes("Tab test note")) w.__sawOldData = true;
+    }).observe(document, { childList: true, subtree: true, characterData: true });
+  });
+
+  await page.getByTestId("nav-settings").click();
+  await page.getByTestId("signout").click();
+
+  for (const p of [page, second]) {
+    await expect(p.getByTestId("signin-form")).toBeVisible();
+    // A new document: the marker set before sign-out is gone, so the tab really reloaded.
+    await expect.poll(() => p.evaluate(() => (window as unknown as { __beforeSignOut?: boolean }).__beforeSignOut ?? false)).toBe(false);
+  }
+
+  await fillSignIn(second, "stranger@safebite.test");
+  await expect(second.getByTestId("not-invited")).toBeVisible();
+  await expect(second.getByText("Tab Test Bistro")).toHaveCount(0);
+  expect(await second.evaluate(() => (window as unknown as { __sawOldData?: boolean }).__sawOldData)).toBe(false);
+  await second.close();
+});
+
+test("a member changes their password, stays signed in, and only the new password works afterwards", async ({ page, request }) => {
+  try {
+    await signIn(page, "bogdan@safebite.test");
+    await expect(page.getByTestId("nav-discover")).toBeVisible();
+    await page.getByTestId("nav-settings").click();
+
+    await page.getByTestId("pw-current").fill("not-my-password");
+    await page.getByTestId("pw-new").fill("changed-password-1");
+    await page.getByTestId("pw-confirm").fill("changed-password-1");
+    await page.getByTestId("pw-submit").click();
+    await expect(page.getByTestId("pw-outcome")).toHaveAttribute("data-kind", "wrongCurrent");
+
+    await page.getByTestId("pw-current").fill(PASSWORD);
+    await page.getByTestId("pw-submit").click();
+    await expect(page.getByTestId("pw-success")).toHaveText("Password changed");
+    await expect(page.getByTestId("nav-settings")).toBeVisible(); // same UID: no reset
+
+    await signOutAndWait(page);
+    await fillSignIn(page, "bogdan@safebite.test", PASSWORD);
+    await expect(page.getByTestId("signin-error")).toBeVisible();
+    await fillSignIn(page, "bogdan@safebite.test", "changed-password-1");
+    await expect(page.getByTestId("nav-discover")).toBeVisible();
+  } finally {
+    await setPasswordViaAdmin(request, "bogdan-uid", PASSWORD);
+  }
 });
