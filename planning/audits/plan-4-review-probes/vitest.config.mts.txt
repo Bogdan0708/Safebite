@@ -1,0 +1,6 @@
+import { defineConfig } from 'vitest/config';
+import react from '@vitejs/plugin-react';
+export default defineConfig({
+ root:'/home/godja/Dev/AvaGF/.claude/worktrees/pwa-04-collection/web', cacheDir:'/tmp/safebite-plan4-records-audit/cache', plugins:[react()], server:{fs:{allow:['/home/godja/Dev/AvaGF','/tmp/safebite-plan4-records-audit']}},
+ test:{environment:'jsdom',include:['/tmp/safebite-plan4-records-audit/*.test.tsx'],setupFiles:['/home/godja/Dev/AvaGF/.claude/worktrees/pwa-04-collection/web/src/test-setup.ts']}
+});

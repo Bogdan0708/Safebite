@@ -1,0 +1,16 @@
+i  emulators: Starting emulators: auth, firestore
+i  emulators: Detected demo project ID "demo-safebite", emulated services will use a demo configuration and attempts to access non-emulated services for this project will fail.
+i  firestore: Firestore Emulator logging to firestore-debug.log
+✔  firestore: Firestore Emulator was started in standard edition.
+✔  firestore: Firestore Emulator UI websocket is running on 9150.
+i  Running script: node functions/lib/seed-emulator.js && bash /tmp/safebite-plan4-run-probes.sh
+Emulator seeded: ava@safebite.test, bogdan@safebite.test (members), stranger@safebite.test (not a member). Discovery enabled with a cap of 50 searches/day.
+{"probe":"stale-visited-draft","initialVersion":1,"otherMemberSaved":"2026-05-10","staleDraftSaved":"2026-05-04T00:00:00Z","finalVersion":"3","conflictDisplayed":false}
+{"fault":"internal-error","updateCommitted":true,"injected":true,"outcomeText":"Couldn't change your password. Your old password still works.","oldAccepted":false,"newAccepted":true}
+{"fault":"network-loss","updateCommitted":true,"injected":true,"outcomeText":"You are offline. Connect and try again.","oldAccepted":false,"newAccepted":true}
+✔  Script exited successfully (code 0)
+i  emulators: Shutting down emulators.
+i  firestore: Stopping Firestore Emulator
+i  auth: Stopping Authentication Emulator
+i  hub: Stopping emulator hub
+i  logging: Stopping Logging Emulator

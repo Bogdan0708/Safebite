@@ -1,0 +1,95 @@
+
+ RUN  v5.0.1 /home/godja/Dev/AvaGF/.claude/worktrees/pwa-04-collection/web
+
+stdout | ../../../../../../../../tmp/safebite-plan4-records-audit/drafts.test.tsx > visited date draft must keep the version the member started editing
+AUDIT stale visit save arguments [
+  'home',
+  'r1',
+  { uid: 'ava-uid', displayName: 'Ava' },
+  4,
+  '2026-09-02'
+]
+
+stdout | ../../../../../../../../tmp/safebite-plan4-records-audit/drafts.test.tsx > successful add must not erase text typed after submitting the earlier draft
+AUDIT submitted note [ 'home', 'r1', { uid: 'ava-uid', displayName: 'Ava' }, 'First note' ] remaining input 
+
+stdout | ../../../../../../../../tmp/safebite-plan4-records-audit/drafts.test.tsx > successful edit must not hide text typed while the earlier save was pending
+AUDIT submitted edit [ 'home', 'r1', 'n1', 1, 'Saved revision' ] remaining editor null
+
+ ❯ ../../../../../../../../tmp/safebite-plan4-records-audit/drafts.test.tsx (3 tests | 3 failed) 746ms
+   × visited date draft must keep the version the member started editing 321ms
+   × successful add must not erase text typed after submitting the earlier draft 214ms
+   × successful edit must not hide text typed while the earlier save was pending 208ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  ../../../../../../../../tmp/safebite-plan4-records-audit/drafts.test.tsx > visited date draft must keep the version the member started editing
+AssertionError: expected "vi.fn()" to be called with arguments: [ 'home', 'r1', …(3) ]
+
+Received:
+
+  1st vi.fn() call:
+
+@@ -3,8 +3,8 @@
+    "r1",
+    {
+      "displayName": "Ava",
+      "uid": "ava-uid",
+    },
+-   3,
++   4,
+    "2026-09-02",
+  ]
+
+
+Number of calls: 1
+
+ ❯ ../../../../../../../../tmp/safebite-plan4-records-audit/drafts.test.tsx:22:23
+     20|  await userEvent.click(screen.getByTestId('visited-save'));
+     21|  console.log('AUDIT stale visit save arguments',m.setVisited.mock.call…
+     22|  expect(m.setVisited).toHaveBeenCalledWith('home','r1',author,3,'2026-…
+       |                       ^
+     23| });
+     24| it('successful add must not erase text typed after submitting the earl…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+ FAIL  ../../../../../../../../tmp/safebite-plan4-records-audit/drafts.test.tsx > successful add must not erase text typed after submitting the earlier draft
+Error: expect(element).toHaveValue(First note plus unsaved follow-up)
+
+Expected the element to have value:
+  First note plus unsaved follow-up
+Received:
+
+ ❯ ../../../../../../../../tmp/safebite-plan4-records-audit/drafts.test.tsx:34:46
+     32|  await act(async()=>finish({kind:'ok',value:'new-note'}));
+     33|  console.log('AUDIT submitted note',m.addNote.mock.calls[0],'remaining…
+     34|  expect(screen.getByTestId('note-add-text')).toHaveValue('First note p…
+       |                                              ^
+     35| });
+     36| it('successful edit must not hide text typed while the earlier save wa…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+ FAIL  ../../../../../../../../tmp/safebite-plan4-records-audit/drafts.test.tsx > successful edit must not hide text typed while the earlier save was pending
+Error: expect(received).toHaveValue()
+
+received value must be an HTMLElement or an SVGElement.
+Received has type:  Null
+Received has value: null
+ ❯ ../../../../../../../../tmp/safebite-plan4-records-audit/drafts.test.tsx:49:52
+     47|  await act(async()=>finish({kind:'ok',value:2}));
+     48|  console.log('AUDIT submitted edit',m.updateNote.mock.calls[0],'remain…
+     49|  expect(screen.queryByTestId('note-edit-text-n1')).toHaveValue('Saved …
+       |                                                    ^
+     50| });
+     51|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/3]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  3 failed (3)
+   Start at  21:21:36
+   Duration  2.63s (environment 41%, tests 30%, import 11%, transform 11%, setup 7%)
+
