@@ -1032,20 +1032,26 @@ service-worker precache holds only the app shell.
 confirmation. Client validation: at least 8 characters, and the confirmation matches. This is a client
 rule only: the pilot project has no server password policy (verified 2026-09-24), and one could
 be added later. Sequence: `reauthenticateWithCredential`. If it fails, stop and **never** call
-`updatePassword`. Otherwise call `updatePassword`. Messages:
+`updatePassword`. Otherwise call `updatePassword`. Each row applies only in the phase where its
+outcome is definitive. Messages:
 
 | Condition | Message |
 |---|---|
-| wrong current password (`auth/invalid-credential`, `auth/wrong-password`) | "That isn't your current password." |
-| `auth/too-many-requests` | "Too many attempts. Wait a few minutes and try again." |
-| `auth/network-request-failed` or offline | the standard offline message |
-| server policy rejects the new password (`auth/weak-password`, `auth/password-does-not-meet-requirements`) | "Your new password doesn't meet this account's password rules. Choose a different one." |
-| `auth/requires-recent-login` | "For security, sign out and back in, then try again." |
-| anything else | "Couldn't change your password. Your old password still works." |
+| reauthentication: wrong current password (`auth/invalid-credential`, `auth/wrong-password`) | "That isn't your current password." |
+| reauthentication: `auth/too-many-requests` | "Too many attempts. Wait a few minutes and try again." |
+| reauthentication: `auth/network-request-failed`, or offline before starting | the standard offline message |
+| update: server policy rejects the new password (`auth/weak-password`, `auth/password-does-not-meet-requirements`) | "Your new password doesn't meet this account's password rules. Choose a different one." |
+| update: `auth/requires-recent-login` | "For security, sign out and back in, then try again." |
+| any other failure after the update request was sent (including `auth/network-request-failed`, `auth/too-many-requests` and unknown errors) | "We couldn't confirm whether your password changed. Sign out, then sign in with your new password; if that doesn't work, use your old one." |
+| any other failure before the update request | "Couldn't change your password. Your old password still works." |
+
+The Firebase SDK performs an account lookup after the update succeeds, so a later failure does not
+prove the password is unchanged (implementation audit F3, 2026-09-24).
 
 "Password changed" appears only after `updatePassword` resolves. After any failure the form stays
 usable and submit is re-enabled. A wrong current password clears only that field. A policy rejection
-clears the two new-password fields. Offline and unknown errors keep every field. The member stays
+clears the two new-password fields. The uncertain outcome clears all three fields, because the
+current password may no longer be current. Offline and other errors keep every field. The member stays
 signed in on success (same UID, so no reset). No email reset (it needs templates and a trusted domain).
 A forgotten password is reset via the Admin API.
 

@@ -60,13 +60,20 @@ describe("changePassword", () => {
     ["auth/weak-password", "policy"],
     ["auth/password-does-not-meet-requirements", "policy"],
     ["auth/requires-recent-login", "recentLogin"],
-    ["auth/too-many-requests", "tooManyRequests"],
-    ["auth/network-request-failed", "offline"],
-    ["something/unexpected", "failed"],
-  ])("a rejected update (%s) is %s", async (code, result) => {
+  ])("a definitive update rejection (%s) is %s", async (code, result) => {
     f.updatePassword.mockRejectedValue(err(code));
     expect(await changePassword("old-password", "new-password")).toBe(result);
   });
+
+  // The SDK looks the account up after the update request succeeds, so any other failure in this
+  // phase cannot prove the password is unchanged (audit F3).
+  it.each(["auth/network-request-failed", "auth/too-many-requests", "auth/internal-error", "something/unexpected"])(
+    "any other update-phase failure (%s) is uncertain",
+    async (code) => {
+      f.updatePassword.mockRejectedValue(err(code));
+      expect(await changePassword("old-password", "new-password")).toBe("uncertain");
+    },
+  );
 
   it("is offline without calling Firebase when the browser is offline, and failed without a signed-in email", async () => {
     Object.defineProperty(navigator, "onLine", { configurable: true, value: false });
@@ -85,6 +92,7 @@ describe("changePassword", () => {
       policy: "Your new password doesn't meet this account's password rules. Choose a different one.",
       recentLogin: "For security, sign out and back in, then try again.",
       failed: "Couldn't change your password. Your old password still works.",
+      uncertain: "We couldn't confirm whether your password changed. Sign out, then sign in with your new password; if that doesn't work, use your old one.",
     });
   });
 });

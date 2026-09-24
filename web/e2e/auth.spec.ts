@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { setPasswordViaAdmin } from "./auth-rest";
+import { passwordAccepted, setPasswordViaAdmin } from "./auth-rest";
 import { clearRecords, seedNote, seedRestaurant } from "./emulator-rest";
 
 const PASSWORD = "pilot-password-1";
@@ -142,3 +142,50 @@ test("a member changes their password, stays signed in, and only the new passwor
     await setPasswordViaAdmin(request, "bogdan-uid", PASSWORD);
   }
 });
+
+// The Firebase SDK looks the account up after `accounts:update` succeeds. A failure there rejects
+// updatePassword although the password already changed, so the page must not promise that the old
+// one still works (audit F3). The real emulator commits the update; only the lookup after it fails.
+for (const fault of ["an internal error", "a lost connection"] as const) {
+  test(`a password change that fails after the update request (${fault}) says the outcome is uncertain`, async ({ page, request }) => {
+    const NEXT = "uncertain-password-1";
+    try {
+      await signIn(page, "bogdan@safebite.test");
+      await expect(page.getByTestId("nav-discover")).toBeVisible();
+      await page.getByTestId("nav-settings").click();
+
+      let updateCommitted = false;
+      let injected = false;
+      await page.route(/127\.0\.0\.1:9099\/identitytoolkit\.googleapis\.com\/v1\/accounts:(update|lookup)\?/, async (route) => {
+        const operation = new URL(route.request().url()).pathname.split(":").at(-1);
+        if (operation === "update" && (route.request().postDataJSON() as { password?: string } | null)?.password === NEXT) {
+          const response = await route.fetch();
+          updateCommitted = response.ok();
+          await route.fulfill({ response });
+        } else if (operation === "lookup" && updateCommitted && !injected) {
+          injected = true;
+          if (fault === "a lost connection") await route.abort("failed");
+          else await route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ error: { code: 500, message: "INTERNAL_ERROR" } }) });
+        } else {
+          await route.continue();
+        }
+      });
+
+      await page.getByTestId("pw-current").fill(PASSWORD);
+      await page.getByTestId("pw-new").fill(NEXT);
+      await page.getByTestId("pw-confirm").fill(NEXT);
+      await page.getByTestId("pw-submit").click();
+
+      await expect(page.getByTestId("pw-outcome")).toHaveAttribute("data-kind", "uncertain");
+      await expect(page.getByTestId("pw-outcome")).toHaveText("We couldn't confirm whether your password changed. Sign out, then sign in with your new password; if that doesn't work, use your old one.");
+      await expect(page.getByTestId("pw-success")).toHaveCount(0);
+      await expect(page.getByTestId("pw-current")).toHaveValue("");
+      expect(updateCommitted).toBe(true);
+      expect(injected).toBe(true);
+      expect(await passwordAccepted(request, "bogdan@safebite.test", NEXT)).toBe(true);
+      expect(await passwordAccepted(request, "bogdan@safebite.test", PASSWORD)).toBe(false);
+    } finally {
+      await setPasswordViaAdmin(request, "bogdan-uid", PASSWORD);
+    }
+  });
+}

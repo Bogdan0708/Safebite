@@ -77,4 +77,16 @@ describe("ChangePasswordForm", () => {
     expect(screen.getByTestId("pw-outcome")).toHaveTextContent("Couldn't change your password. Your old password still works.");
     expect(screen.getByTestId("pw-new")).toHaveValue("another-password");
   });
+
+  it("an uncertain outcome clears every field, explains how to recover, and never claims success", async () => {
+    changePassword.mockResolvedValue("uncertain");
+    render(<ChangePasswordForm />);
+    await fill("old-password", "new-password");
+    await waitFor(() => expect(screen.getByTestId("pw-outcome")).toHaveAttribute("data-kind", "uncertain"));
+    expect(screen.getByTestId("pw-outcome")).toHaveTextContent("We couldn't confirm whether your password changed. Sign out, then sign in with your new password; if that doesn't work, use your old one.");
+    expect(screen.getByTestId("pw-current")).toHaveValue("");
+    expect(screen.getByTestId("pw-new")).toHaveValue("");
+    expect(screen.getByTestId("pw-confirm")).toHaveValue("");
+    expect(screen.queryByTestId("pw-success")).toBeNull();
+  });
 });

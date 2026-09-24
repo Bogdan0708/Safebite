@@ -32,6 +32,12 @@ export function ChangePasswordForm() {
       return;
     }
     if (result === "wrongCurrent") setCurrent("");
+    // The update may have gone through, so the current password may no longer be current.
+    if (result === "uncertain") {
+      setCurrent("");
+      setNext("");
+      setConfirm("");
+    }
     if (result === "policy") {
       setNext("");
       setConfirm("");
