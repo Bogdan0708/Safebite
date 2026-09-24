@@ -74,6 +74,17 @@ describe("StatusBlock", () => {
     expect(m.setShortlisted).toHaveBeenCalledTimes(1);
   });
 
+  it("a conflicted date save closes the editor so the current visited state is shown again", async () => {
+    m.setVisited.mockResolvedValue({ kind: "conflict" });
+    renderBlock({ status: "ready", value: st({ visited: true, visitedOn: "2026-05-03" }) });
+    await userEvent.click(screen.getByTestId("visited-change"));
+    expect(screen.getByTestId("visited-date")).toBeInTheDocument();
+    await userEvent.click(screen.getByTestId("visited-save"));
+    await waitFor(() => expect(screen.getByTestId("status-outcome")).toHaveAttribute("data-kind", "conflict"));
+    expect(screen.queryByTestId("visited-date")).toBeNull();
+    expect(screen.getByTestId("visited-state")).toHaveTextContent("Visited 3 May 2026");
+  });
+
   it.each([
     ["cached", { status: "offline", value: null } as const, false],
     ["from a page that is offline", { status: "ready", value: null } as const, true],

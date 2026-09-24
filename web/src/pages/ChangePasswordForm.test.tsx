@@ -28,6 +28,15 @@ describe("ChangePasswordForm", () => {
     expect(changePassword).not.toHaveBeenCalled();
   });
 
+  it("requires the current password before checking the new one", async () => {
+    render(<ChangePasswordForm />);
+    await userEvent.type(screen.getByTestId("pw-new"), "short");
+    await userEvent.type(screen.getByTestId("pw-confirm"), "short");
+    await userEvent.click(screen.getByTestId("pw-submit"));
+    expect(screen.getByTestId("pw-error")).toHaveTextContent("Enter your current password.");
+    expect(changePassword).not.toHaveBeenCalled();
+  });
+
   it("shows success only after the change resolves, and clears the fields", async () => {
     let resolve!: (v: string) => void;
     changePassword.mockReturnValue(new Promise((r) => (resolve = r)));

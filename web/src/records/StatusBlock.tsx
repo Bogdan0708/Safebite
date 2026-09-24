@@ -58,7 +58,10 @@ export function StatusBlock({ householdId, rid, author, state, disabled, onRetry
     const problem = validateVisitedOn(editingDate, today);
     setDateError(problem);
     if (problem) return;
-    if (await run(() => setVisited(householdId, rid, author, base, editingDate))) setEditingDate(null);
+    // Close the editor on any outcome, ok or not: the current state is always shown, per the
+    // status-outcome message below (a conflict or other failure must not hide it behind the editor).
+    await run(() => setVisited(householdId, rid, author, base, editingDate));
+    setEditingDate(null);
   }
 
   return (

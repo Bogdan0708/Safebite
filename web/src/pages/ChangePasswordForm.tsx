@@ -14,6 +14,10 @@ export function ChangePasswordForm() {
     event.preventDefault();
     setSuccess(false);
     setOutcome(null);
+    if (!current) {
+      setError("Enter your current password.");
+      return;
+    }
     const problem = validateNewPassword(next, confirm);
     setError(problem);
     if (problem) return;
