@@ -23,6 +23,15 @@ export function deleteProgressText(step: DeleteStep): string {
   return DELETE_PROGRESS[step];
 }
 
+/** Shortlist/visited writes: there is no draft to reload, the live state is already on screen. */
+export function statusOutcomeMessage(kind: WriteOutcome["kind"]): string {
+  switch (kind) {
+    case "conflict": return "Someone else changed this at the same moment. The current state is shown; try again if you still want the change.";
+    case "notFound": return "This restaurant was deleted.";
+    default: return outcomeMessage(kind, "This change");
+  }
+}
+
 /** The Saved page's "Finish deleting" outcomes (the parked Plan 2b resume wording). */
 export function finishOutcomeText(kind: WriteOutcome["kind"]): string {
   switch (kind) {
