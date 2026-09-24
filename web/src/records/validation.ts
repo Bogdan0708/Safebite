@@ -2,7 +2,7 @@ import { compareCalendarDates, isCalendarDate } from "./dates";
 import { CLAIM_KINDS, CLAIM_VALUES, SOURCE_TYPES, type CalendarDate, type ClaimInput, type RestaurantInput } from "./types";
 
 /** Identical to the limits in firestore.rules (validRestaurant / validClaim / validSource). */
-export const LIMITS = { name: 120, address: 300, phone: 40, website: 300, detail: 1000, sourceLabel: 200, sourceUrl: 500, googlePlaceId: 200 } as const;
+export const LIMITS = { name: 120, address: 300, phone: 40, website: 300, detail: 1000, sourceLabel: 200, sourceUrl: 500, googlePlaceId: 200, note: 2000 } as const;
 
 export type FieldErrors<F extends string> = Partial<Record<F, string>>;
 export type RestaurantField = "name" | "address" | "phone" | "website";
