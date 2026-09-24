@@ -104,7 +104,10 @@ const NEW_STEPS: Array<(db: Db, rid: string) => Promise<void>> = [
   (db, rid) =>
     runTransaction(db, async (tx) => {
       const r = await tx.get(doc(db, `${R}/${rid}`));
-      if (!r.exists() || r.get("cleanupDone") === true) return;
+      if (!r.exists()) return;
+      // Mirrors web/src/records/repository.ts markCleanupDone: never mark a live restaurant.
+      if (r.get("deleting") !== true) throw new Error("notFound");
+      if (r.get("cleanupDone") === true) return;
       tx.update(r.ref, { cleanupDone: true, version: (r.get("version") as number) + 1, updatedAt: serverTimestamp() });
     }),
   (db, rid) =>

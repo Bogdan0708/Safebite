@@ -218,6 +218,7 @@ npm --prefix web run icons            # re-render the PNG icon set from web/asse
 ### Guardrails
 
 - Local work targets the emulator-only project `demo-safebite`. Nothing here deploys.
+- Deploy order (spec §3.7): Firestore rules and functions first, then hosting; the deletion completion gate protects older cached clients.
 - Membership (`users/{uid}`, `households/{hid}`) is written only with the Admin SDK; there is no sign-up.
 - Never reuse the legacy seed data from git history; its safety claims were invented.
 - `npm --prefix web run build` (used by `firebase deploy`) refuses missing, blank, demo-, or legacy-project Firebase values; the resulting bundle also refuses to start against them.
