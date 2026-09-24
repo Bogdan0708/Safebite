@@ -128,10 +128,13 @@ test("a member changes their password, stays signed in, and only the new passwor
     await page.getByTestId("pw-submit").click();
     await expect(page.getByTestId("pw-outcome")).toHaveAttribute("data-kind", "wrongCurrent");
 
+    // A marker on the window survives only if the document is never reloaded.
+    await page.evaluate(() => { (window as unknown as { __beforePwChange?: boolean }).__beforePwChange = true; });
     await page.getByTestId("pw-current").fill(PASSWORD);
     await page.getByTestId("pw-submit").click();
     await expect(page.getByTestId("pw-success")).toHaveText("Password changed");
     await expect(page.getByTestId("nav-settings")).toBeVisible(); // same UID: no reset
+    expect(await page.evaluate(() => (window as unknown as { __beforePwChange?: boolean }).__beforePwChange)).toBe(true);
 
     await signOutAndWait(page);
     await fillSignIn(page, "bogdan@safebite.test", PASSWORD);
