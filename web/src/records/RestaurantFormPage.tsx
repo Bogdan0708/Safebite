@@ -2,8 +2,8 @@ import { useState, type SubmitEvent } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router";
 import type { RestaurantPrefill } from "../discover/DiscoverPage";
 import { placeIdUrl } from "../discover/links";
-import { outcomeMessage } from "./messages";
-import { createRestaurant, deleteRestaurant, updateRestaurant, watchRestaurant, watchRestaurants, type DeleteStep, type WriteOutcome } from "./repository";
+import { deleteProgressText, outcomeMessage } from "./messages";
+import { createRestaurant, deleteRestaurant, updateRestaurant, watchRestaurant, watchRestaurants, type WriteOutcome } from "./repository";
 import { ReadStateNotice } from "./ReadStateNotice";
 import type { Restaurant, RestaurantInput } from "./types";
 import { useMember } from "./useMember";
@@ -11,7 +11,6 @@ import { useWatch } from "./useWatch";
 import { LIMITS, normaliseRestaurantInput, validateRestaurantInput, type FieldErrors, type RawRestaurantForm, type RestaurantField } from "./validation";
 
 const EMPTY: RawRestaurantForm = { name: "", address: "", phone: "", website: "" };
-const STEP_TEXT: Record<DeleteStep, string> = { marking: "Marking…", sweeping: "Removing evidence…", removing: "Removing restaurant…" };
 
 function toForm(r: Restaurant): RawRestaurantForm {
   return { name: r.name, address: r.address, phone: r.phone ?? "", website: r.website ?? "" };
@@ -115,7 +114,7 @@ export function RestaurantFormPage({ mode }: { mode: "create" | "edit" }) {
   async function onDelete() {
     if (!draft || !rid) return;
     setBusy(true);
-    const result = await deleteRestaurant(householdId, rid, draft.baseVersion, (step) => setDeleteProgress(STEP_TEXT[step]));
+    const result = await deleteRestaurant(householdId, rid, draft.baseVersion, (step) => setDeleteProgress(deleteProgressText(step)));
     setBusy(false);
     if (result.kind === "ok") {
       void navigate("/restaurants");

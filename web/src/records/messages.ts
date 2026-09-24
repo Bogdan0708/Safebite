@@ -1,4 +1,4 @@
-import type { WriteOutcome } from "./repository";
+import type { DeleteStep, WriteOutcome } from "./repository";
 
 /** One message per outcome kind; only `conflict` invites a reload (spec §3.5, audit F2). */
 export function outcomeMessage(kind: WriteOutcome["kind"], what: string, verb: "save" | "delete" = "save"): string {
@@ -10,4 +10,15 @@ export function outcomeMessage(kind: WriteOutcome["kind"], what: string, verb: "
     case "offline": return "You are offline. Connect and try again.";
     case "failed": return verb === "delete" ? `Could not delete ${what.toLowerCase()}. Try again.` : `Could not save ${what.toLowerCase()}. Try again.`;
   }
+}
+
+const DELETE_PROGRESS: Record<DeleteStep, string> = {
+  marking: "Marking…",
+  sweeping: "Removing evidence…",
+  sweepingNotes: "Removing notes…",
+  removing: "Removing restaurant…",
+};
+
+export function deleteProgressText(step: DeleteStep): string {
+  return DELETE_PROGRESS[step];
 }

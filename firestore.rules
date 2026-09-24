@@ -45,7 +45,7 @@ service cloud.firestore {
     }
 
     function validRestaurant(data) {
-      return data.keys().hasOnly(['name', 'address', 'phone', 'website', 'lat', 'lng', 'googlePlaceId', 'createdBy', 'createdAt', 'updatedAt', 'version', 'deleting'])
+      return data.keys().hasOnly(['name', 'address', 'phone', 'website', 'lat', 'lng', 'googlePlaceId', 'createdBy', 'createdAt', 'updatedAt', 'version', 'deleting', 'cleanupDone'])
         && data.keys().hasAll(['name', 'address', 'createdBy', 'createdAt', 'updatedAt', 'version', 'deleting'])
         && nonBlankString(data.name, 120)
         && nonBlankString(data.address, 300)
@@ -57,13 +57,24 @@ service cloud.firestore {
         && data.createdAt is timestamp
         && data.updatedAt is timestamp
         && data.version is int
-        && data.deleting is bool;
+        && data.deleting is bool
+        && (!('cleanupDone' in data) || data.cleanupDone is bool);
     }
 
     // Deletion protocol step 1 (spec §3.5): the mark changes only these keys.
     function isMarkingDeleting() {
       return request.resource.data.deleting == true
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['deleting', 'version', 'updatedAt']);
+    }
+
+    // Deletion protocol, completion gate (spec §3.7, audit F1): set only after the client's claim
+    // and note sweeps returned empty from the server and the collection document is gone. Nothing
+    // can be created under a marked restaurant, so the flag cannot go stale.
+    function isMarkingCleanupDone() {
+      return resource.data.deleting == true
+        && resource.data.get('cleanupDone', false) == false
+        && request.resource.data.get('cleanupDone', false) == true
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['cleanupDone', 'version', 'updatedAt']);
     }
 
     // Calendar dates are timestamps at 00:00:00 UTC (spec §3.5, audit F3).
@@ -114,6 +125,7 @@ service cloud.firestore {
 
         allow create: if isMember(hid)
           && validRestaurant(request.resource.data)
+          && !('cleanupDone' in request.resource.data)
           && request.resource.data.createdBy == request.auth.uid
           && request.resource.data.version == 1
           && request.resource.data.deleting == false
@@ -121,18 +133,24 @@ service cloud.firestore {
           && request.resource.data.updatedAt == request.time;
 
         // Optimistic concurrency: exactly the next version, server-stamped. Once deleting is true
-        // nothing may change until the document is removed (so a claim sweep cannot be undercut).
+        // the only permitted change is marking cleanup done (so a claim sweep cannot be undercut).
         allow update: if isMember(hid)
           && validRestaurant(request.resource.data)
-          && resource.data.deleting == false
           && request.resource.data.createdBy == resource.data.createdBy
           && request.resource.data.createdAt == resource.data.createdAt
           && request.resource.data.updatedAt == request.time
           && request.resource.data.version == resource.data.version + 1
-          && (request.resource.data.deleting == false || isMarkingDeleting());
+          && ((resource.data.deleting == false
+                && !('cleanupDone' in request.resource.data)
+                && (request.resource.data.deleting == false || isMarkingDeleting()))
+              || isMarkingCleanupDone());
 
-        // Step 3 of the protocol: only a marked restaurant can go.
-        allow delete: if isMember(hid) && resource.data.deleting == true;
+        // Final step: only a marked restaurant whose cleanup is done and whose collection
+        // document is gone. A client that skips the note/state sweep cannot pass this.
+        allow delete: if isMember(hid)
+          && resource.data.deleting == true
+          && resource.data.get('cleanupDone', false) == true
+          && !exists(/databases/$(database)/documents/households/$(hid)/collection/$(rid));
 
         match /claims/{cid} {
           function parentRestaurant() {

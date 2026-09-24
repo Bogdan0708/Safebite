@@ -1,12 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router";
-import { finishDeleting, watchRestaurants, type DeleteStep } from "./repository";
+import { deleteProgressText } from "./messages";
+import { finishDeleting, watchRestaurants } from "./repository";
 import { ReadStateNotice } from "./ReadStateNotice";
 import type { Restaurant } from "./types";
 import { useMember } from "./useMember";
 import { useWatch } from "./useWatch";
-
-const STEP_TEXT: Record<DeleteStep, string> = { marking: "Marking…", sweeping: "Removing evidence…", removing: "Removing restaurant…" };
 
 function outcomeText(kind: string): string {
   switch (kind) {
@@ -26,8 +25,8 @@ export function RestaurantsPage() {
   const rows = state.status === "ready" || state.status === "offline" ? state.value : [];
 
   async function finish(rid: string) {
-    setProgress((p) => ({ ...p, [rid]: STEP_TEXT.sweeping }));
-    const outcome = await finishDeleting(householdId, rid, (step) => setProgress((p) => ({ ...p, [rid]: STEP_TEXT[step] })));
+    setProgress((p) => ({ ...p, [rid]: deleteProgressText("sweeping") }));
+    const outcome = await finishDeleting(householdId, rid, (step) => setProgress((p) => ({ ...p, [rid]: deleteProgressText(step) })));
     if (outcome.kind !== "ok") setProgress((p) => ({ ...p, [rid]: outcomeText(outcome.kind) }));
   }
 
