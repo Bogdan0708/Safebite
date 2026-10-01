@@ -25,5 +25,6 @@ describe("firestore.rules mentions every TypeScript literal", () => {
     expect(rules).toContain(`data.detail.size() <= ${LIMITS.detail}`);
     expect(rules).toContain(`nonBlankString(s.label, ${LIMITS.sourceLabel})`);
     expect(rules).toContain(`optionalHttpUrl(s, 'url', ${LIMITS.sourceUrl})`);
+    expect(rules).toContain(`nonBlankString(request.resource.data.text, ${LIMITS.note})`);
   });
 });

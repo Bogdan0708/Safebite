@@ -6,6 +6,8 @@ const { listeners, unsubscribes, getDocMock } = vi.hoisted(() => ({
   unsubscribes: [] as Array<ReturnType<typeof vi.fn>>,
   getDocMock: vi.fn(),
 }));
+const { resetDocument } = vi.hoisted(() => ({ resetDocument: vi.fn() }));
+vi.mock("./resetDocument", () => ({ resetDocument }));
 
 vi.mock("../firebase", () => ({ auth: {}, db: {}, functions: {}, usingEmulators: true }));
 vi.mock("firebase/auth", () => ({
@@ -45,6 +47,7 @@ beforeEach(() => {
   listeners.length = 0;
   unsubscribes.length = 0;
   getDocMock.mockReset();
+  resetDocument.mockReset();
 });
 
 describe("AuthProvider", () => {
@@ -93,7 +96,7 @@ describe("AuthProvider", () => {
     await waitFor(() => expect(screen.getByTestId("state")).toHaveTextContent('"status":"error"'));
   });
 
-  it("ignores a slow membership lookup that finishes after the user signed out", async () => {
+  it("a sign-out after a sign-in resets the document and a slow lookup never lands", async () => {
     const slowUserDoc = deferred<ReturnType<typeof snap>>();
     getDocMock.mockImplementation((path: string) => {
       if (path === "users/ava-uid") return slowUserDoc.promise;
@@ -102,30 +105,58 @@ describe("AuthProvider", () => {
     });
     render(<AuthProvider><Probe /></AuthProvider>);
     listeners[0]({ uid: "ava-uid", email: "ava@safebite.test" });
-    expect(screen.getByTestId("state")).toHaveTextContent('"loading"');
     listeners[0](null);
-    await waitFor(() => expect(screen.getByTestId("state")).toHaveTextContent('"signedOut"'));
+    await waitFor(() => expect(screen.getByTestId("state")).toHaveTextContent('"resetting"'));
+    expect(resetDocument).toHaveBeenCalledTimes(1);
     slowUserDoc.resolve(snap({ householdId: "home", displayName: "Ava" }));
     await new Promise((r) => setTimeout(r, 20));
-    expect(screen.getByTestId("state")).toHaveTextContent('"signedOut"');
-    expect(screen.getByTestId("state")).not.toHaveTextContent('"member"');
+    expect(screen.getByTestId("state")).toHaveTextContent('"resetting"');
   });
 
-  it("never lets an earlier user's lookup overwrite a later user's state", async () => {
+  it("a different user in the same document resets it; the earlier lookup never lands", async () => {
     const slowUserDoc = deferred<ReturnType<typeof snap>>();
     getDocMock.mockImplementation((path: string) => {
       if (path === "users/slow-uid") return slowUserDoc.promise;
-      if (path === "users/fast-uid") return Promise.resolve(snap({ householdId: "home", displayName: "Fast" }));
-      if (path === "households/home") return Promise.resolve(snap({ name: "Home", memberIds: ["fast-uid", "slow-uid"] }));
       return Promise.resolve(snap(undefined));
     });
     render(<AuthProvider><Probe /></AuthProvider>);
     listeners[0]({ uid: "slow-uid", email: "slow@safebite.test" });
     listeners[0]({ uid: "fast-uid", email: "fast@safebite.test" });
-    await waitFor(() => expect(screen.getByTestId("state")).toHaveTextContent('"displayName":"Fast"'));
+    await waitFor(() => expect(screen.getByTestId("state")).toHaveTextContent('"resetting"'));
+    expect(resetDocument).toHaveBeenCalledTimes(1);
     slowUserDoc.resolve(snap({ householdId: "home", displayName: "Slow" }));
     await new Promise((r) => setTimeout(r, 20));
-    expect(screen.getByTestId("state")).toHaveTextContent('"displayName":"Fast"');
+    expect(screen.getByTestId("state")).toHaveTextContent('"resetting"');
+  });
+
+  it("never resets a document that starts signed out, then signs in", async () => {
+    getDocMock.mockResolvedValue(snap(undefined));
+    render(<AuthProvider><Probe /></AuthProvider>);
+    listeners[0](null);
+    listeners[0]({ uid: "ava-uid", email: "ava@safebite.test" });
+    await waitFor(() => expect(screen.getByTestId("state")).toHaveTextContent('"notMember"'));
+    expect(resetDocument).not.toHaveBeenCalled();
+  });
+
+  it("never resets on a repeated callback for the same user", async () => {
+    getDocMock.mockResolvedValue(snap(undefined));
+    render(<AuthProvider><Probe /></AuthProvider>);
+    listeners[0]({ uid: "ava-uid", email: "ava@safebite.test" });
+    listeners[0]({ uid: "ava-uid", email: "ava@safebite.test" });
+    await waitFor(() => expect(screen.getByTestId("state")).toHaveTextContent('"notMember"'));
+    expect(resetDocument).not.toHaveBeenCalled();
+  });
+
+  it("signOut only signs out; the reset comes from the listener", async () => {
+    const { signOut: firebaseSignOut } = await import("firebase/auth");
+    function SignOutButton() {
+      const { signOut } = useAuth();
+      return <button type="button" onClick={() => void signOut()}>out</button>;
+    }
+    render(<AuthProvider><SignOutButton /></AuthProvider>);
+    screen.getByText("out").click();
+    await waitFor(() => expect(firebaseSignOut).toHaveBeenCalledTimes(1));
+    expect(resetDocument).not.toHaveBeenCalled();
   });
 
   it("unsubscribes from auth state changes on unmount", () => {

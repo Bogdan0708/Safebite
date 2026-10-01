@@ -1,0 +1,573 @@
+
+> emu:e2e:stress
+> node tooling/ensure-secret-local.mjs && npm --prefix functions run build && FUNCTIONS_DISCOVERY_TIMEOUT=90 firebase emulators:exec --only auth,firestore,functions --project demo-safebite "node functions/lib/seed-emulator.js && npm --prefix web run e2e -- --repeat-each=3 --retries=0"
+
+[safebite] functions/.secret.local present; leaving it alone.
+
+> safebite-functions@0.1.0 build
+> tsc
+
+i  emulators: Starting emulators: auth, functions, firestore
+i  emulators: Detected demo project ID "demo-safebite", emulated services will use a demo configuration and attempts to access non-emulated services for this project will fail.
+⚠  functions: Application Default Credentials detected. Non-emulated services will access production using these credentials. Be careful!
+i  firestore: Firestore Emulator logging to firestore-debug.log
+✔  firestore: Firestore Emulator was started in standard edition.
+✔  firestore: Firestore Emulator UI websocket is running on 9150.
+i  functions: Watching "/home/godja/Dev/AvaGF/.claude/worktrees/pwa-04-collection/functions" for Cloud Functions...
+✔  functions: Using node@22 from host.
+Serving at port 8245
+
+✔  functions: Loaded functions definitions from source: whoami, searchDestination, searchNearby.
+✔  functions[europe-west2-whoami]: http function initialized (http://127.0.0.1:5001/demo-safebite/europe-west2/whoami).
+✔  functions[europe-west2-searchDestination]: http function initialized (http://127.0.0.1:5001/demo-safebite/europe-west2/searchDestination).
+✔  functions[europe-west2-searchNearby]: http function initialized (http://127.0.0.1:5001/demo-safebite/europe-west2/searchNearby).
+i  Running script: node functions/lib/seed-emulator.js && npm --prefix web run e2e -- --repeat-each=3 --retries=0
+Emulator seeded: ava@safebite.test, bogdan@safebite.test (members), stranger@safebite.test (not a member). Discovery enabled with a cap of 50 searches/day.
+
+> web@0.0.0 e2e
+> playwright test --repeat-each=3 --retries=0
+
+[WebServer] (node:2076545) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+i  functions: Beginning execution of "europe-west2-whoami"
+>  {"verifications":{"app":"MISSING","auth":"MISSING"},"logging.googleapis.com/labels":{"firebase-log-type":"callable-request-verification"},"severity":"DEBUG","message":"Callable request verification passed"}
+i  functions: Finished "europe-west2-whoami" in 17.403548ms
+
+Running 114 tests using 1 worker
+
+(node:2076651) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓    1 [mobile-chromium] › e2e/auth.spec.ts:30:1 › signed-out visitor sees the sign-in form and nothing else (2.1s)
+  ✓    2 [mobile-chromium] › e2e/auth.spec.ts:36:1 › wrong password shows an error and stays signed out (1.7s)
+i  functions: Beginning execution of "europe-west2-whoami"
+i  functions: Finished "europe-west2-whoami" in 18.037359ms
+i  functions: Beginning execution of "europe-west2-whoami"
+>  {"verifications":{"app":"MISSING","auth":"VALID"},"logging.googleapis.com/labels":{"firebase-log-type":"callable-request-verification"},"severity":"DEBUG","message":"Callable request verification passed"}
+i  functions: Finished "europe-west2-whoami" in 329.392243ms
+  ✓    3 [mobile-chromium] › e2e/auth.spec.ts:46:1 › a member signs in, sees the shell, and the server confirms membership (4.3s)
+  ✓    4 [mobile-chromium] › e2e/auth.spec.ts:55:1 › a signed-in non-member is refused and can sign out (2.8s)
+i  functions: Beginning execution of "europe-west2-whoami"
+i  functions: Finished "europe-west2-whoami" in 8.964433ms
+i  functions: Beginning execution of "europe-west2-whoami"
+>  {"verifications":{"app":"MISSING","auth":"VALID"},"logging.googleapis.com/labels":{"firebase-log-type":"callable-request-verification"},"severity":"DEBUG","message":"Callable request verification passed"}
+i  functions: Finished "europe-west2-whoami" in 51.258285ms
+  ✓    5 [mobile-chromium] › e2e/auth.spec.ts:63:1 › switching accounts on the same device never shows the previous member's shell (4.7s)
+i  functions: Beginning execution of "europe-west2-whoami"
+i  functions: Finished "europe-west2-whoami" in 15.843046ms
+i  functions: Beginning execution of "europe-west2-whoami"
+>  {"verifications":{"app":"MISSING","auth":"VALID"},"logging.googleapis.com/labels":{"firebase-log-type":"callable-request-verification"},"severity":"DEBUG","message":"Callable request verification passed"}
+i  functions: Finished "europe-west2-whoami" in 48.537714ms
+[WebServer] 9:18:38 PM [vite] (client) [console.warn] [2026-09-24T20:18:38.670Z]  @firebase/firestore: Firestore (12.19.0): WebChannelConnection RPC 'Listen' stream 0x3b4cb95c transport errored. Name: undefined Message: undefined
+  ✓    6 [mobile-chromium] › e2e/auth.spec.ts:76:1 › signing out in one tab resets every tab, and the next account never sees the previous household (5.6s)
+i  functions: Beginning execution of "europe-west2-whoami"
+i  functions: Finished "europe-west2-whoami" in 3.882098ms
+i  functions: Beginning execution of "europe-west2-whoami"
+>  {"verifications":{"app":"MISSING","auth":"VALID"},"logging.googleapis.com/labels":{"firebase-log-type":"callable-request-verification"},"severity":"DEBUG","message":"Callable request verification passed"}
+i  functions: Finished "europe-west2-whoami" in 36.379859ms
+  ✓    7 [mobile-chromium] › e2e/auth.spec.ts:119:1 › a member changes their password, stays signed in, and only the new password works afterwards (3.6s)
+  ✓    8 [mobile-chromium] › e2e/collection.spec.ts:32:1 › C1. a shortlist change by one member appears live on the other member's Saved page (6.1s)
+  ✓    9 [mobile-chromium] › e2e/collection.spec.ts:57:1 › C2. mark visited, change the date, and clear it (5.4s)
+  ✓   10 [mobile-chromium] › e2e/collection.spec.ts:80:1 › C3. both members write notes; only the author can edit or delete (7.0s)
+  ✓   11 [mobile-chromium] › e2e/collection.spec.ts:112:1 › C4. deleting a restaurant removes its evidence, both members' notes and its shortlist state (4.5s)
+  ✓   12 [mobile-chromium] › e2e/collection.spec.ts:133:1 › C5. a deletion an older client left half-done is finished from the Saved page (3.1s)
+  ✓   13 [mobile-chromium] › e2e/collection.spec.ts:149:1 › C6. a note edited on another device surfaces as a conflict, and Keep mine wins with the new version (3.5s)
+[WebServer] 9:19:14 PM [vite] (client) [console.warn] [2026-09-24T20:19:14.926Z]  @firebase/firestore: Firestore (12.19.0): WebChannelConnection RPC 'Listen' stream 0x4252d0f0 transport errored. Name: undefined Message: undefined
+[WebServer] 9:19:14 PM [vite] (client) [console.warn] [2026-09-24T20:19:14.943Z]  @firebase/firestore: Firestore (12.19.0): WebChannelConnection RPC 'Listen' stream 0x4252d0f1 transport errored. Name: undefined Message: undefined
+  ✓   14 [mobile-chromium] › e2e/collection.spec.ts:167:1 › C7. while offline the page says so once and every write control is disabled (3.3s)
+i  functions: Beginning execution of "europe-west2-searchDestination"
+i  functions: Finished "europe-west2-searchDestination" in 7.297537ms
+i  functions: Beginning execution of "europe-west2-searchDestination"
+>  {"verifications":{"app":"MISSING","auth":"VALID"},"logging.googleapis.com/labels":{"firebase-log-type":"callable-request-verification"},"severity":"DEBUG","message":"Callable request verification passed"}
+>  {"kind":"destination","uid":"ava-uid","householdId":"home","resultCount":10,"durationMs":0,"outcome":"ok","severity":"INFO","message":"discovery.search"}
+i  functions: Finished "europe-west2-searchDestination" in 457.240367ms
+  ✓   15 [mobile-chromium] › e2e/discover.spec.ts:52:1 › 1. a destination search lists fixture results with Google Maps attribution, links and add buttons (4.6s)
+i  functions: Beginning execution of "europe-west2-searchDestination"
+i  functions: Finished "europe-west2-searchDestination" in 3.39305ms
+i  functions: Beginning execution of "europe-west2-searchDestination"
+>  {"verifications":{"app":"MISSING","auth":"VALID"},"logging.googleapis.com/labels":{"firebase-log-type":"callable-request-verification"},"severity":"DEBUG","message":"Callable request verification passed"}
+>  {"kind":"destination","uid":"ava-uid","householdId":"home","resultCount":10,"durationMs":0,"outcome":"ok","severity":"INFO","message":"discovery.search"}
+i  functions: Finished "europe-west2-searchDestination" in 63.328834ms
+i  functions: Beginning execution of "europe-west2-searchDestination"
+>  {"verifications":{"app":"MISSING","auth":"VALID"},"logging.googleapis.com/labels":{"firebase-log-type":"callable-request-verification"},"severity":"DEBUG","message":"Callable request verification passed"}
+>  {"kind":"destination","uid":"ava-uid","householdId":"home","resultCount":10,"durationMs":0,"outcome":"ok","severity":"INFO","message":"discovery.search"}
+i  functions: Finished "europe-west2-searchDestination" in 56.931549ms
+  ✓   16 [mobile-chromium] › e2e/discover.spec.ts:69:1 › destination and named-venue intent reach the callable only on submit (2.7s)
+i  functions: Beginning execution of "europe-west2-searchDestination"
+i  functions: Finished "europe-west2-searchDestination" in 4.098295ms
+i  functions: Beginning execution of "europe-west2-searchDestination"
+>  {"verifications":{"app":"MISSING","auth":"VALID"},"logging.googleapis.com/labels":{"firebase-log-type":"callable-request-verification"},"severity":"DEBUG","message":"Callable request verification passed"}
+>  {"kind":"destination","uid":"ava-uid","householdId":"home","resultCount":0,"durationMs":0,"outcome":"ok","severity":"INFO","message":"discovery.search"}
+i  functions: Finished "europe-west2-searchDestination" in 51.674021ms
+  ✓   17 [mobile-chromium] › e2e/discover.spec.ts:96:1 › 2. no results shows the empty state and no attribution (2.1s)
+i  functions: Beginning execution of "europe-west2-searchDestination"
+i  functions: Finished "europe-west2-searchDestination" in 4.421681ms
+i  functions: Beginning execution of "europe-west2-searchDestination"
+>  {"verifications":{"app":"MISSING","auth":"VALID"},"logging.googleapis.com/labels":{"firebase-log-type":"callable-request-verification"},"severity":"DEBUG","message":"Callable request verification passed"}
+i  functions: Finished "europe-west2-searchDestination" in 31.603137ms
+i  functions: Beginning execution of "europe-west2-searchDestination"
+>  {"verifications":{"app":"MISSING","auth":"VALID"},"logging.googleapis.com/labels":{"firebase-log-type":"callable-request-verification"},"severity":"DEBUG","message":"Callable request verification passed"}
+i  functions: Finished "europe-west2-searchDestination" in 32.897318ms
+  ✓   18 [mobile-chromium] › e2e/discover.spec.ts:105:1 › 3. the kill switch: disabled and missing config both read as switched off (2.6s)
+i  functions: Beginning execution of "europe-west2-searchDestination"
+i  functions: Finished "europe-west2-searchDestination" in 3.511768ms
+i  functions: Beginning execution of "europe-west2-searchDestination"
+>  {"verifications":{"app":"MISSING","auth":"VALID"},"logging.googleapis.com/labels":{"firebase-log-type":"callable-request-verification"},"severity":"DEBUG","message":"Callable request verification passed"}
+>  {"kind":"destination","uid":"ava-uid","householdId":"home","resultCount":10,"durationMs":0,"outcome":"ok","severity":"INFO","message":"discovery.search"}
+i  functions: Finished "europe-west2-searchDestination" in 49.167014ms
+i  functions: Beginning execution of "europe-west2-searchDestination"
+>  {"verifications":{"app":"MISSING","auth":"VALID"},"logging.googleapis.com/labels":{"firebase-log-type":"callable-request-verification"},"severity":"DEBUG","message":"Callable request verification passed"}
+i  functions: Finished "europe-west2-searchDestination" in 52.834601ms
+  ✓   19 [mobile-chromium] › e2e/discover.spec.ts:117:1 › 4. the household's daily cap is enforced and usage is not consumed past it (2.3s)
+i  functions: Beginning execution of "europe-west2-searchDestination"
+i  functions: Finished "europe-west2-searchDestination" in 2.325392ms
+i  functions: Beginning execution of "europe-west2-searchDestination"
+>  {"verifications":{"app":"MISSING","auth":"VALID"},"logging.googleapis.com/labels":{"firebase-log-type":"callable-request-verification"},"severity":"DEBUG","message":"Callable request verification passed"}
+>  {"kind":"destination","uid":"ava-uid","householdId":"home","durationMs":0,"outcome":"unavailable","status":503,"severity":"WARNING","message":"discovery.search"}
+i  functions: Finished "europe-west2-searchDestination" in 50.510919ms
+i  functions: Beginning execution of "europe-west2-searchDestination"
+>  {"verifications":{"app":"MISSING","auth":"VALID"},"logging.googleapis.com/labels":{"firebase-log-type":"callable-request-verification"},"severity":"DEBUG","message":"Callable request verification passed"}
+>  {"kind":"destination","uid":"ava-uid","householdId":"home","durationMs":0,"outcome":"quota","status":429,"severity":"WARNING","message":"discovery.search"}
+i  functions: Finished "europe-west2-searchDestination" in 57.036125ms
+  ✓   20 [mobile-chromium] › e2e/discover.spec.ts:128:1 › 5. provider failures: unavailable and quota exceeded, never sample venues (2.4s)
+i  functions: Beginning execution of "europe-west2-searchDestination"
+i  functions: Finished "europe-west2-searchDestination" in 2.362339ms
+i  functions: Beginning execution of "europe-west2-searchDestination"
+>  {"verifications":{"app":"MISSING","auth":"VALID"},"logging.googleapis.com/labels":{"firebase-log-type":"callable-request-verification"},"severity":"DEBUG","message":"Callable request verification passed"}
+  ✓   21 [mobile-chromium] › e2e/discover.spec.ts:138:1 › 6. a search that never answers times out on the client (22.8s)
+i  functions: Beginning execution of "europe-west2-searchDestination"
+i  functions: Finished "europe-west2-searchDestination" in 5.660997ms
+i  functions: Beginning execution of "europe-west2-searchDestination"
+>  {"verifications":{"app":"MISSING","auth":"VALID"},"logging.googleapis.com/labels":{"firebase-log-type":"callable-request-verification"},"severity":"DEBUG","message":"Callable request verification passed"}
+i  functions: Beginning execution of "europe-west2-searchDestination"
+i  functions: Finished "europe-west2-searchDestination" in 7.269275ms
+i  functions: Beginning execution of "europe-west2-searchDestination"
+>  {"verifications":{"app":"MISSING","auth":"VALID"},"logging.googleapis.com/labels":{"firebase-log-type":"callable-request-verification"},"severity":"DEBUG","message":"Callable request verification passed"}
+>  {"kind":"destination","uid":"ava-uid","householdId":"home","resultCount":10,"durationMs":0,"outcome":"ok","severity":"INFO","message":"discovery.search"}
+i  functions: Finished "europe-west2-searchDestination" in 379.60853ms
+>  {"kind":"destination","uid":"ava-uid","householdId":"home","resultCount":10,"durationMs":23516,"outcome":"ok","severity":"INFO","message":"discovery.search"}
+i  functions: Finished "europe-west2-searchDestination" in 25069.178169ms
+>  {"kind":"destination","uid":"ava-uid","householdId":"home","resultCount":1,"durationMs":3003,"outcome":"ok","severity":"INFO","message":"discovery.search"}
+i  functions: Finished "europe-west2-searchDestination" in 3385.919571ms
+  ✓   22 [mobile-chromium] › e2e/discover.spec.ts:147:1 › 7. a newer search supersedes a slower one; the late answer never replaces it (9.4s)
+i  functions: Beginning execution of "europe-west2-searchNearby"
+i  functions: Finished "europe-west2-searchNearby" in 4.323178ms
+i  functions: Beginning execution of "europe-west2-searchNearby"
+>  {"verifications":{"app":"MISSING","auth":"VALID"},"logging.googleapis.com/labels":{"firebase-log-type":"callable-request-verification"},"severity":"DEBUG","message":"Callable request verification passed"}
+>  {"kind":"nearby","uid":"ava-uid","householdId":"home","lat":51.51,"lng":-0.13,"resultCount":10,"durationMs":1,"outcome":"ok","severity":"INFO","message":"discovery.search"}
+i  functions: Finished "europe-west2-searchNearby" in 345.165055ms
+  ✓   23 [mobile-chromium] › e2e/discover.spec.ts:164:3 › Near me with location granted › 8. Near me searches around the granted position (3.8s)
+i  functions: Beginning execution of "europe-west2-searchDestination"
+i  functions: Finished "europe-west2-searchDestination" in 7.707283ms
+i  functions: Beginning execution of "europe-west2-searchDestination"
+>  {"verifications":{"app":"MISSING","auth":"VALID"},"logging.googleapis.com/labels":{"firebase-log-type":"callable-request-verification"},"severity":"DEBUG","message":"Callable request verification passed"}
+>  {"kind":"destination","uid":"ava-uid","householdId":"home","resultCount":10,"durationMs":0,"outcome":"ok","severity":"INFO","message":"discovery.search"}
+i  functions: Finished "europe-west2-searchDestination" in 59.336559ms
+  ✓   24 [mobile-chromium] › e2e/discover.spec.ts:172:1 › 9. Near me without permission shows the denied state and calls nothing (2.3s)
+i  functions: Beginning execution of "europe-west2-searchDestination"
+i  functions: Finished "europe-west2-searchDestination" in 3.378073ms
+i  functions: Beginning execution of "europe-west2-searchDestination"
+>  {"verifications":{"app":"MISSING","auth":"VALID"},"logging.googleapis.com/labels":{"firebase-log-type":"callable-request-verification"},"severity":"DEBUG","message":"Callable request verification passed"}
+>  {"kind":"destination","uid":"ava-uid","householdId":"home","resultCount":10,"durationMs":1,"outcome":"ok","severity":"INFO","message":"discovery.search"}
+i  functions: Finished "europe-west2-searchDestination" in 45.393862ms
+i  functions: Beginning execution of "europe-west2-searchDestination"
+>  {"verifications":{"app":"MISSING","auth":"VALID"},"logging.googleapis.com/labels":{"firebase-log-type":"callable-request-verification"},"severity":"DEBUG","message":"Callable request verification passed"}
+>  {"kind":"destination","uid":"ava-uid","householdId":"home","resultCount":10,"durationMs":0,"outcome":"ok","severity":"INFO","message":"discovery.search"}
+i  functions: Finished "europe-west2-searchDestination" in 55.004931ms
+  ✓   25 [mobile-chromium] › e2e/discover.spec.ts:183:1 › 10. Add to our records carries only the place id; the member types name and address; the saved record links to Google Maps and the result shows In our records (3.0s)
+[WebServer] 9:20:12 PM [vite] (client) [console.warn] [2026-09-24T20:20:12.318Z]  @firebase/firestore: Firestore (12.19.0): WebChannelConnection RPC 'Listen' stream 0x271d8bd9 transport errored. Name: undefined Message: undefined
+[WebServer] 9:20:12 PM [vite] (client) [console.warn] [2026-09-24T20:20:12.326Z]  @firebase/firestore: Firestore (12.19.0): WebChannelConnection RPC 'Listen' stream 0x271d8bda transport errored. Name: undefined Message: undefined
+[WebServer] 9:20:12 PM [vite] (client) [console.warn] [2026-09-24T20:20:12.443Z]  @firebase/firestore: Firestore (12.19.0): WebChannelConnection RPC 'Listen' stream 0x271d8bdb transport errored. Name: undefined Message: undefined
+  ✓   26 [mobile-chromium] › e2e/discover.spec.ts:210:1 › 11. searching while offline is refused without a request; a seeded record's Maps link needs no network (3.3s)
+i  functions: Beginning execution of "europe-west2-searchDestination"
+i  functions: Finished "europe-west2-searchDestination" in 7.473704ms
+i  functions: Beginning execution of "europe-west2-searchDestination"
+>  {"verifications":{"app":"MISSING","auth":"VALID"},"logging.googleapis.com/labels":{"firebase-log-type":"callable-request-verification"},"severity":"DEBUG","message":"Callable request verification passed"}
+>  {"kind":"destination","uid":"ava-uid","householdId":"home","resultCount":0,"durationMs":0,"outcome":"ok","severity":"INFO","message":"discovery.search"}
+i  functions: Finished "europe-west2-searchDestination" in 48.324072ms
+  ✓   27 [mobile-chromium] › e2e/discover.spec.ts:222:1 › 12. a late location after a newer destination search never supersedes it (audit F1) (2.1s)
+i  functions: Beginning execution of "europe-west2-whoami"
+i  functions: Finished "europe-west2-whoami" in 5.652145ms
+i  functions: Beginning execution of "europe-west2-whoami"
+>  {"verifications":{"app":"MISSING","auth":"VALID"},"logging.googleapis.com/labels":{"firebase-log-type":"callable-request-verification"},"severity":"DEBUG","message":"Callable request verification passed"}
+i  functions: Finished "europe-west2-whoami" in 37.638008ms
+  ✓   28 [mobile-chromium] › e2e/discover.spec.ts:236:1 › 13. leaving Discover before the position resolves never starts a paid search (audit F1) (4.2s)
+i  functions: Beginning execution of "europe-west2-searchDestination"
+i  functions: Finished "europe-west2-searchDestination" in 4.554361ms
+i  functions: Beginning execution of "europe-west2-searchDestination"
+>  {"verifications":{"app":"MISSING","auth":"VALID"},"logging.googleapis.com/labels":{"firebase-log-type":"callable-request-verification"},"severity":"DEBUG","message":"Callable request verification passed"}
+>  {"kind":"destination","uid":"ava-uid","householdId":"home","resultCount":10,"durationMs":0,"outcome":"ok","severity":"INFO","message":"discovery.search"}
+i  functions: Finished "europe-west2-searchDestination" in 55.783053ms
+  ✓   29 [mobile-chromium] › e2e/discover.spec.ts:249:1 › 14. nothing Google-derived reaches browser history when a result is added but not saved (audit F2) (3.2s)
+  ✓   30 [mobile-chromium] › e2e/records.spec.ts:37:1 › 1. a member adds a restaurant and sees it with six unknown kinds and the call-ahead prompts (2.7s)
+  ✓   31 [mobile-chromium] › e2e/records.spec.ts:58:1 › 2. evidence: accreditation needs a link; current, needs-rechecking and conflicting states render (5.2s)
+  ✓   32 [mobile-chromium] › e2e/records.spec.ts:97:1 › 3. a stale draft is told the restaurant changed elsewhere, its save conflicts, and Reload draft shows the other member's values (6.3s)
+  ✓   33 [mobile-chromium] › e2e/records.spec.ts:123:1 › 4. deleting a restaurant with evidence leaves nothing behind; a concurrent Add evidence sees not-found (8.0s)
+  ✓   34 [mobile-chromium] › e2e/records.spec.ts:152:1 › 5. an interrupted deletion (marked, not swept) is finished from the list (2.8s)
+  ✓   35 [mobile-chromium] › e2e/records.spec.ts:167:1 › 6. saving while offline is refused, nothing is queued, and nothing appears after reconnecting (3.8s)
+i  functions: Beginning execution of "europe-west2-whoami"
+i  functions: Finished "europe-west2-whoami" in 7.544072ms
+i  functions: Beginning execution of "europe-west2-whoami"
+>  {"verifications":{"app":"MISSING","auth":"VALID"},"logging.googleapis.com/labels":{"firebase-log-type":"callable-request-verification"},"severity":"DEBUG","message":"Callable request verification passed"}
+i  functions: Finished "europe-west2-whoami" in 37.061171ms
+  ✓   36 [mobile-chromium] › e2e/records.spec.ts:182:1 › 7. after an account switch no record of the previous member is rendered and no page error fires (4.0s)
+  ✓   37 [mobile-chromium] › e2e/records.spec.ts:200:1 › 8. live replacement evidence needs its own delete confirmation (3.4s)
+  ✓   38 [mobile-chromium] › e2e/records.spec.ts:222:1 › 9. malformed website and evidence URLs show field errors and can be corrected (4.0s)
+(node:2080741) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓   39 [mobile-chromium] › e2e/auth.spec.ts:30:1 › signed-out visitor sees the sign-in form and nothing else (1.6s)
+  ✓   40 [mobile-chromium] › e2e/auth.spec.ts:36:1 › wrong password shows an error and stays signed out (1.6s)
+i  functions: Beginning execution of "europe-west2-whoami"
+i  functions: Finished "europe-west2-whoami" in 16.79004ms
+i  functions: Beginning execution of "europe-west2-whoami"
+>  {"verifications":{"app":"MISSING","auth":"VALID"},"logging.googleapis.com/labels":{"firebase-log-type":"callable-request-verification"},"severity":"DEBUG","message":"Callable request verification passed"}
+i  functions: Finished "europe-west2-whoami" in 35.764151ms
+  ✓   41 [mobile-chromium] › e2e/auth.spec.ts:46:1 › a member signs in, sees the shell, and the server confirms membership (3.1s)
+  ✓   42 [mobile-chromium] › e2e/auth.spec.ts:55:1 › a signed-in non-member is refused and can sign out (2.6s)
+i  functions: Beginning execution of "europe-west2-whoami"
+i  functions: Finished "europe-west2-whoami" in 19.950831ms
+i  functions: Beginning execution of "europe-west2-whoami"
+>  {"verifications":{"app":"MISSING","auth":"VALID"},"logging.googleapis.com/labels":{"firebase-log-type":"callable-request-verification"},"severity":"DEBUG","message":"Callable request verification passed"}
+i  functions: Finished "europe-west2-whoami" in 34.852611ms
+  ✓   43 [mobile-chromium] › e2e/auth.spec.ts:63:1 › switching accounts on the same device never shows the previous member's shell (4.9s)
+i  functions: Beginning execution of "europe-west2-whoami"
+i  functions: Finished "europe-west2-whoami" in 5.520557ms
+i  functions: Beginning execution of "europe-west2-whoami"
+>  {"verifications":{"app":"MISSING","auth":"VALID"},"logging.googleapis.com/labels":{"firebase-log-type":"callable-request-verification"},"severity":"DEBUG","message":"Callable request verification passed"}
+i  functions: Finished "europe-west2-whoami" in 33.253216ms
+[WebServer] 9:21:19 PM [vite] (client) [console.warn] [2026-09-24T20:21:19.906Z]  @firebase/firestore: Firestore (12.19.0): WebChannelConnection RPC 'Listen' stream 0x4bcfdbe5 transport errored. Name: undefined Message: undefined
+  ✓   44 [mobile-chromium] › e2e/auth.spec.ts:76:1 › signing out in one tab resets every tab, and the next account never sees the previous household (5.6s)
+i  functions: Beginning execution of "europe-west2-whoami"
+i  functions: Finished "europe-west2-whoami" in 9.303325ms
+i  functions: Beginning execution of "europe-west2-whoami"
+>  {"verifications":{"app":"MISSING","auth":"VALID"},"logging.googleapis.com/labels":{"firebase-log-type":"callable-request-verification"},"severity":"DEBUG","message":"Callable request verification passed"}
+i  functions: Finished "europe-west2-whoami" in 25.428367ms
+  ✓   45 [mobile-chromium] › e2e/auth.spec.ts:119:1 › a member changes their password, stays signed in, and only the new password works afterwards (3.4s)
+  ✓   46 [mobile-chromium] › e2e/collection.spec.ts:32:1 › C1. a shortlist change by one member appears live on the other member's Saved page (5.8s)
+  ✓   47 [mobile-chromium] › e2e/collection.spec.ts:57:1 › C2. mark visited, change the date, and clear it (5.4s)
+  ✓   48 [mobile-chromium] › e2e/collection.spec.ts:80:1 › C3. both members write notes; only the author can edit or delete (7.0s)
+  ✓   49 [mobile-chromium] › e2e/collection.spec.ts:112:1 › C4. deleting a restaurant removes its evidence, both members' notes and its shortlist state (4.0s)
+  ✓   50 [mobile-chromium] › e2e/collection.spec.ts:133:1 › C5. a deletion an older client left half-done is finished from the Saved page (2.9s)
+  ✓   51 [mobile-chromium] › e2e/collection.spec.ts:149:1 › C6. a note edited on another device surfaces as a conflict, and Keep mine wins with the new version (3.5s)
+[WebServer] 9:21:54 PM [vite] (client) [console.warn] [2026-09-24T20:21:54.928Z]  @firebase/firestore: Firestore (12.19.0): WebChannelConnection RPC 'Listen' stream 0x83034f68 transport errored. Name: undefined Message: undefined
+[WebServer] 9:21:54 PM [vite] (client) [console.warn] [2026-09-24T20:21:54.946Z]  @firebase/firestore: Firestore (12.19.0): WebChannelConnection RPC 'Listen' stream 0x83034f69 transport errored. Name: undefined Message: undefined
+  ✓   52 [mobile-chromium] › e2e/collection.spec.ts:167:1 › C7. while offline the page says so once and every write control is disabled (3.1s)
+i  functions: Beginning execution of "europe-west2-searchDestination"
+i  functions: Finished "europe-west2-searchDestination" in 5.042576ms
+i  functions: Beginning execution of "europe-west2-searchDestination"
+>  {"verifications":{"app":"MISSING","auth":"VALID"},"logging.googleapis.com/labels":{"firebase-log-type":"callable-request-verification"},"severity":"DEBUG","message":"Callable request verification passed"}
+>  {"kind":"destination","uid":"ava-uid","householdId":"home","resultCount":10,"durationMs":0,"outcome":"ok","severity":"INFO","message":"discovery.search"}
+i  functions: Finished "europe-west2-searchDestination" in 42.949657ms
+  ✓   53 [mobile-chromium] › e2e/discover.spec.ts:52:1 › 1. a destination search lists fixture results with Google Maps attribution, links and add buttons (2.2s)
+i  functions: Beginning execution of "europe-west2-searchDestination"
+i  functions: Finished "europe-west2-searchDestination" in 2.832947ms
+i  functions: Beginning execution of "europe-west2-searchDestination"
+>  {"verifications":{"app":"MISSING","auth":"VALID"},"logging.googleapis.com/labels":{"firebase-log-type":"callable-request-verification"},"severity":"DEBUG","message":"Callable request verification passed"}
+>  {"kind":"destination","uid":"ava-uid","householdId":"home","resultCount":10,"durationMs":0,"outcome":"ok","severity":"INFO","message":"discovery.search"}
+i  functions: Finished "europe-west2-searchDestination" in 43.054384ms
+i  functions: Beginning execution of "europe-west2-searchDestination"
+>  {"verifications":{"app":"MISSING","auth":"VALID"},"logging.googleapis.com/labels":{"firebase-log-type":"callable-request-verification"},"severity":"DEBUG","message":"Callable request verification passed"}
+>  {"kind":"destination","uid":"ava-uid","householdId":"home","resultCount":10,"durationMs":0,"outcome":"ok","severity":"INFO","message":"discovery.search"}
+i  functions: Finished "europe-west2-searchDestination" in 44.328586ms
+  ✓   54 [mobile-chromium] › e2e/discover.spec.ts:69:1 › destination and named-venue intent reach the callable only on submit (2.2s)
+i  functions: Beginning execution of "europe-west2-searchDestination"
+i  functions: Finished "europe-west2-searchDestination" in 3.325503ms
+i  functions: Beginning execution of "europe-west2-searchDestination"
+>  {"verifications":{"app":"MISSING","auth":"VALID"},"logging.googleapis.com/labels":{"firebase-log-type":"callable-request-verification"},"severity":"DEBUG","message":"Callable request verification passed"}
+>  {"kind":"destination","uid":"ava-uid","householdId":"home","resultCount":0,"durationMs":0,"outcome":"ok","severity":"INFO","message":"discovery.search"}
+i  functions: Finished "europe-west2-searchDestination" in 45.518391ms
+  ✓   55 [mobile-chromium] › e2e/discover.spec.ts:96:1 › 2. no results shows the empty state and no attribution (2.0s)
+i  functions: Beginning execution of "europe-west2-searchDestination"
+i  functions: Finished "europe-west2-searchDestination" in 3.592263ms
+i  functions: Beginning execution of "europe-west2-searchDestination"
+>  {"verifications":{"app":"MISSING","auth":"VALID"},"logging.googleapis.com/labels":{"firebase-log-type":"callable-request-verification"},"severity":"DEBUG","message":"Callable request verification passed"}
+i  functions: Finished "europe-west2-searchDestination" in 29.116343ms
+i  functions: Beginning execution of "europe-west2-searchDestination"
+>  {"verifications":{"app":"MISSING","auth":"VALID"},"logging.googleapis.com/labels":{"firebase-log-type":"callable-request-verification"},"severity":"DEBUG","message":"Callable request verification passed"}
+i  functions: Finished "europe-west2-searchDestination" in 38.3315ms
+  ✓   56 [mobile-chromium] › e2e/discover.spec.ts:105:1 › 3. the kill switch: disabled and missing config both read as switched off (2.3s)
+i  functions: Beginning execution of "europe-west2-searchDestination"
+i  functions: Finished "europe-west2-searchDestination" in 2.382563ms
+i  functions: Beginning execution of "europe-west2-searchDestination"
+>  {"verifications":{"app":"MISSING","auth":"VALID"},"logging.googleapis.com/labels":{"firebase-log-type":"callable-request-verification"},"severity":"DEBUG","message":"Callable request verification passed"}
+>  {"kind":"destination","uid":"ava-uid","householdId":"home","resultCount":10,"durationMs":0,"outcome":"ok","severity":"INFO","message":"discovery.search"}
+i  functions: Finished "europe-west2-searchDestination" in 40.874907ms
+i  functions: Beginning execution of "europe-west2-searchDestination"
+>  {"verifications":{"app":"MISSING","auth":"VALID"},"logging.googleapis.com/labels":{"firebase-log-type":"callable-request-verification"},"severity":"DEBUG","message":"Callable request verification passed"}
+i  functions: Finished "europe-west2-searchDestination" in 37.984936ms
+  ✓   57 [mobile-chromium] › e2e/discover.spec.ts:117:1 › 4. the household's daily cap is enforced and usage is not consumed past it (2.2s)
+i  functions: Beginning execution of "europe-west2-searchDestination"
+i  functions: Finished "europe-west2-searchDestination" in 2.734889ms
+i  functions: Beginning execution of "europe-west2-searchDestination"
+>  {"verifications":{"app":"MISSING","auth":"VALID"},"logging.googleapis.com/labels":{"firebase-log-type":"callable-request-verification"},"severity":"DEBUG","message":"Callable request verification passed"}
+>  {"kind":"destination","uid":"ava-uid","householdId":"home","durationMs":0,"outcome":"unavailable","status":503,"severity":"WARNING","message":"discovery.search"}
+i  functions: Finished "europe-west2-searchDestination" in 40.406161ms
+i  functions: Beginning execution of "europe-west2-searchDestination"
+>  {"verifications":{"app":"MISSING","auth":"VALID"},"logging.googleapis.com/labels":{"firebase-log-type":"callable-request-verification"},"severity":"DEBUG","message":"Callable request verification passed"}
+>  {"kind":"destination","uid":"ava-uid","householdId":"home","durationMs":0,"outcome":"quota","status":429,"severity":"WARNING","message":"discovery.search"}
+i  functions: Finished "europe-west2-searchDestination" in 45.338128ms
+  ✓   58 [mobile-chromium] › e2e/discover.spec.ts:128:1 › 5. provider failures: unavailable and quota exceeded, never sample venues (2.3s)
+i  functions: Beginning execution of "europe-west2-searchDestination"
+i  functions: Finished "europe-west2-searchDestination" in 2.496159ms
+i  functions: Beginning execution of "europe-west2-searchDestination"
+>  {"verifications":{"app":"MISSING","auth":"VALID"},"logging.googleapis.com/labels":{"firebase-log-type":"callable-request-verification"},"severity":"DEBUG","message":"Callable request verification passed"}
+  ✓   59 [mobile-chromium] › e2e/discover.spec.ts:138:1 › 6. a search that never answers times out on the client (22.9s)
+i  functions: Beginning execution of "europe-west2-searchDestination"
+i  functions: Finished "europe-west2-searchDestination" in 5.838573ms
+i  functions: Beginning execution of "europe-west2-searchDestination"
+>  {"verifications":{"app":"MISSING","auth":"VALID"},"logging.googleapis.com/labels":{"firebase-log-type":"callable-request-verification"},"severity":"DEBUG","message":"Callable request verification passed"}
+i  functions: Beginning execution of "europe-west2-searchDestination"
+>  {"verifications":{"app":"MISSING","auth":"VALID"},"logging.googleapis.com/labels":{"firebase-log-type":"callable-request-verification"},"severity":"DEBUG","message":"Callable request verification passed"}
+>  {"kind":"destination","uid":"ava-uid","householdId":"home","resultCount":10,"durationMs":0,"outcome":"ok","severity":"INFO","message":"discovery.search"}
+i  functions: Finished "europe-west2-searchDestination" in 57.043952ms
+>  {"kind":"destination","uid":"ava-uid","householdId":"home","resultCount":10,"durationMs":25005,"outcome":"ok","severity":"INFO","message":"discovery.search"}
+i  functions: Finished "europe-west2-searchDestination" in 25049.740126ms
+>  {"kind":"destination","uid":"ava-uid","householdId":"home","resultCount":1,"durationMs":3008,"outcome":"ok","severity":"INFO","message":"discovery.search"}
+i  functions: Finished "europe-west2-searchDestination" in 3074.920118ms
+  ✓   60 [mobile-chromium] › e2e/discover.spec.ts:147:1 › 7. a newer search supersedes a slower one; the late answer never replaces it (7.1s)
+i  functions: Beginning execution of "europe-west2-searchNearby"
+i  functions: Finished "europe-west2-searchNearby" in 4.73895ms
+i  functions: Beginning execution of "europe-west2-searchNearby"
+>  {"verifications":{"app":"MISSING","auth":"VALID"},"logging.googleapis.com/labels":{"firebase-log-type":"callable-request-verification"},"severity":"DEBUG","message":"Callable request verification passed"}
+>  {"kind":"nearby","uid":"ava-uid","householdId":"home","lat":51.51,"lng":-0.13,"resultCount":10,"durationMs":0,"outcome":"ok","severity":"INFO","message":"discovery.search"}
+i  functions: Finished "europe-west2-searchNearby" in 52.986546ms
+  ✓   61 [mobile-chromium] › e2e/discover.spec.ts:164:3 › Near me with location granted › 8. Near me searches around the granted position (2.1s)
+i  functions: Beginning execution of "europe-west2-searchDestination"
+i  functions: Finished "europe-west2-searchDestination" in 4.606673ms
+i  functions: Beginning execution of "europe-west2-searchDestination"
+>  {"verifications":{"app":"MISSING","auth":"VALID"},"logging.googleapis.com/labels":{"firebase-log-type":"callable-request-verification"},"severity":"DEBUG","message":"Callable request verification passed"}
+>  {"kind":"destination","uid":"ava-uid","householdId":"home","resultCount":10,"durationMs":0,"outcome":"ok","severity":"INFO","message":"discovery.search"}
+i  functions: Finished "europe-west2-searchDestination" in 39.208512ms
+  ✓   62 [mobile-chromium] › e2e/discover.spec.ts:172:1 › 9. Near me without permission shows the denied state and calls nothing (2.1s)
+i  functions: Beginning execution of "europe-west2-searchDestination"
+i  functions: Finished "europe-west2-searchDestination" in 2.339469ms
+i  functions: Beginning execution of "europe-west2-searchDestination"
+>  {"verifications":{"app":"MISSING","auth":"VALID"},"logging.googleapis.com/labels":{"firebase-log-type":"callable-request-verification"},"severity":"DEBUG","message":"Callable request verification passed"}
+>  {"kind":"destination","uid":"ava-uid","householdId":"home","resultCount":10,"durationMs":0,"outcome":"ok","severity":"INFO","message":"discovery.search"}
+i  functions: Finished "europe-west2-searchDestination" in 38.563354ms
+i  functions: Beginning execution of "europe-west2-searchDestination"
+>  {"verifications":{"app":"MISSING","auth":"VALID"},"logging.googleapis.com/labels":{"firebase-log-type":"callable-request-verification"},"severity":"DEBUG","message":"Callable request verification passed"}
+>  {"kind":"destination","uid":"ava-uid","householdId":"home","resultCount":10,"durationMs":0,"outcome":"ok","severity":"INFO","message":"discovery.search"}
+i  functions: Finished "europe-west2-searchDestination" in 42.457242ms
+  ✓   63 [mobile-chromium] › e2e/discover.spec.ts:183:1 › 10. Add to our records carries only the place id; the member types name and address; the saved record links to Google Maps and the result shows In our records (2.7s)
+[WebServer] 9:22:44 PM [vite] (client) [console.warn] [2026-09-24T20:22:44.567Z]  @firebase/firestore: Firestore (12.19.0): WebChannelConnection RPC 'Listen' stream 0x48c1af29 transport errored. Name: undefined Message: undefined
+[WebServer] 9:22:44 PM [vite] (client) [console.warn] [2026-09-24T20:22:44.576Z]  @firebase/firestore: Firestore (12.19.0): WebChannelConnection RPC 'Listen' stream 0x48c1af2a transport errored. Name: undefined Message: undefined
+  ✓   64 [mobile-chromium] › e2e/discover.spec.ts:210:1 › 11. searching while offline is refused without a request; a seeded record's Maps link needs no network (3.5s)
+i  functions: Beginning execution of "europe-west2-searchDestination"
+i  functions: Finished "europe-west2-searchDestination" in 4.758639ms
+i  functions: Beginning execution of "europe-west2-searchDestination"
+>  {"verifications":{"app":"MISSING","auth":"VALID"},"logging.googleapis.com/labels":{"firebase-log-type":"callable-request-verification"},"severity":"DEBUG","message":"Callable request verification passed"}
+>  {"kind":"destination","uid":"ava-uid","householdId":"home","resultCount":0,"durationMs":0,"outcome":"ok","severity":"INFO","message":"discovery.search"}
+i  functions: Finished "europe-west2-searchDestination" in 50.939159ms
+  ✓   65 [mobile-chromium] › e2e/discover.spec.ts:222:1 › 12. a late location after a newer destination search never supersedes it (audit F1) (2.4s)
+i  functions: Beginning execution of "europe-west2-whoami"
+i  functions: Finished "europe-west2-whoami" in 4.610344ms
+i  functions: Beginning execution of "europe-west2-whoami"
+>  {"verifications":{"app":"MISSING","auth":"VALID"},"logging.googleapis.com/labels":{"firebase-log-type":"callable-request-verification"},"severity":"DEBUG","message":"Callable request verification passed"}
+i  functions: Finished "europe-west2-whoami" in 20.664219ms
+  ✓   66 [mobile-chromium] › e2e/discover.spec.ts:236:1 › 13. leaving Discover before the position resolves never starts a paid search (audit F1) (4.4s)
+i  functions: Beginning execution of "europe-west2-searchDestination"
+i  functions: Finished "europe-west2-searchDestination" in 4.31536ms
+i  functions: Beginning execution of "europe-west2-searchDestination"
+>  {"verifications":{"app":"MISSING","auth":"VALID"},"logging.googleapis.com/labels":{"firebase-log-type":"callable-request-verification"},"severity":"DEBUG","message":"Callable request verification passed"}
+>  {"kind":"destination","uid":"ava-uid","householdId":"home","resultCount":10,"durationMs":0,"outcome":"ok","severity":"INFO","message":"discovery.search"}
+i  functions: Finished "europe-west2-searchDestination" in 44.128608ms
+  ✓   67 [mobile-chromium] › e2e/discover.spec.ts:249:1 › 14. nothing Google-derived reaches browser history when a result is added but not saved (audit F2) (3.2s)
+  ✓   68 [mobile-chromium] › e2e/records.spec.ts:37:1 › 1. a member adds a restaurant and sees it with six unknown kinds and the call-ahead prompts (2.5s)
+  ✓   69 [mobile-chromium] › e2e/records.spec.ts:58:1 › 2. evidence: accreditation needs a link; current, needs-rechecking and conflicting states render (4.8s)
+  ✓   70 [mobile-chromium] › e2e/records.spec.ts:97:1 › 3. a stale draft is told the restaurant changed elsewhere, its save conflicts, and Reload draft shows the other member's values (6.3s)
+  ✓   71 [mobile-chromium] › e2e/records.spec.ts:123:1 › 4. deleting a restaurant with evidence leaves nothing behind; a concurrent Add evidence sees not-found (7.9s)
+  ✓   72 [mobile-chromium] › e2e/records.spec.ts:152:1 › 5. an interrupted deletion (marked, not swept) is finished from the list (2.9s)
+  ✓   73 [mobile-chromium] › e2e/records.spec.ts:167:1 › 6. saving while offline is refused, nothing is queued, and nothing appears after reconnecting (3.6s)
+i  functions: Beginning execution of "europe-west2-whoami"
+i  functions: Finished "europe-west2-whoami" in 8.711216ms
+i  functions: Beginning execution of "europe-west2-whoami"
+>  {"verifications":{"app":"MISSING","auth":"VALID"},"logging.googleapis.com/labels":{"firebase-log-type":"callable-request-verification"},"severity":"DEBUG","message":"Callable request verification passed"}
+i  functions: Finished "europe-west2-whoami" in 22.258834ms
+  ✓   74 [mobile-chromium] › e2e/records.spec.ts:182:1 › 7. after an account switch no record of the previous member is rendered and no page error fires (4.0s)
+  ✓   75 [mobile-chromium] › e2e/records.spec.ts:200:1 › 8. live replacement evidence needs its own delete confirmation (3.3s)
+  ✓   76 [mobile-chromium] › e2e/records.spec.ts:222:1 › 9. malformed website and evidence URLs show field errors and can be corrected (3.8s)
+(node:2084718) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓   77 [mobile-chromium] › e2e/auth.spec.ts:30:1 › signed-out visitor sees the sign-in form and nothing else (1.5s)
+  ✓   78 [mobile-chromium] › e2e/auth.spec.ts:36:1 › wrong password shows an error and stays signed out (1.4s)
+i  functions: Beginning execution of "europe-west2-whoami"
+i  functions: Finished "europe-west2-whoami" in 5.7167ms
+i  functions: Beginning execution of "europe-west2-whoami"
+>  {"verifications":{"app":"MISSING","auth":"VALID"},"logging.googleapis.com/labels":{"firebase-log-type":"callable-request-verification"},"severity":"DEBUG","message":"Callable request verification passed"}
+i  functions: Finished "europe-west2-whoami" in 22.673937ms
+  ✓   79 [mobile-chromium] › e2e/auth.spec.ts:46:1 › a member signs in, sees the shell, and the server confirms membership (2.9s)
+  ✓   80 [mobile-chromium] › e2e/auth.spec.ts:55:1 › a signed-in non-member is refused and can sign out (2.6s)
+i  functions: Beginning execution of "europe-west2-whoami"
+i  functions: Finished "europe-west2-whoami" in 5.397337ms
+i  functions: Beginning execution of "europe-west2-whoami"
+>  {"verifications":{"app":"MISSING","auth":"VALID"},"logging.googleapis.com/labels":{"firebase-log-type":"callable-request-verification"},"severity":"DEBUG","message":"Callable request verification passed"}
+i  functions: Finished "europe-west2-whoami" in 18.67896ms
+  ✓   81 [mobile-chromium] › e2e/auth.spec.ts:63:1 › switching accounts on the same device never shows the previous member's shell (4.5s)
+i  functions: Beginning execution of "europe-west2-whoami"
+i  functions: Finished "europe-west2-whoami" in 5.662829ms
+i  functions: Beginning execution of "europe-west2-whoami"
+>  {"verifications":{"app":"MISSING","auth":"VALID"},"logging.googleapis.com/labels":{"firebase-log-type":"callable-request-verification"},"severity":"DEBUG","message":"Callable request verification passed"}
+i  functions: Finished "europe-west2-whoami" in 23.334877ms
+[WebServer] 9:23:50 PM [vite] (client) [console.warn] [2026-09-24T20:23:50.405Z]  @firebase/firestore: Firestore (12.19.0): WebChannelConnection RPC 'Listen' stream 0x77742377 transport errored. Name: undefined Message: undefined
+  ✓   82 [mobile-chromium] › e2e/auth.spec.ts:76:1 › signing out in one tab resets every tab, and the next account never sees the previous household (5.4s)
+i  functions: Beginning execution of "europe-west2-whoami"
+i  functions: Finished "europe-west2-whoami" in 2.931508ms
+i  functions: Beginning execution of "europe-west2-whoami"
+>  {"verifications":{"app":"MISSING","auth":"VALID"},"logging.googleapis.com/labels":{"firebase-log-type":"callable-request-verification"},"severity":"DEBUG","message":"Callable request verification passed"}
+i  functions: Finished "europe-west2-whoami" in 22.296002ms
+  ✓   83 [mobile-chromium] › e2e/auth.spec.ts:119:1 › a member changes their password, stays signed in, and only the new password works afterwards (3.4s)
+  ✓   84 [mobile-chromium] › e2e/collection.spec.ts:32:1 › C1. a shortlist change by one member appears live on the other member's Saved page (5.3s)
+  ✓   85 [mobile-chromium] › e2e/collection.spec.ts:57:1 › C2. mark visited, change the date, and clear it (5.1s)
+  ✓   86 [mobile-chromium] › e2e/collection.spec.ts:80:1 › C3. both members write notes; only the author can edit or delete (6.7s)
+  ✓   87 [mobile-chromium] › e2e/collection.spec.ts:112:1 › C4. deleting a restaurant removes its evidence, both members' notes and its shortlist state (4.1s)
+  ✓   88 [mobile-chromium] › e2e/collection.spec.ts:133:1 › C5. a deletion an older client left half-done is finished from the Saved page (2.9s)
+  ✓   89 [mobile-chromium] › e2e/collection.spec.ts:149:1 › C6. a note edited on another device surfaces as a conflict, and Keep mine wins with the new version (3.3s)
+[WebServer] 9:24:24 PM [vite] (client) [console.warn] [2026-09-24T20:24:24.369Z]  @firebase/firestore: Firestore (12.19.0): WebChannelConnection RPC 'Listen' stream 0x6220ad91 transport errored. Name: undefined Message: undefined
+[WebServer] 9:24:24 PM [vite] (client) [console.warn] [2026-09-24T20:24:24.385Z]  @firebase/firestore: Firestore (12.19.0): WebChannelConnection RPC 'Listen' stream 0x6220ad92 transport errored. Name: undefined Message: undefined
+  ✓   90 [mobile-chromium] › e2e/collection.spec.ts:167:1 › C7. while offline the page says so once and every write control is disabled (3.2s)
+i  functions: Beginning execution of "europe-west2-searchDestination"
+i  functions: Finished "europe-west2-searchDestination" in 4.140201ms
+i  functions: Beginning execution of "europe-west2-searchDestination"
+>  {"verifications":{"app":"MISSING","auth":"VALID"},"logging.googleapis.com/labels":{"firebase-log-type":"callable-request-verification"},"severity":"DEBUG","message":"Callable request verification passed"}
+>  {"kind":"destination","uid":"ava-uid","householdId":"home","resultCount":10,"durationMs":0,"outcome":"ok","severity":"INFO","message":"discovery.search"}
+i  functions: Finished "europe-west2-searchDestination" in 42.659022ms
+  ✓   91 [mobile-chromium] › e2e/discover.spec.ts:52:1 › 1. a destination search lists fixture results with Google Maps attribution, links and add buttons (2.2s)
+i  functions: Beginning execution of "europe-west2-searchDestination"
+i  functions: Finished "europe-west2-searchDestination" in 2.752153ms
+i  functions: Beginning execution of "europe-west2-searchDestination"
+>  {"verifications":{"app":"MISSING","auth":"VALID"},"logging.googleapis.com/labels":{"firebase-log-type":"callable-request-verification"},"severity":"DEBUG","message":"Callable request verification passed"}
+>  {"kind":"destination","uid":"ava-uid","householdId":"home","resultCount":10,"durationMs":0,"outcome":"ok","severity":"INFO","message":"discovery.search"}
+i  functions: Finished "europe-west2-searchDestination" in 37.998093ms
+i  functions: Beginning execution of "europe-west2-searchDestination"
+>  {"verifications":{"app":"MISSING","auth":"VALID"},"logging.googleapis.com/labels":{"firebase-log-type":"callable-request-verification"},"severity":"DEBUG","message":"Callable request verification passed"}
+>  {"kind":"destination","uid":"ava-uid","householdId":"home","resultCount":10,"durationMs":0,"outcome":"ok","severity":"INFO","message":"discovery.search"}
+i  functions: Finished "europe-west2-searchDestination" in 42.019034ms
+  ✓   92 [mobile-chromium] › e2e/discover.spec.ts:69:1 › destination and named-venue intent reach the callable only on submit (2.2s)
+i  functions: Beginning execution of "europe-west2-searchDestination"
+i  functions: Finished "europe-west2-searchDestination" in 3.869521ms
+i  functions: Beginning execution of "europe-west2-searchDestination"
+>  {"verifications":{"app":"MISSING","auth":"VALID"},"logging.googleapis.com/labels":{"firebase-log-type":"callable-request-verification"},"severity":"DEBUG","message":"Callable request verification passed"}
+>  {"kind":"destination","uid":"ava-uid","householdId":"home","resultCount":0,"durationMs":0,"outcome":"ok","severity":"INFO","message":"discovery.search"}
+i  functions: Finished "europe-west2-searchDestination" in 45.718546ms
+  ✓   93 [mobile-chromium] › e2e/discover.spec.ts:96:1 › 2. no results shows the empty state and no attribution (2.1s)
+i  functions: Beginning execution of "europe-west2-searchDestination"
+i  functions: Finished "europe-west2-searchDestination" in 2.254073ms
+i  functions: Beginning execution of "europe-west2-searchDestination"
+>  {"verifications":{"app":"MISSING","auth":"VALID"},"logging.googleapis.com/labels":{"firebase-log-type":"callable-request-verification"},"severity":"DEBUG","message":"Callable request verification passed"}
+i  functions: Finished "europe-west2-searchDestination" in 28.469682ms
+i  functions: Beginning execution of "europe-west2-searchDestination"
+>  {"verifications":{"app":"MISSING","auth":"VALID"},"logging.googleapis.com/labels":{"firebase-log-type":"callable-request-verification"},"severity":"DEBUG","message":"Callable request verification passed"}
+i  functions: Finished "europe-west2-searchDestination" in 30.50481ms
+  ✓   94 [mobile-chromium] › e2e/discover.spec.ts:105:1 › 3. the kill switch: disabled and missing config both read as switched off (2.0s)
+i  functions: Beginning execution of "europe-west2-searchDestination"
+i  functions: Finished "europe-west2-searchDestination" in 6.405302ms
+i  functions: Beginning execution of "europe-west2-searchDestination"
+>  {"verifications":{"app":"MISSING","auth":"VALID"},"logging.googleapis.com/labels":{"firebase-log-type":"callable-request-verification"},"severity":"DEBUG","message":"Callable request verification passed"}
+>  {"kind":"destination","uid":"ava-uid","householdId":"home","resultCount":10,"durationMs":0,"outcome":"ok","severity":"INFO","message":"discovery.search"}
+i  functions: Finished "europe-west2-searchDestination" in 47.975436ms
+i  functions: Beginning execution of "europe-west2-searchDestination"
+>  {"verifications":{"app":"MISSING","auth":"VALID"},"logging.googleapis.com/labels":{"firebase-log-type":"callable-request-verification"},"severity":"DEBUG","message":"Callable request verification passed"}
+i  functions: Finished "europe-west2-searchDestination" in 47.081089ms
+  ✓   95 [mobile-chromium] › e2e/discover.spec.ts:117:1 › 4. the household's daily cap is enforced and usage is not consumed past it (2.1s)
+i  functions: Beginning execution of "europe-west2-searchDestination"
+i  functions: Finished "europe-west2-searchDestination" in 3.450407ms
+i  functions: Beginning execution of "europe-west2-searchDestination"
+>  {"verifications":{"app":"MISSING","auth":"VALID"},"logging.googleapis.com/labels":{"firebase-log-type":"callable-request-verification"},"severity":"DEBUG","message":"Callable request verification passed"}
+>  {"kind":"destination","uid":"ava-uid","householdId":"home","durationMs":0,"outcome":"unavailable","status":503,"severity":"WARNING","message":"discovery.search"}
+i  functions: Finished "europe-west2-searchDestination" in 54.141206ms
+i  functions: Beginning execution of "europe-west2-searchDestination"
+>  {"verifications":{"app":"MISSING","auth":"VALID"},"logging.googleapis.com/labels":{"firebase-log-type":"callable-request-verification"},"severity":"DEBUG","message":"Callable request verification passed"}
+>  {"kind":"destination","uid":"ava-uid","householdId":"home","durationMs":0,"outcome":"quota","status":429,"severity":"WARNING","message":"discovery.search"}
+i  functions: Finished "europe-west2-searchDestination" in 50.715942ms
+  ✓   96 [mobile-chromium] › e2e/discover.spec.ts:128:1 › 5. provider failures: unavailable and quota exceeded, never sample venues (2.6s)
+i  functions: Beginning execution of "europe-west2-searchDestination"
+i  functions: Finished "europe-west2-searchDestination" in 3.635842ms
+i  functions: Beginning execution of "europe-west2-searchDestination"
+>  {"verifications":{"app":"MISSING","auth":"VALID"},"logging.googleapis.com/labels":{"firebase-log-type":"callable-request-verification"},"severity":"DEBUG","message":"Callable request verification passed"}
+  ✓   97 [mobile-chromium] › e2e/discover.spec.ts:138:1 › 6. a search that never answers times out on the client (23.0s)
+i  functions: Beginning execution of "europe-west2-searchDestination"
+i  functions: Finished "europe-west2-searchDestination" in 5.560958ms
+i  functions: Beginning execution of "europe-west2-searchDestination"
+>  {"verifications":{"app":"MISSING","auth":"VALID"},"logging.googleapis.com/labels":{"firebase-log-type":"callable-request-verification"},"severity":"DEBUG","message":"Callable request verification passed"}
+i  functions: Beginning execution of "europe-west2-searchDestination"
+>  {"verifications":{"app":"MISSING","auth":"VALID"},"logging.googleapis.com/labels":{"firebase-log-type":"callable-request-verification"},"severity":"DEBUG","message":"Callable request verification passed"}
+>  {"kind":"destination","uid":"ava-uid","householdId":"home","resultCount":10,"durationMs":0,"outcome":"ok","severity":"INFO","message":"discovery.search"}
+i  functions: Finished "europe-west2-searchDestination" in 53.775795ms
+>  {"kind":"destination","uid":"ava-uid","householdId":"home","resultCount":10,"durationMs":23517,"outcome":"ok","severity":"INFO","message":"discovery.search"}
+i  functions: Finished "europe-west2-searchDestination" in 25051.787136ms
+>  {"kind":"destination","uid":"ava-uid","householdId":"home","resultCount":1,"durationMs":3008,"outcome":"ok","severity":"INFO","message":"discovery.search"}
+i  functions: Finished "europe-west2-searchDestination" in 3072.135856ms
+  ✓   98 [mobile-chromium] › e2e/discover.spec.ts:147:1 › 7. a newer search supersedes a slower one; the late answer never replaces it (7.1s)
+i  functions: Beginning execution of "europe-west2-searchNearby"
+i  functions: Finished "europe-west2-searchNearby" in 5.500068ms
+i  functions: Beginning execution of "europe-west2-searchNearby"
+>  {"verifications":{"app":"MISSING","auth":"VALID"},"logging.googleapis.com/labels":{"firebase-log-type":"callable-request-verification"},"severity":"DEBUG","message":"Callable request verification passed"}
+>  {"kind":"nearby","uid":"ava-uid","householdId":"home","lat":51.51,"lng":-0.13,"resultCount":10,"durationMs":0,"outcome":"ok","severity":"INFO","message":"discovery.search"}
+i  functions: Finished "europe-west2-searchNearby" in 52.368251ms
+  ✓   99 [mobile-chromium] › e2e/discover.spec.ts:164:3 › Near me with location granted › 8. Near me searches around the granted position (2.1s)
+i  functions: Beginning execution of "europe-west2-searchDestination"
+i  functions: Finished "europe-west2-searchDestination" in 4.101245ms
+i  functions: Beginning execution of "europe-west2-searchDestination"
+>  {"verifications":{"app":"MISSING","auth":"VALID"},"logging.googleapis.com/labels":{"firebase-log-type":"callable-request-verification"},"severity":"DEBUG","message":"Callable request verification passed"}
+>  {"kind":"destination","uid":"ava-uid","householdId":"home","resultCount":10,"durationMs":0,"outcome":"ok","severity":"INFO","message":"discovery.search"}
+i  functions: Finished "europe-west2-searchDestination" in 46.848502ms
+  ✓  100 [mobile-chromium] › e2e/discover.spec.ts:172:1 › 9. Near me without permission shows the denied state and calls nothing (2.3s)
+i  functions: Beginning execution of "europe-west2-searchDestination"
+i  functions: Finished "europe-west2-searchDestination" in 11.755197ms
+i  functions: Beginning execution of "europe-west2-searchDestination"
+>  {"verifications":{"app":"MISSING","auth":"VALID"},"logging.googleapis.com/labels":{"firebase-log-type":"callable-request-verification"},"severity":"DEBUG","message":"Callable request verification passed"}
+>  {"kind":"destination","uid":"ava-uid","householdId":"home","resultCount":10,"durationMs":0,"outcome":"ok","severity":"INFO","message":"discovery.search"}
+i  functions: Finished "europe-west2-searchDestination" in 43.443825ms
+i  functions: Beginning execution of "europe-west2-searchDestination"
+>  {"verifications":{"app":"MISSING","auth":"VALID"},"logging.googleapis.com/labels":{"firebase-log-type":"callable-request-verification"},"severity":"DEBUG","message":"Callable request verification passed"}
+>  {"kind":"destination","uid":"ava-uid","householdId":"home","resultCount":10,"durationMs":0,"outcome":"ok","severity":"INFO","message":"discovery.search"}
+i  functions: Finished "europe-west2-searchDestination" in 43.707912ms
+  ✓  101 [mobile-chromium] › e2e/discover.spec.ts:183:1 › 10. Add to our records carries only the place id; the member types name and address; the saved record links to Google Maps and the result shows In our records (2.7s)
+[WebServer] 9:25:14 PM [vite] (client) [console.warn] [2026-09-24T20:25:14.307Z]  @firebase/firestore: Firestore (12.19.0): WebChannelConnection RPC 'Listen' stream 0x150b488a transport errored. Name: undefined Message: undefined
+[WebServer] 9:25:14 PM [vite] (client) [console.warn] [2026-09-24T20:25:14.315Z]  @firebase/firestore: Firestore (12.19.0): WebChannelConnection RPC 'Listen' stream 0x150b488b transport errored. Name: undefined Message: undefined
+  ✓  102 [mobile-chromium] › e2e/discover.spec.ts:210:1 › 11. searching while offline is refused without a request; a seeded record's Maps link needs no network (3.4s)
+i  functions: Beginning execution of "europe-west2-searchDestination"
+i  functions: Finished "europe-west2-searchDestination" in 4.820776ms
+i  functions: Beginning execution of "europe-west2-searchDestination"
+>  {"verifications":{"app":"MISSING","auth":"VALID"},"logging.googleapis.com/labels":{"firebase-log-type":"callable-request-verification"},"severity":"DEBUG","message":"Callable request verification passed"}
+>  {"kind":"destination","uid":"ava-uid","householdId":"home","resultCount":0,"durationMs":0,"outcome":"ok","severity":"INFO","message":"discovery.search"}
+i  functions: Finished "europe-west2-searchDestination" in 37.417944ms
+  ✓  103 [mobile-chromium] › e2e/discover.spec.ts:222:1 › 12. a late location after a newer destination search never supersedes it (audit F1) (2.3s)
+i  functions: Beginning execution of "europe-west2-whoami"
+i  functions: Finished "europe-west2-whoami" in 14.996103ms
+i  functions: Beginning execution of "europe-west2-whoami"
+>  {"verifications":{"app":"MISSING","auth":"VALID"},"logging.googleapis.com/labels":{"firebase-log-type":"callable-request-verification"},"severity":"DEBUG","message":"Callable request verification passed"}
+i  functions: Finished "europe-west2-whoami" in 22.004881ms
+  ✓  104 [mobile-chromium] › e2e/discover.spec.ts:236:1 › 13. leaving Discover before the position resolves never starts a paid search (audit F1) (4.2s)
+i  functions: Beginning execution of "europe-west2-searchDestination"
+i  functions: Finished "europe-west2-searchDestination" in 4.592908ms
+i  functions: Beginning execution of "europe-west2-searchDestination"
+>  {"verifications":{"app":"MISSING","auth":"VALID"},"logging.googleapis.com/labels":{"firebase-log-type":"callable-request-verification"},"severity":"DEBUG","message":"Callable request verification passed"}
+>  {"kind":"destination","uid":"ava-uid","householdId":"home","resultCount":10,"durationMs":0,"outcome":"ok","severity":"INFO","message":"discovery.search"}
+i  functions: Finished "europe-west2-searchDestination" in 44.548884ms
+  ✓  105 [mobile-chromium] › e2e/discover.spec.ts:249:1 › 14. nothing Google-derived reaches browser history when a result is added but not saved (audit F2) (3.0s)
+  ✓  106 [mobile-chromium] › e2e/records.spec.ts:37:1 › 1. a member adds a restaurant and sees it with six unknown kinds and the call-ahead prompts (2.5s)
+  ✓  107 [mobile-chromium] › e2e/records.spec.ts:58:1 › 2. evidence: accreditation needs a link; current, needs-rechecking and conflicting states render (4.9s)
+  ✓  108 [mobile-chromium] › e2e/records.spec.ts:97:1 › 3. a stale draft is told the restaurant changed elsewhere, its save conflicts, and Reload draft shows the other member's values (6.2s)
+  ✓  109 [mobile-chromium] › e2e/records.spec.ts:123:1 › 4. deleting a restaurant with evidence leaves nothing behind; a concurrent Add evidence sees not-found (7.9s)
+  ✓  110 [mobile-chromium] › e2e/records.spec.ts:152:1 › 5. an interrupted deletion (marked, not swept) is finished from the list (2.8s)
+  ✓  111 [mobile-chromium] › e2e/records.spec.ts:167:1 › 6. saving while offline is refused, nothing is queued, and nothing appears after reconnecting (3.6s)
+i  functions: Beginning execution of "europe-west2-whoami"
+i  functions: Finished "europe-west2-whoami" in 6.666011ms
+i  functions: Beginning execution of "europe-west2-whoami"
+>  {"verifications":{"app":"MISSING","auth":"VALID"},"logging.googleapis.com/labels":{"firebase-log-type":"callable-request-verification"},"severity":"DEBUG","message":"Callable request verification passed"}
+i  functions: Finished "europe-west2-whoami" in 20.359291ms
+  ✓  112 [mobile-chromium] › e2e/records.spec.ts:182:1 › 7. after an account switch no record of the previous member is rendered and no page error fires (4.0s)
+  ✓  113 [mobile-chromium] › e2e/records.spec.ts:200:1 › 8. live replacement evidence needs its own delete confirmation (3.4s)
+  ✓  114 [mobile-chromium] › e2e/records.spec.ts:222:1 › 9. malformed website and evidence URLs show field errors and can be corrected (3.9s)
+
+  114 passed (8.1m)
+✔  Script exited successfully (code 0)
+i  emulators: Shutting down emulators.
+i  functions: Stopping Functions Emulator
+i  firestore: Stopping Firestore Emulator
+i  auth: Stopping Authentication Emulator
+i  eventarc: Stopping Eventarc Emulator
+i  tasks: Stopping Cloud Tasks Emulator
+i  hub: Stopping emulator hub
+i  logging: Stopping Logging Emulator

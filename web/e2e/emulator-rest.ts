@@ -23,14 +23,19 @@ async function del(request: APIRequestContext, docPath: string): Promise<void> {
   if (!res.ok()) throw new Error(`delete ${docPath}: ${res.status()} ${await res.text()}`);
 }
 
-/** Removes every restaurant (and its claims) under households/home. Seeds (users/households) are untouched. */
+/** Removes every restaurant (with its claims and notes) and every collection document under households/home. Seeds (users/households) are untouched. */
 export async function clearRecords(request: APIRequestContext): Promise<void> {
   for (const r of await listDocs(request, "households/home/restaurants")) {
     const rid = idOf(r);
-    for (const c of await listDocs(request, `households/home/restaurants/${rid}/claims`)) {
-      await del(request, `households/home/restaurants/${rid}/claims/${idOf(c)}`);
+    for (const sub of ["claims", "notes"]) {
+      for (const c of await listDocs(request, `households/home/restaurants/${rid}/${sub}`)) {
+        await del(request, `households/home/restaurants/${rid}/${sub}/${idOf(c)}`);
+      }
     }
     await del(request, `households/home/restaurants/${rid}`);
+  }
+  for (const s of await listDocs(request, "households/home/collection")) {
+    await del(request, `households/home/collection/${idOf(s)}`);
   }
 }
 
@@ -148,4 +153,95 @@ export async function getRestaurant(request: APIRequestContext, rid: string): Pr
     else out[key] = value;
   }
   return out;
+}
+
+const MEMBERS: Record<string, string> = { "ava-uid": "Ava", "bogdan-uid": "Bogdan" };
+
+export async function seedNote(request: APIRequestContext, rid: string, id: string, over: { authorUid?: string; text?: string; version?: number } = {}): Promise<void> {
+  const authorUid = over.authorUid ?? "ava-uid";
+  const res = await request.post(`${BASE}/households/home/restaurants/${rid}/notes?documentId=${id}`, {
+    headers: HEADERS,
+    data: {
+      fields: {
+        text: s(over.text ?? `Seeded note ${id}`),
+        authorUid: s(authorUid),
+        authorName: s(MEMBERS[authorUid] ?? "Unknown"),
+        createdAt: ts("2026-09-01T10:00:00Z"),
+        updatedAt: ts("2026-09-01T10:00:00Z"),
+        version: { integerValue: String(over.version ?? 1) },
+      },
+    },
+  });
+  if (!res.ok()) throw new Error(`seedNote ${rid}/${id}: ${res.status()} ${await res.text()}`);
+}
+
+export async function seedCollection(request: APIRequestContext, rid: string, over: { shortlisted?: boolean; visitedOn?: string; version?: number } = {}): Promise<void> {
+  const fields: Record<string, unknown> = {
+    shortlisted: { booleanValue: over.shortlisted ?? true },
+    visited: { booleanValue: over.visitedOn !== undefined },
+    updatedBy: s("ava-uid"),
+    updatedByName: s("Ava"),
+    updatedAt: ts("2026-09-01T10:00:00Z"),
+    version: { integerValue: String(over.version ?? 1) },
+  };
+  if (over.visitedOn !== undefined) fields.visitedOn = ts(`${over.visitedOn}T00:00:00Z`);
+  const res = await request.post(`${BASE}/households/home/collection?documentId=${rid}`, { headers: HEADERS, data: { fields } });
+  if (!res.ok()) throw new Error(`seedCollection ${rid}: ${res.status()} ${await res.text()}`);
+}
+
+export async function listNoteIds(request: APIRequestContext, rid: string): Promise<string[]> {
+  return (await listDocs(request, `households/home/restaurants/${rid}/notes`)).map(idOf);
+}
+
+export async function collectionExists(request: APIRequestContext, rid: string): Promise<boolean> {
+  const res = await request.get(`${BASE}/households/home/collection/${rid}`, { headers: HEADERS });
+  return res.status() === 200;
+}
+
+/** Models the same member editing the note on another device. */
+export async function updateNoteViaRest(request: APIRequestContext, rid: string, nid: string, text: string, version: number): Promise<void> {
+  const url = `${BASE}/households/home/restaurants/${rid}/notes/${nid}?updateMask.fieldPaths=text&updateMask.fieldPaths=version&updateMask.fieldPaths=updatedAt`;
+  const res = await request.patch(url, {
+    headers: HEADERS,
+    data: { fields: { text: s(text), version: { integerValue: String(version) }, updatedAt: ts(new Date().toISOString()) } },
+  });
+  if (!res.ok()) throw new Error(`updateNote ${rid}/${nid}: ${res.status()} ${await res.text()}`);
+}
+
+/** Models a Plan 3-era client that swept claims and then had its final delete refused by the gate. */
+export async function sweepClaimsViaRest(request: APIRequestContext, rid: string): Promise<void> {
+  for (const c of await listDocs(request, `households/home/restaurants/${rid}/claims`)) {
+    await del(request, `households/home/restaurants/${rid}/claims/${idOf(c)}`);
+  }
+}
+
+/**
+ * Models Bogdan saving a visit date on his own device: writes the whole collection document
+ * (creating it when missing) as `version`, attributed to Bogdan.
+ */
+export async function writeVisitedByBogdanViaRest(request: APIRequestContext, rid: string, visitedOn: string, version: number): Promise<void> {
+  const res = await request.patch(`${BASE}/households/home/collection/${rid}`, {
+    headers: HEADERS,
+    data: {
+      fields: {
+        shortlisted: { booleanValue: false },
+        visited: { booleanValue: true },
+        visitedOn: ts(`${visitedOn}T00:00:00Z`),
+        updatedBy: s("bogdan-uid"),
+        updatedByName: s("Bogdan"),
+        updatedAt: ts(new Date().toISOString()),
+        version: { integerValue: String(version) },
+      },
+    },
+  });
+  if (!res.ok()) throw new Error(`writeVisitedByBogdan ${rid}: ${res.status()} ${await res.text()}`);
+}
+
+/** The stored visit date (UTC ISO timestamp) and version of one collection document, or null when missing. */
+export async function getCollectionVisit(request: APIRequestContext, rid: string): Promise<{ visitedOn: string | null; version: number; updatedByName: string } | null> {
+  const res = await request.get(`${BASE}/households/home/collection/${rid}`, { headers: HEADERS });
+  if (res.status() === 404) return null;
+  if (!res.ok()) throw new Error(`getCollectionVisit ${rid}: ${res.status()} ${await res.text()}`);
+  const f = ((await res.json()) as RestDoc).fields as Record<string, { timestampValue?: string; integerValue?: string; stringValue?: string }>;
+  return { visitedOn: f.visitedOn?.timestampValue ?? null, version: Number(f.version?.integerValue), updatedByName: f.updatedByName?.stringValue ?? "" };
 }

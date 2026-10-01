@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { abortable, callable, isAbortError } from "../api/callable";
 import { useAuth } from "../auth/AuthProvider";
+import { ChangePasswordForm } from "./ChangePasswordForm";
 
 interface WhoAmI {
   uid: string;
@@ -39,6 +40,7 @@ export function SettingsPage() {
         </p>
       )}
       {error && <p role="alert">{error}</p>}
+      <ChangePasswordForm />
       <button data-testid="signout" type="button" onClick={() => void signOut()}>Sign out</button>
     </section>
   );

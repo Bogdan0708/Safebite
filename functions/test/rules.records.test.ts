@@ -114,6 +114,7 @@ describe("restaurants — create", () => {
     ["client-supplied createdAt", { createdAt: new Date() }],
     ["client-supplied updatedAt", { updatedAt: new Date() }],
     ["missing deleting flag", { deleting: undefined }],
+    ["cleanupDone is set on create", { cleanupDone: false }],
   ])("rejects a create where %s", async (_label, over) => {
     const data = restaurantCreate("ava", over);
     for (const key of Object.keys(data)) if (data[key] === undefined) delete data[key];
@@ -170,10 +171,49 @@ describe("restaurants — delete", () => {
     await assertFails(deleteDoc(doc(as("ava"), p)));
   });
 
-  it("accepts deleting a marked restaurant by either member, never by a non-member", async () => {
-    const p = await seedRestaurant("r1", { deleting: true });
+  it("accepts deleting a marked, cleaned-up restaurant by either member, never by a non-member", async () => {
+    const p = await seedRestaurant("r1", { deleting: true, cleanupDone: true });
     await assertFails(deleteDoc(doc(as("stranger"), p)));
     await assertSucceeds(deleteDoc(doc(as("bogdan"), p)));
+  });
+});
+
+describe("restaurants — deletion completion gate (spec §3.7, audit F1)", () => {
+  it("rejects adding cleanupDone through an ordinary update or together with the deleting mark", async () => {
+    const p = await seedRestaurant("r1");
+    await assertFails(updateDoc(doc(as("ava"), p), { name: "x", cleanupDone: true, version: 4, updatedAt: serverTimestamp() }));
+    await assertFails(updateDoc(doc(as("ava"), p), { deleting: true, cleanupDone: true, version: 4, updatedAt: serverTimestamp() }));
+  });
+
+  it("accepts marking cleanup done on a restaurant marked deleting (only cleanupDone, version, updatedAt)", async () => {
+    const p = await seedRestaurant("r1", { deleting: true, version: 4 });
+    await assertSucceeds(updateDoc(doc(as("bogdan"), p), { cleanupDone: true, version: 5, updatedAt: serverTimestamp() }));
+  });
+
+  it.each([
+    ["the restaurant is live", { deleting: false, version: 4 }, { cleanupDone: true, version: 5, updatedAt: serverTimestamp() }],
+    ["the version is stale", { deleting: true, version: 4 }, { cleanupDone: true, version: 4, updatedAt: serverTimestamp() }],
+    ["cleanupDone is false", { deleting: true, version: 4 }, { cleanupDone: false, version: 5, updatedAt: serverTimestamp() }],
+    ["another field changes too", { deleting: true, version: 4 }, { cleanupDone: true, name: "x", version: 5, updatedAt: serverTimestamp() }],
+    ["updatedAt is client-supplied", { deleting: true, version: 4 }, { cleanupDone: true, version: 5, updatedAt: new Date() }],
+    ["it is already done", { deleting: true, cleanupDone: true, version: 4 }, { cleanupDone: true, version: 5, updatedAt: serverTimestamp() }],
+  ])("rejects marking cleanup done when %s", async (_label, seeded, patch) => {
+    const p = await seedRestaurant("r1", seeded);
+    await assertFails(updateDoc(doc(as("ava"), p), patch));
+  });
+
+  it("refuses the final delete until cleanupDone is set and the collection document is gone", async () => {
+    const p = await seedRestaurant("r1", { deleting: true });
+    await assertFails(deleteDoc(doc(as("ava"), p))); // a Plan 3-era finisher stops here
+    await seedRestaurant("r1", { deleting: true, cleanupDone: true });
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), "households/home/collection/r1"), { shortlisted: true, visited: false, updatedBy: "ava", updatedByName: "Ava", updatedAt: new Date(), version: 1 });
+    });
+    await assertFails(deleteDoc(doc(as("ava"), p)));
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      await deleteDoc(doc(ctx.firestore(), "households/home/collection/r1"));
+    });
+    await assertSucceeds(deleteDoc(doc(as("ava"), p)));
   });
 });
 

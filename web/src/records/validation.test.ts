@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ClaimInput } from "./types";
-import { LIMITS, isHttpUrl, normaliseRestaurantInput, validateClaimInput, validateRestaurantInput } from "./validation";
+import { LIMITS, isHttpUrl, normaliseRestaurantInput, validateClaimInput, validateNoteText, validateRestaurantInput, validateVisitedOn } from "./validation";
 
 // URL() repairs these spellings, but forms must require an explicit web address.
 const MALFORMED_HTTP_URLS = [
@@ -103,5 +103,24 @@ describe("validateClaimInput", () => {
     expect(errors.kind).toBeDefined();
     expect(errors.value).toBeDefined();
     expect(errors.sourceType).toBeDefined();
+  });
+});
+
+describe("validateNoteText", () => {
+  it("refuses blank text and text over the limit, accepts up to 2,000 characters after trimming", () => {
+    expect(validateNoteText("   ")).toBe("Write something first.");
+    expect(validateNoteText("x".repeat(2001))).toBe("Keep this to 2000 characters.");
+    expect(validateNoteText(`  ${"x".repeat(2000)}  `)).toBeNull();
+    expect(validateNoteText("Lovely staff")).toBeNull();
+  });
+});
+
+describe("validateVisitedOn", () => {
+  it("needs a real calendar date that is not after the device's today", () => {
+    expect(validateVisitedOn("", "2026-09-24")).toBe("Enter the date of the visit.");
+    expect(validateVisitedOn("2026-02-30", "2026-09-24")).toBe("Enter the date of the visit.");
+    expect(validateVisitedOn("2026-09-25", "2026-09-24")).toBe("The visit date can't be in the future.");
+    expect(validateVisitedOn("2026-09-24", "2026-09-24")).toBeNull();
+    expect(validateVisitedOn("2025-05-03", "2026-09-24")).toBeNull();
   });
 });

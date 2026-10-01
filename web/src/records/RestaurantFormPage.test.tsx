@@ -179,6 +179,16 @@ describe("RestaurantFormPage — edit", () => {
     expect(screen.queryByTestId("delete-confirm")).not.toBeInTheDocument();
     expect(screen.getByTestId("delete-restaurant")).toBeDisabled();
   });
+
+  it("names notes in the delete confirmation and reports a failed delete with the delete verb", async () => {
+    m.deleteRestaurant.mockResolvedValue({ kind: "failed", message: "x" });
+    renderAt("/restaurants/r1/edit");
+    act(() => emit({ status: "ready", value: stored }));
+    await userEvent.click(screen.getByTestId("delete-restaurant"));
+    expect(screen.getByTestId("delete-question")).toHaveTextContent("Deletes the restaurant, its evidence, and both members' notes.");
+    await userEvent.click(screen.getByTestId("delete-confirm"));
+    await waitFor(() => expect(screen.getByTestId("save-outcome")).toHaveTextContent("Could not delete this restaurant. Try again."));
+  });
 });
 
 function renderCreateWithState(state: unknown) {

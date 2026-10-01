@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+set -euo pipefail
+# Called by firebase emulators:exec, after the normal browser suite has stopped.
+(cd web && exec node node_modules/vite/bin/vite.js --host 127.0.0.1) > /tmp/safebite-plan4-probe-vite.log 2>&1 &
+audit_vite_pid=$!
+trap 'kill "$audit_vite_pid" 2>/dev/null || true; wait "$audit_vite_pid" 2>/dev/null || true' EXIT
+node --input-type=module -e 'for (let i = 0; i < 100; i++) { try { const r = await fetch("http://127.0.0.1:5173/"); if(r.ok) process.exit(0); } catch {} await new Promise(r => setTimeout(r, 100)); } process.exit(1)'
+node /tmp/safebite-plan4-visited-probe.mjs
+node /tmp/safebite-plan4-password-probe.mjs

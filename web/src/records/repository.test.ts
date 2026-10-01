@@ -33,14 +33,19 @@ import {
   addClaim,
   createRestaurant,
   deleteRestaurant,
+  finishDeleting,
+  markCleanupDone,
   markDeleting,
+  removeCollectionState,
   sweepClaims,
+  sweepNotes,
   toClaim,
   toRestaurant,
   updateRestaurant,
   watchRestaurant,
   watchRestaurants,
 } from "./repository";
+import { memoryPage, memoryTransactions, type Store } from "../test/memoryFirestore";
 
 function fakeTx(getResult: { exists: boolean; data?: Record<string, unknown> }) {
   const tx = {
@@ -189,13 +194,75 @@ describe("deletion protocol", () => {
     expect(m.getDocsFromServer).toHaveBeenCalledTimes(2);
   });
 
-  it("deleteRestaurant runs mark → sweep → remove and reports progress; stops at the first non-ok outcome", async () => {
+  const RP = "households/home/restaurants/r1";
+
+  function doomedStore(over: Record<string, unknown> = {}): Store {
+    return new Map<string, Record<string, unknown>>([
+      [RP, { ...storedRestaurant, deleting: true, version: 4, ...over }],
+      [`${RP}/claims/c1`, { kind: "gfMenu" }],
+      [`${RP}/claims/c2`, { kind: "separateFryer" }],
+      [`${RP}/notes/n1`, { text: "Ava's", authorUid: "ava-uid" }],
+      [`${RP}/notes/n2`, { text: "Bogdan's", authorUid: "bogdan-uid" }],
+      ["households/home/collection/r1", { shortlisted: true, visited: false, version: 2 }],
+    ]);
+  }
+
+  it("finishDeleting sweeps claims and notes, removes the state document, marks cleanupDone, then removes the restaurant", async () => {
+    const store = doomedStore();
+    const tx = memoryTransactions(m.runTransaction, store);
+    m.getDocsFromServer.mockImplementation(async (q: { path: string }) => memoryPage(store, q.path));
     const steps: string[] = [];
-    const tx = fakeTx({ exists: true, data: storedRestaurant });
-    m.getDocsFromServer.mockResolvedValue({ size: 0, empty: true, docs: [] });
+    expect(await finishDeleting("home", "r1", (s) => steps.push(s))).toEqual({ kind: "ok", value: undefined });
+    expect(steps).toEqual(["sweeping", "sweepingNotes", "removing"]);
+    expect(store.size).toBe(0);
+    expect(tx.update).toHaveBeenCalledWith({ id: "r1", path: RP }, { cleanupDone: true, version: 5, updatedAt: serverTimestamp() });
+    const updateOrder = tx.update.mock.invocationCallOrder[0]!;
+    const restaurantDelete = tx.delete.mock.calls.findIndex(([ref]) => (ref as { path: string }).path === RP);
+    expect(tx.delete.mock.invocationCallOrder[restaurantDelete]!).toBeGreaterThan(updateOrder);
+  });
+
+  it("sweeps skip documents another sweeper already removed instead of failing", async () => {
+    const store = doomedStore();
+    const tx = memoryTransactions(m.runTransaction, store);
+    store.delete(`${RP}/notes/n2`); // removed between the page read and this transaction
+    m.getDocsFromServer
+      .mockResolvedValueOnce({ empty: false, size: 2, docs: [{ id: "n1", ref: { id: "n1", path: `${RP}/notes/n1` } }, { id: "n2", ref: { id: "n2", path: `${RP}/notes/n2` } }] })
+      .mockResolvedValueOnce({ empty: true, size: 0, docs: [] });
+    expect(await sweepNotes("home", "r1")).toEqual({ kind: "ok", value: 1 });
+    expect(tx.delete).toHaveBeenCalledTimes(1);
+  });
+
+  it("finishing an already-removed restaurant is a no-op, not a failure", async () => {
+    const store: Store = new Map();
+    const tx = memoryTransactions(m.runTransaction, store);
+    m.getDocsFromServer.mockImplementation(async (q: { path: string }) => memoryPage(store, q.path));
+    expect(await finishDeleting("home", "r1")).toEqual({ kind: "ok", value: undefined });
+    expect(tx.update).not.toHaveBeenCalled();
+    expect(tx.delete).not.toHaveBeenCalled();
+  });
+
+  it("markCleanupDone refuses a live restaurant and does nothing when already set", async () => {
+    memoryTransactions(m.runTransaction, new Map([[RP, { ...storedRestaurant }]]));
+    expect(await markCleanupDone("home", "r1")).toEqual({ kind: "notFound" });
+    const tx = memoryTransactions(m.runTransaction, new Map([[RP, { ...storedRestaurant, deleting: true, cleanupDone: true }]]));
+    expect(await markCleanupDone("home", "r1")).toEqual({ kind: "ok", value: undefined });
+    expect(tx.update).not.toHaveBeenCalled();
+  });
+
+  it("removeCollectionState deletes only a document that exists", async () => {
+    const tx = memoryTransactions(m.runTransaction, new Map());
+    expect(await removeCollectionState("home", "r1")).toEqual({ kind: "ok", value: undefined });
+    expect(tx.delete).not.toHaveBeenCalled();
+  });
+
+  it("deleteRestaurant runs mark → sweeps → remove and reports every step; stops at the first non-ok outcome", async () => {
+    const store = doomedStore({ deleting: false, version: 3 });
+    memoryTransactions(m.runTransaction, store);
+    m.getDocsFromServer.mockImplementation(async (q: { path: string }) => memoryPage(store, q.path));
+    const steps: string[] = [];
     expect(await deleteRestaurant("home", "r1", 3, (s) => steps.push(s))).toEqual({ kind: "ok", value: undefined });
-    expect(steps).toEqual(["marking", "sweeping", "removing"]);
-    expect(tx.delete).toHaveBeenCalledTimes(1); // the restaurant document
+    expect(steps).toEqual(["marking", "sweeping", "sweepingNotes", "removing"]);
+    expect(store.size).toBe(0);
 
     const stopped: string[] = [];
     fakeTx({ exists: true, data: { ...storedRestaurant, version: 9 } });

@@ -8,7 +8,7 @@ const utcDay = () => new Date().toISOString().slice(0, 10).replace(/-/g, "");
 
 async function signIn(page: Page, email: string) {
   await page.goto("/");
-  await expect(page.getByTestId("signin-form")).toBeVisible();
+  await expect(page.getByTestId("signin-form")).toBeVisible({ timeout: 15_000 });
   await page.getByTestId("signin-email").fill(email);
   await page.getByTestId("signin-password").fill(PASSWORD);
   await page.getByTestId("signin-submit").click();
@@ -149,7 +149,10 @@ test("7. a newer search supersedes a slower one; the late answer never replaces 
   await search(page, MAGIC.delayed);
   await expect(stateOf(page)).toHaveAttribute("data-status", "searching");
   await search(page, "pizza");
-  await expect(page.getByTestId("discover-result")).toHaveCount(10);
+  // The Functions emulator's AUTO mode cold-spawns a second worker while __delayed__ holds the
+  // warm one (and scenario 6's __slow__ may still hold another), so this second search's results
+  // can take longer than the default 5 s expect timeout.
+  await expect(page.getByTestId("discover-result")).toHaveCount(10, { timeout: 30_000 });
   await page.waitForTimeout(4_500); // longer than the fixture's 3 s delay
   await expect(page.getByTestId("discover-result")).toHaveCount(10);
   await expect(page.getByText("Delayed Diner")).toHaveCount(0);

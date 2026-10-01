@@ -93,3 +93,29 @@ export interface Author {
   uid: string;
   displayName: string;
 }
+
+/**
+ * Read model of households/{hid}/collection/{rid} (spec §3.7): household-wide shortlist and
+ * visited state. A missing document means not shortlisted, not visited, version 0, but only
+ * when the snapshot came from the server.
+ */
+export interface CollectionState {
+  shortlisted: boolean;
+  visited: boolean;
+  visitedOn?: CalendarDate;
+  updatedBy: string;
+  updatedByName: string;
+  updatedAt: Date;
+  version: number;
+}
+
+/** Read model of households/{hid}/restaurants/{rid}/notes/{nid}. Personal notes, never evidence. */
+export interface Note {
+  id: string;
+  text: string;
+  authorUid: string;
+  authorName: string;
+  createdAt: Date;
+  updatedAt: Date;
+  version: number;
+}
