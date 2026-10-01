@@ -36,6 +36,19 @@ describe("DeletionRecoveryScreen", () => {
     expect(screen.getByTestId("finish-submit")).toHaveTextContent("Finish deleting");
   });
 
+  it("unfinished and signed in: shows the account and Sign out clears the key", async () => {
+    writeDeletionRequest("R");
+    m.currentUser = { uid: "u", email: "ava@x" };
+    m.checkDeletion.mockResolvedValue({ ok: true, status: "started" });
+    const onDismiss = vi.fn();
+    render(<DeletionRecoveryScreen requestId="R" onDismiss={onDismiss} />);
+    expect(await screen.findByTestId("recovery-account")).toHaveTextContent("Signed in as ava@x");
+    await userEvent.click(screen.getByTestId("recovery-signout"));
+    expect(readDeletionRequest()).toBeNull();
+    expect(m.signOut).toHaveBeenCalled();
+    expect(onDismiss).toHaveBeenCalled();
+  });
+
   it("unfinished and signed out: Sign in clears the key and dismisses", async () => {
     writeDeletionRequest("R");
     m.checkDeletion.mockResolvedValue({ ok: true, status: "dataDeleted" });
@@ -50,7 +63,7 @@ describe("DeletionRecoveryScreen", () => {
     m.checkDeletion.mockResolvedValueOnce({ ok: false }).mockResolvedValueOnce({ ok: true, status: "complete" });
     render(<DeletionRecoveryScreen requestId="R" onDismiss={vi.fn()} />);
     expect(await screen.findByTestId("recovery-uncertain")).toHaveTextContent("We couldn't confirm whether your account was deleted.");
-    expect(screen.queryByRole("textbox")).toBeNull();
+    expect(screen.queryByTestId("finish-password")).toBeNull();
     await userEvent.click(screen.getByTestId("recovery-check-again"));
     await waitFor(() => expect(m.finishDeleted).toHaveBeenCalledTimes(1));
     expect(m.checkDeletion).toHaveBeenCalledTimes(2);

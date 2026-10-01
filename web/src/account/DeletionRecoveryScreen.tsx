@@ -12,6 +12,7 @@ import { clearDeletionRequest } from "./storage";
  */
 export function DeletionRecoveryScreen({ requestId, onDismiss }: { requestId: string; onDismiss: () => void }) {
   const [view, setView] = useState<RecoveryView | "checking">("checking");
+  const [email, setEmail] = useState<string | null>(null);
 
   const check = useCallback(() => {
     setView("checking");
@@ -19,6 +20,7 @@ export function DeletionRecoveryScreen({ requestId, onDismiss }: { requestId: st
       const result = await checkDeletion(requestId);
       await auth.authStateReady();
       const next = recoveryView(result, auth.currentUser !== null);
+      setEmail(auth.currentUser?.email ?? null);
       setView(next);
       if (next === "success") await finishDeleted();
     })();
@@ -41,7 +43,9 @@ export function DeletionRecoveryScreen({ requestId, onDismiss }: { requestId: st
       {view === "unfinishedSignedIn" && (
         <section data-testid="recovery-unfinished">
           <p>Your account deletion didn't finish.</p>
+          <p data-testid="recovery-account">Signed in as {email ?? "an unknown account"}</p>
           <DeletePasswordForm submitLabel="Finish deleting" testid="finish" />
+          <button type="button" data-testid="recovery-signout" onClick={() => void leave()}>Sign out</button>
         </section>
       )}
       {view === "unfinishedSignedOut" && (
