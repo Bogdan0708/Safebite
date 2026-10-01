@@ -1,4 +1,5 @@
 import { useState, type SubmitEvent } from "react";
+import { deletedNoticeOnce } from "../account/deletedNotice";
 import { useAuth } from "./AuthProvider";
 
 function messageFor(code: string | undefined): string {
@@ -22,6 +23,7 @@ export function SignInScreen() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [notice] = useState(deletedNoticeOnce);
 
   async function onSubmit(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -39,6 +41,11 @@ export function SignInScreen() {
   return (
     <main className="screen">
       <h1>SafeBite</h1>
+      {notice && (
+        <p role="status" data-testid="signin-deleted-notice">
+          {notice === "ok" ? "Your account has been deleted." : "Your account has been deleted. Some data on this device couldn't be cleared."}
+        </p>
+      )}
       <p>Private gluten-free restaurant research. Sign in with your invited account.</p>
       <form data-testid="signin-form" onSubmit={onSubmit}>
         <label>

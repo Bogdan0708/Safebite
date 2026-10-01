@@ -1,3 +1,4 @@
+import { DeleteAccountPage } from "./account/DeleteAccountPage";
 import { NavLink, Navigate, Route, Routes } from "react-router";
 import { DiscoverPage } from "./discover/DiscoverPage";
 import { ClaimFormPage } from "./records/ClaimFormPage";
@@ -22,6 +23,7 @@ export function AppShell() {
           <Route path="/restaurants/:rid/edit" element={<RestaurantFormPage mode="edit" />} />
           <Route path="/restaurants/:rid" element={<RestaurantDetailPage />} />
           <Route path="/restaurants/:rid/evidence/new" element={<ClaimFormPage />} />
+          <Route path="/settings/delete-account" element={<DeleteAccountPage />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="*" element={<Navigate to="/discover" replace />} />
         </Routes>

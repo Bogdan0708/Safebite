@@ -1,5 +1,6 @@
 import { StrictMode } from "react";
 import { render, screen, waitFor } from "@testing-library/react";
+import { MemoryRouter } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const { whoamiCalls } = vi.hoisted(() => ({ whoamiCalls: vi.fn() }));
@@ -21,18 +22,23 @@ beforeEach(() => whoamiCalls.mockClear());
 
 describe("SettingsPage", () => {
   it("issues exactly one whoami request even when StrictMode double-runs the effect", async () => {
-    render(<StrictMode><SettingsPage /></StrictMode>);
+    render(<StrictMode><MemoryRouter><SettingsPage /></MemoryRouter></StrictMode>);
     await waitFor(() => expect(screen.getByTestId("whoami")).toHaveTextContent("Ava"));
     expect(whoamiCalls).toHaveBeenCalledTimes(1);
   });
 
   it("shows the server's household confirmation", async () => {
-    render(<SettingsPage />);
+    render(<MemoryRouter><SettingsPage /></MemoryRouter>);
     await waitFor(() => expect(screen.getByTestId("whoami")).toHaveTextContent('household “home”'));
   });
 
   it("offers the change-password form", () => {
-    render(<SettingsPage />);
+    render(<MemoryRouter><SettingsPage /></MemoryRouter>);
     expect(screen.getByTestId("pw-form")).toBeInTheDocument();
+  });
+
+  it("links to the delete-account page", () => {
+    render(<MemoryRouter><SettingsPage /></MemoryRouter>);
+    expect(screen.getByTestId("delete-account-link")).toHaveAttribute("href", "/settings/delete-account");
   });
 });

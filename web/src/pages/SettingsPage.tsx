@@ -1,3 +1,4 @@
+import { Link } from "react-router";
 import { useEffect, useRef, useState } from "react";
 import { abortable, callable, isAbortError } from "../api/callable";
 import { useAuth } from "../auth/AuthProvider";
@@ -41,6 +42,7 @@ export function SettingsPage() {
       )}
       {error && <p role="alert">{error}</p>}
       <ChangePasswordForm />
+      <p><Link to="/settings/delete-account" data-testid="delete-account-link">Delete account</Link></p>
       <button data-testid="signout" type="button" onClick={() => void signOut()}>Sign out</button>
     </section>
   );
