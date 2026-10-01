@@ -25,6 +25,24 @@ export interface DeletionDeps {
 
 type Start = { kind: "record"; householdId: string } | { kind: "authOnly" };
 
+/** The record is deleted only by step 5, so its absence means another call finished steps 1-5. */
+class RecordGone extends Error {}
+
+async function readRecord(ref: DocumentReference): Promise<Record<string, unknown>> {
+  const snap = await ref.get();
+  if (!snap.exists) throw new RecordGone();
+  return snap.data() ?? {};
+}
+
+async function stamp(ref: DocumentReference, data: Record<string, unknown>): Promise<void> {
+  try {
+    await ref.update(data);
+  } catch (err) {
+    if ((err as { code?: number | string }).code === 5) throw new RecordGone();
+    throw err;
+  }
+}
+
 const notMember = () => new HttpsError("permission-denied", "This account is not a household member.");
 
 export async function runDeletion(deps: DeletionDeps, uid: string, receiptId: string): Promise<{ lastMember: boolean }> {
@@ -55,41 +73,49 @@ export async function runDeletion(deps: DeletionDeps, uid: string, receiptId: st
   if (start.kind === "record") {
     const householdRef = db.doc(`households/${start.householdId}`);
 
-    // Step 2: leave the household; lastMember is decided once, in the same transaction.
-    let record = (await recordRef.get()).data() ?? {};
-    if (record.step2At === undefined) {
-      await hook("step2");
-      lastMember = await db.runTransaction(async (tx) => {
-        const current = await tx.get(recordRef);
-        if (current.get("step2At") !== undefined) return current.get("lastMember") === true;
-        const household = await tx.get(householdRef);
-        const ids: unknown = household.get("memberIds");
-        const memberIds = Array.isArray(ids) ? ids.filter((x): x is string => typeof x === "string") : [];
-        const remaining = memberIds.filter((x) => x !== uid);
-        if (household.exists && remaining.length !== memberIds.length) tx.update(householdRef, { memberIds: remaining });
-        const last = remaining.length === 0;
-        tx.update(recordRef, { lastMember: last, step2At: FieldValue.serverTimestamp() });
-        return last;
-      });
-    } else {
-      lastMember = record.lastMember === true;
-    }
+    // Only step 5 deletes the record, and only after step4At is set, so a record missing after
+    // step 1 proves steps 1-4 are done (another call from this uid finished). Steps 2-4 then
+    // skip straight to step 5's receipt update; `update` is used so nothing recreates the record.
+    try {
+      // Step 2: leave the household; lastMember is decided once, in the same transaction.
+      let record = await readRecord(recordRef);
+      if (record.step2At === undefined) {
+        await hook("step2");
+        lastMember = await db.runTransaction(async (tx) => {
+          const current = await tx.get(recordRef);
+          if (!current.exists) throw new RecordGone();
+          if (current.get("step2At") !== undefined) return current.get("lastMember") === true;
+          const household = await tx.get(householdRef);
+          const ids: unknown = household.get("memberIds");
+          const memberIds = Array.isArray(ids) ? ids.filter((x): x is string => typeof x === "string") : [];
+          const remaining = memberIds.filter((x) => x !== uid);
+          if (household.exists && remaining.length !== memberIds.length) tx.update(householdRef, { memberIds: remaining });
+          const last = remaining.length === 0;
+          tx.update(recordRef, { lastMember: last, step2At: FieldValue.serverTimestamp() });
+          return last;
+        });
+      } else {
+        lastMember = record.lastMember === true;
+      }
 
-    // Step 3: anonymise (others remain) or delete the whole tree (last member). Completion is
-    // recorded only after the whole step succeeded; a missing household document proves nothing.
-    record = (await recordRef.get()).data() ?? {};
-    if (record.step3At === undefined) {
-      await hook("step3");
-      if (lastMember) await deps.deleteTree(householdRef);
-      else await anonymise(deps, hook, start.householdId, uid);
-      await recordRef.update({ step3At: FieldValue.serverTimestamp() });
-    }
+      // Step 3: anonymise (others remain) or delete the whole tree (last member). Completion is
+      // recorded only after the whole step succeeded; a missing household document proves nothing.
+      record = await readRecord(recordRef);
+      if (record.step3At === undefined) {
+        await hook("step3");
+        if (lastMember) await deps.deleteTree(householdRef);
+        else await anonymise(deps, hook, start.householdId, uid);
+        await stamp(recordRef, { step3At: FieldValue.serverTimestamp() });
+      }
 
-    // Step 4: the users document.
-    if (record.step4At === undefined) {
-      await hook("step4");
-      await userRef.delete();
-      await recordRef.update({ step4At: FieldValue.serverTimestamp() });
+      // Step 4: the users document.
+      if (record.step4At === undefined) {
+        await hook("step4");
+        await userRef.delete();
+        await stamp(recordRef, { step4At: FieldValue.serverTimestamp() });
+      }
+    } catch (err) {
+      if (!(err instanceof RecordGone)) throw err;
     }
 
     // Step 5: the record, then the receipt says the data is gone.

@@ -177,6 +177,23 @@ describe("runDeletion — interleavings (review P2-4)", () => {
     expect((await get("accountDeletionReceipts/rcpt-b"))?.status).toBe("complete");
   });
 
+  it.each(["step2", "step3", "step4"] as const)("a call paused before %s while another finishes still completes its own receipt", async (point) => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    await startReceipt(db, "rcpt-b", "ava-uid", Date.now());
+    let reached!: () => void;
+    const at = new Promise<void>((r) => (reached = r));
+    const paused = runDeletion(deps({ hook: async (p) => { if (p === point) { reached(); await gate; } } }), "ava-uid", "rcpt-b");
+    await at;
+    await runDeletion(deps(), "ava-uid", "rcpt");
+    release();
+    await expect(paused).resolves.toMatchObject({});
+    expect(await exists("accountDeletions/ava-uid")).toBe(false);
+    expect((await get("accountDeletionReceipts/rcpt-b"))?.status).toBe("complete");
+    expect((await get("accountDeletionReceipts/rcpt"))?.status).toBe("complete");
+    await expectAvaGoneNonLast();
+  });
+
   it("collection attribution changed by the other member mid-deletion is not overwritten", async () => {
     let edited = false;
     const hook = async (p: HookPoint) => {
