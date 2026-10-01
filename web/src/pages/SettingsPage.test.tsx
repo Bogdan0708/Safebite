@@ -15,6 +15,7 @@ vi.mock("../auth/AuthProvider", () => ({
   useAuth: () => ({ state: { status: "member", uid: "ava-uid", email: "ava@safebite.test", householdId: "home", displayName: "Ava" }, signOut: vi.fn() }),
 }));
 vi.mock("./ChangePasswordForm", () => ({ ChangePasswordForm: () => <div data-testid="pw-form" /> }));
+vi.mock("../account/ExportSection", () => ({ ExportSection: () => <div data-testid="export-section" /> }));
 
 import { SettingsPage } from "./SettingsPage";
 
@@ -40,5 +41,10 @@ describe("SettingsPage", () => {
   it("links to the delete-account page", () => {
     render(<MemoryRouter><SettingsPage /></MemoryRouter>);
     expect(screen.getByTestId("delete-account-link")).toHaveAttribute("href", "/settings/delete-account");
+  });
+
+  it("offers the household export section", () => {
+    render(<MemoryRouter><SettingsPage /></MemoryRouter>);
+    expect(screen.getByTestId("export-section")).toBeInTheDocument();
   });
 });

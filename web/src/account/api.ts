@@ -16,3 +16,6 @@ export function newRequestId(): string {
   for (const b of bytes) binary += String.fromCharCode(b);
   return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
+
+/** The household export (spec §3.8); saved verbatim, so the client treats it as opaque JSON. */
+export const exportHouseholdCall = callable<Record<string, never>, unknown>("exportHousehold", { timeout: DELETE_TIMEOUT_MS });
