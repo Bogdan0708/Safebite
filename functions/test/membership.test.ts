@@ -55,3 +55,10 @@ describe("requireMember", () => {
     await expect(requireMember(fakeRequest("orphan"))).rejects.toMatchObject({ code: "permission-denied" });
   });
 });
+
+it("refuses the reserved marker UID even when it is listed as a member", async () => {
+  const db = getFirestore();
+  await db.doc("households/home").set({ name: "Home", memberIds: ["former-member"], createdAt: new Date() });
+  await db.doc("users/former-member").set({ householdId: "home", displayName: "Former member" });
+  await expect(requireMember(fakeRequest("former-member"))).rejects.toMatchObject({ code: "permission-denied" });
+});

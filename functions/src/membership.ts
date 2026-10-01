@@ -1,5 +1,6 @@
 import { getFirestore } from "firebase-admin/firestore";
 import { HttpsError, type CallableRequest } from "firebase-functions/v2/https";
+import { MARKER_UID } from "./account/marker";
 
 export interface Member {
   uid: string;
@@ -15,6 +16,9 @@ export async function requireMember(request: CallableRequest<unknown>): Promise<
   const uid = request.auth?.uid;
   if (!uid) {
     throw new HttpsError("unauthenticated", "Sign in required.");
+  }
+  if (uid === MARKER_UID) {
+    throw new HttpsError("permission-denied", "This account is not a household member.");
   }
   const db = getFirestore();
   const userSnap = await db.doc(`users/${uid}`).get();

@@ -3,6 +3,7 @@ import { getFirestore } from "firebase-admin/firestore";
 import { getAuth } from "firebase-admin/auth";
 import { ensureAdminApp } from "./emulator-helpers";
 import { SEED_ACCOUNTS, seedEmulator } from "../src/seed-emulator";
+import { MARKER_UID } from "../src/account/marker";
 
 describe("seedEmulator", () => {
   it("creates the three accounts and one household, idempotently", async () => {
@@ -35,4 +36,8 @@ describe("seedEmulator", () => {
       else process.env.FIRESTORE_EMULATOR_HOST = saved;
     }
   });
+});
+
+it("never seeds the reserved marker UID", () => {
+  expect(SEED_ACCOUNTS.map((a) => a.uid)).not.toContain(MARKER_UID);
 });

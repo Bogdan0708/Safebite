@@ -1,6 +1,7 @@
 import { getApps, initializeApp } from "firebase-admin/app";
 import { getAuth, type Auth } from "firebase-admin/auth";
 import { getFirestore } from "firebase-admin/firestore";
+import { MARKER_UID } from "./account/marker";
 
 export interface SeedAccount {
   uid: string;
@@ -38,6 +39,9 @@ async function userExists(auth: Auth, uid: string): Promise<boolean> {
 /** Seed emulator-only accounts and household membership. Safe to run repeatedly. */
 export async function seedEmulator(): Promise<void> {
   assertEmulator();
+  if (SEED_ACCOUNTS.some((a) => a.uid === MARKER_UID)) {
+    throw new Error(`seed-emulator refuses the reserved UID ${MARKER_UID}.`);
+  }
   if (getApps().length === 0) initializeApp({ projectId: "demo-safebite" });
   const auth = getAuth();
   const db = getFirestore();
