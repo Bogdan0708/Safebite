@@ -16,3 +16,4 @@ export const whoami = onCall<unknown, Promise<Member>>(async (request) => {
 });
 
 export { searchDestination, searchNearby } from "./discovery/callables";
+export { checkAccountDeletion, deleteAccount } from "./account/callables";
