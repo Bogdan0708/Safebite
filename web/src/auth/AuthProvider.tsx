@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { onAuthStateChanged, signInWithEmailAndPassword, signOut as firebaseSignOut, type User } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
 import { auth, db } from "../firebase";
+import { clearDeviceData } from "../device/cleanup";
 import { resolveMembership } from "./membership";
 import { resetDocument } from "./resetDocument";
 
@@ -76,7 +77,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (previous !== null && (user === null || user.uid !== previous)) {
         generationRef.current += 1;
         setState({ status: "resetting" });
-        resetDocument();
+        // Device data goes first (spec §3.8). The reset proceeds whatever the result: a failure
+        // leaves the pendingClear marker set, and the next start finishes the job before rendering.
+        void clearDeviceData().finally(() => resetDocument());
         return;
       }
       if (!user) {

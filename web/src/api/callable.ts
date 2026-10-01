@@ -2,8 +2,8 @@ import { httpsCallable } from "firebase/functions";
 import { functions } from "../firebase";
 
 /** A typed callable that resolves to the response data (not the SDK's `{ data }` wrapper). */
-export function callable<Req, Res>(name: string): (data: Req) => Promise<Res> {
-  const call = httpsCallable<Req, Res>(functions, name);
+export function callable<Req, Res>(name: string, options?: { timeout?: number }): (data: Req) => Promise<Res> {
+  const call = options ? httpsCallable<Req, Res>(functions, name, options) : httpsCallable<Req, Res>(functions, name);
   return async (data: Req) => (await call(data)).data;
 }
 

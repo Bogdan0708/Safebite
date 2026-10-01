@@ -8,6 +8,8 @@ const { listeners, unsubscribes, getDocMock } = vi.hoisted(() => ({
 }));
 const { resetDocument } = vi.hoisted(() => ({ resetDocument: vi.fn() }));
 vi.mock("./resetDocument", () => ({ resetDocument }));
+const { clearDeviceData } = vi.hoisted(() => ({ clearDeviceData: vi.fn() }));
+vi.mock("../device/cleanup", () => ({ clearDeviceData }));
 
 vi.mock("../firebase", () => ({ auth: {}, db: {}, functions: {}, usingEmulators: true }));
 vi.mock("firebase/auth", () => ({
@@ -48,6 +50,8 @@ beforeEach(() => {
   unsubscribes.length = 0;
   getDocMock.mockReset();
   resetDocument.mockReset();
+  clearDeviceData.mockReset();
+  clearDeviceData.mockResolvedValue({ failed: [] });
 });
 
 describe("AuthProvider", () => {
@@ -107,7 +111,7 @@ describe("AuthProvider", () => {
     listeners[0]({ uid: "ava-uid", email: "ava@safebite.test" });
     listeners[0](null);
     await waitFor(() => expect(screen.getByTestId("state")).toHaveTextContent('"resetting"'));
-    expect(resetDocument).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(resetDocument).toHaveBeenCalledTimes(1));
     slowUserDoc.resolve(snap({ householdId: "home", displayName: "Ava" }));
     await new Promise((r) => setTimeout(r, 20));
     expect(screen.getByTestId("state")).toHaveTextContent('"resetting"');
@@ -123,7 +127,7 @@ describe("AuthProvider", () => {
     listeners[0]({ uid: "slow-uid", email: "slow@safebite.test" });
     listeners[0]({ uid: "fast-uid", email: "fast@safebite.test" });
     await waitFor(() => expect(screen.getByTestId("state")).toHaveTextContent('"resetting"'));
-    expect(resetDocument).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(resetDocument).toHaveBeenCalledTimes(1));
     slowUserDoc.resolve(snap({ householdId: "home", displayName: "Slow" }));
     await new Promise((r) => setTimeout(r, 20));
     expect(screen.getByTestId("state")).toHaveTextContent('"resetting"');
@@ -165,5 +169,20 @@ describe("AuthProvider", () => {
     expect(unsubscribes[0]).not.toHaveBeenCalled();
     unmount();
     expect(unsubscribes[0]).toHaveBeenCalledTimes(1);
+  });
+
+  it("clears device data before resetting, and resets even when clearing failed", async () => {
+    let finish!: (v: { failed: string[] }) => void;
+    clearDeviceData.mockReturnValue(new Promise((r) => (finish = r)));
+    getDocMock.mockImplementation(async (path: string) =>
+      path === "users/u1" ? snap({ householdId: "home", displayName: "Ava" }) : snap({ memberIds: ["u1"] }));
+    render(<AuthProvider><Probe /></AuthProvider>);
+    listeners[0]({ uid: "u1", email: "a@x" });
+    await waitFor(() => expect(screen.getByTestId("state")).toHaveTextContent('"member"'));
+    listeners[0](null);
+    await waitFor(() => expect(clearDeviceData).toHaveBeenCalledTimes(1));
+    expect(resetDocument).not.toHaveBeenCalled();
+    finish({ failed: ["store"] });
+    await waitFor(() => expect(resetDocument).toHaveBeenCalledTimes(1));
   });
 });
