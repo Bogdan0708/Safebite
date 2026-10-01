@@ -270,7 +270,7 @@ branch/worktree, reviewed, then merged before the next begins.
 | **2. Restaurant records and evidence** | **PWA app shell first** (`vite-plugin-pwa` manifest, real icon set replacing the Vite logo, `apple-touch-icon`, `apple-mobile-web-app-capable`, `theme-color`, standalone display — a plan gap found in the Plan 1 final review); then `restaurants` + `claims` model, rules with accreditation validation and version checks, private editing form, evidence display with checked/expired states, "call ahead" prompts, unit + rules + e2e tests | Plan 1 — 2a, 2a-h and 2b executed 2026-09-21 (see §3.5 and `planning/plans/2026-09-21-safebite-pwa-02b-records.md`) |
 | **3. Discovery through functions** | `searchDestination`, `searchNearby`, `placeDetails` callables with secret key, kill switch, caps, attribution; discover UI with all failure states; search cancellation; external directions links; "add to our records" from a result (stores place ID only) | Plan 2 — design in §3.6 (2026-09-22) |
 | **4. Shared collection and notes** | `collection` + `notes` model and rules, save/unsave/visited, authored notes, optimistic concurrency with reload prompt, account-switch cache clearing, e2e | Plan 2 (Plan 3 optional) — design in §3.7 (2026-09-24) |
-| **5. Privacy, offline, operations** | Opt-in offline download to IndexedDB, clear-on-signout, export callable, account-deletion callable, settings page, privacy/terms content, staging config files, cost-control checklist, real-iPhone acceptance script | Plans 1–4, O3–O6 |
+| **5. Privacy, offline, operations** | Opt-in offline download to IndexedDB, clear-on-signout, export callable, account-deletion callable, settings page, privacy/terms content, staging config files, cost-control checklist, real-iPhone acceptance script | Plans 1–4, O3–O6 — split 2026-10-01 into 5a (data rights), 5b (offline reading) and 5c (operations and release); outline and 5a design in §3.8 |
 
 Plans 2–5 are written after Plan 1 is executed and reviewed, so they can name
 the real interfaces that landed rather than predicted ones.
@@ -1131,3 +1131,297 @@ rollbacks and later releases.
 Named trip lists; per-member visits or a visit log; email password reset; offline download,
 export and account deletion (Plan 5, which must include `collection` documents and notes, and
 delete the caller's notes on account deletion); list-level quick actions.
+
+### 3.8 Plan 5 outline and Plan 5a design — data rights (brainstormed 2026-10-01)
+
+#### Plan 5 split (owner ruling, 2026-10-01)
+
+Plan 5 is four mostly independent deliverables, so it runs as three plans in order. Each has its
+own design section, audit and implementation plan.
+
+| Plan | Delivers | Hands on to the next plan |
+|---|---|---|
+| **5a — data rights** | `deleteAccount` and `exportHousehold` callables, deletion recovery screens, the `clearDeviceData()` registry | 5b registers its IndexedDB store with the registry; 5b's policy for a remote deletion while a device is offline builds on 5a's deletion record |
+| **5b — offline reading** | IndexedDB download; offline start-up when membership was resolved before (today `AuthProvider` resolves membership by server reads, so a written IndexedDB copy alone does not make the app usable after reopening in airplane mode); account isolation; download timestamps; interrupted refreshes; clearing across open tabs; Settings **Clear device data**; an explicit limitation and reconnect policy for remote deletion while offline | 5c documents the actual retention and offline behaviour |
+| **5c — operations and release** | Legal pages (wording describes the retention and offline behaviour 5a and 5b establish), staging configuration, cost-control checklist, the square-icon decision, the `/__/auth/handler` check, the real-iPhone acceptance script (drafted early, run against the finished staging app) | — |
+
+The key 5b acceptance test is: download, fully close the app, enable airplane mode, reopen, and
+read saved restaurants, evidence and notes. Separately, signing out removes the downloaded copy
+and switching accounts cannot expose it.
+
+Owner rulings taken during the 5a brainstorm:
+
+1. **A departing member's restaurants and evidence stay with the household, anonymised.** Their
+   notes are deleted. Names and UIDs on claims, collection documents and `createdBy` are replaced
+   by a fixed marker. (Rejected: deleting their evidence, which silently removes safety
+   information the other member relies on; leaving names in place, which fails "delete own
+   account and contributions".)
+2. **Deletion requires password re-entry, checked by the server.** The callable refuses unless
+   the ID token's `auth_time` is at most 5 minutes old, so an unlocked phone is not enough and a
+   modified client cannot skip the check.
+3. **One idempotent callable with a server-side deletion record** (rather than a
+   Firestore-triggered background job, which conflicts with §2.6's "the UI reports success only
+   after the callable returns", or client-driven steps, which cannot remove `memberIds` or delete
+   an Auth record).
+
+This section supersedes §2.6's export and account-deletion bullets wherever they differ (the
+export carries author names, not UIDs).
+
+#### Data model
+
+`accountDeletions/{uid}` — admin-written only.
+
+| Field | Meaning |
+|---|---|
+| `householdId` | Copied from `users/{uid}` when the deletion starts |
+| `lastMember` | Set once, by the step 2 transaction, and never changed |
+| `startedAt` | Server timestamp |
+
+Rules: `allow read: if signedIn() && request.auth.uid == uid; allow write: if false;`. No other
+rule changes. Anonymisation uses the markers `authorUid`/`updatedBy`/`createdBy` =
+`"former-member"` and `authorName`/`updatedByName` = `"Former member"`. Firebase UIDs never
+contain a hyphen, so the marker cannot collide with a real member.
+
+#### `deleteAccount` callable (`functions/src/account/`)
+
+`region: "europe-west2"`, `maxInstances: 2`, `timeoutSeconds: 60`, set on the callable itself
+(the `onCall` snapshot rule from §3.6). No request data is read.
+
+**Entry check.** `request.auth` must be present, else `unauthenticated`. `request.auth.token.auth_time`
+must be within 5 minutes of the server clock, else `failed-precondition` with
+`details: { reason: "recentLogin" }`. The callable then accepts exactly three starting states and
+refuses every other one with `permission-denied`:
+
+| State | Meaning | Starts at |
+|---|---|---|
+| A member (as `requireMember`) and no deletion record | New deletion | Step 1 |
+| A deletion record exists | Resume | Step 2 |
+| No `users/{uid}` and no deletion record | Only the Auth record is left. Step 4 runs only after step 2 removed the UID from `memberIds`, so no household names it. The other way to reach this state is an Auth account that was never provisioned, which can only delete itself | Step 6 |
+
+A signed-in account that still has a `users` document but is not in its household's `memberIds`
+and has no record (an admin removed it) is refused.
+
+**Steps.** Each step is idempotent: re-running it after it completed is a no-op.
+
+| Step | Action | Already done when |
+|---|---|---|
+| 1 | Create `accountDeletions/{uid}` with `householdId` from `users/{uid}` | The record exists |
+| 2 | Transaction on `households/{hid}`: remove the UID from `memberIds`; if the result is empty, set the record's `lastMember: true`, else `false` (both writes in the same transaction) | The UID is absent and `lastMember` is set |
+| 3a | `lastMember == false`: for each restaurant in the household, anonymise claims `where authorUid == uid`; delete notes `where authorUid == uid`; anonymise `collection/{rid}` when `updatedBy == uid`; anonymise the restaurant when `createdBy == uid` | The queries return nothing |
+| 3b | `lastMember == true`: `recursiveDelete(households/{hid})` (restaurants, claims, notes, collection, usage, the household document) | The household document is missing |
+| 4 | Delete `users/{uid}` | Missing |
+| 5 | Delete `accountDeletions/{uid}` | Missing |
+| 6 | `getAuth().deleteUser(uid)` | `auth/user-not-found` |
+
+Returns `{ deleted: true, lastMember }`.
+
+**Why this order.** Step 2 comes first among the data steps: the rules deny every read and write
+by a UID outside `memberIds`, so from that moment no tab or device of the departing member can
+create evidence or notes carrying their name while step 3 runs. A write that committed before
+step 2 is caught by step 3. The Auth record is deleted last, so its absence proves every other
+step finished. That makes a lost response decidable (see Client).
+
+**Anonymisation never bumps `version` or `updatedAt`**, so the remaining member never sees a
+"someone else changed this" conflict caused by a departure. Claims are immutable to clients, and
+the restaurant and collection rules keep `createdBy` unchanged on client updates. The marker
+therefore survives later edits; a later collection write by the remaining member replaces it with
+their own name, as for any update.
+
+**Concurrent deletions.** Two members deleting at once are serialised by the step 2 transaction.
+Exactly one sees an empty `memberIds` and runs 3b. The other's step 3a may race with the tree
+deletion; a document that is already missing counts as done.
+
+**Accepted limitation.** Free text a member wrote into evidence (`detail`, `source.label`) stays as
+written. Only names and UIDs are replaced.
+
+**Logging.** Step reached, `lastMember`, document counts and duration; never names, note text or
+email addresses.
+
+#### `exportHousehold` callable (`functions/src/account/`)
+
+Same options as `deleteAccount`. Starts with `requireMember`. All reads run in one Admin read-only
+transaction, so the file is a consistent snapshot while the other member edits. Returns:
+
+```json
+{
+  "format": "safebite-export", "formatVersion": 1,
+  "exportedAt": "2026-10-01T16:20:00Z", "exportedBy": "Bogdan",
+  "household": { "name": "Home" },
+  "restaurants": [{
+    "name": "…", "address": "…", "phone": "…", "website": "…", "googlePlaceId": "…",
+    "createdAt": "…", "updatedAt": "…",
+    "shortlisted": true, "visited": true, "visitedOn": "2026-05-03",
+    "evidence": [{ "kind": "separateFryer", "value": "yes", "detail": "…",
+                   "source": { "type": "restaurantStatement", "label": "…", "url": "…" },
+                   "checkedAt": "2026-04-01", "expiresAt": null, "authorName": "Ava", "createdAt": "…" }],
+    "notes": [{ "text": "…", "authorName": "Former member", "createdAt": "…", "updatedAt": "…" }]
+  }]
+}
+```
+
+- Calendar dates (`checkedAt`, `expiresAt`, `visitedOn`) are `YYYY-MM-DD`; instants are ISO UTC.
+  Optional fields absent on the record are omitted, except `expiresAt`, which is `null` when absent.
+- A restaurant without a collection document exports `shortlisted: false, visited: false`.
+- Excluded: UIDs, email addresses, `version`, `deleting`, `cleanupDone`, `updatedBy`, restaurants
+  marked `deleting`, `usage` documents, `config`, `users` documents. Nothing from Google is
+  exported except the stored `googlePlaceId`.
+- Serialised size above 8 MB → `resource-exhausted` (the callable response limit is 10 MB), so a
+  truncated file is impossible. The threshold is a constant the tests lower.
+- Logging: document counts and duration only.
+
+#### Client
+
+**Device cleanup registry** (`web/src/device/cleanup.ts`):
+
+```ts
+export interface DeviceCleaner { name: string; clear(): Promise<void> }
+export function registerDeviceCleaner(cleaner: DeviceCleaner): void;
+/** Runs every registered cleaner; never throws; names the ones that failed. */
+export function clearDeviceData(): Promise<{ failed: string[] }>;
+```
+
+`AuthProvider`'s listener awaits `clearDeviceData()` before `resetDocument()` on every account
+change (sign-out from any tab, switch of user, the SDK reporting a deleted account as signed
+out), and the deletion success path calls it before signing out. Nothing persists on the device
+before 5b (Firestore persistence is off and the reload discards the memory cache), so 5a ships the
+registry, its call sites and tests with a fake cleaner. 5b registers the IndexedDB cleaner and
+adds the Settings button. The service worker's app-shell cache holds no household data and is not
+cleared.
+
+**Delete account page** (`/settings/delete-account`, linked from Settings):
+
+- Text states the consequence: normally "Your sign-in and your notes are deleted. Restaurants and
+  evidence you added stay with the household, shown as 'Former member'." When the caller is the
+  only member: "Everything in the household is deleted." The page reads `memberIds` length from
+  the household document the member can already read. The text is advisory: the other member may leave in the meantime, and the server's step 2 transaction decides. It links to **Export first**.
+- Current-password field and **Delete my account**, disabled offline.
+- Sequence:
+  1. Reauthenticate with the existing helper logic from `changePassword.ts`
+     (`reauthenticateWithCredential`). Its failures map to the existing messages (wrong password,
+     too many attempts, offline). A failed reauthentication sends nothing.
+  2. `getIdToken(true)`, so the callable sees the new `auth_time`.
+  3. Call `deleteAccount` with a 70-second client timeout, behind a non-dismissable "Deleting
+     your account… keep this page open" screen.
+  4. Success: `clearDeviceData()`, set a `sessionStorage` flag, sign out locally (every tab resets).
+     After the reload the sign-in screen shows "Your account has been deleted." once and clears
+     the flag.
+- `recentLogin` from the server → "For security, enter your password again." `permission-denied`
+  → "This account can't be deleted here."
+
+**Lost response.** On a timeout, `unavailable`, `internal`, `deadline-exceeded` or a network
+failure, the client never guesses. It probes with `getIdToken(true)`. The mapping is one pure,
+unit-tested function:
+
+| Probe result | Meaning | Screen |
+|---|---|---|
+| `auth/user-not-found`, `auth/user-token-expired` or `auth/user-disabled` | The Auth record is gone, so every step finished | The success path |
+| `auth/network-request-failed` | Unknown | "We couldn't confirm whether your account was deleted." **Check again** repeats only the probe, without a password |
+| A token | The deletion did not finish | "Your account deletion didn't finish." **Finish deleting** asks for the password again and repeats the call; the first call may still be running, which is harmless |
+
+The exact error codes are an empirical stop (below).
+
+**Signing in mid-deletion.** When `AuthProvider` resolves `notMember`, it also reads
+`accountDeletions/{uid}`:
+
+- The record exists → new state `deletionPending` → a **Finish deleting your account** screen
+  with a password field, the same sequence as above, and **Sign out**.
+- No record and no `users` document → the not-invited screen gains **Delete this sign-in**
+  (password, same sequence). Self sign-up is disabled, so in practice only a crash between steps 5
+  and 6 produces this state.
+- The read fails with anything but `permission-denied` → the existing error state.
+
+**Other tabs and devices of the departing member.** From step 2 their listeners report the
+existing denied state. The deleting tab's local sign-out resets every same-origin tab. Another
+device keeps a valid ID token for up to an hour with every read denied, until its refresh fails
+and the SDK signs it out, which resets it. 5b defines what a downloaded copy on such a device does.
+
+**Export** (Settings → **Export household data**, online only): call `exportHousehold`, build a
+`File` named `safebite-export-YYYY-MM-DD.json` (`application/json`). If
+`navigator.canShare?.({ files: [file] })` is true, open `navigator.share({ files: [file] })`
+(iPhone offers Save to Files, Mail, AirDrop); an `AbortError` from a cancelled share sheet is
+silent. Otherwise an `<a download>` with an object URL, revoked afterwards. States: exporting,
+ready, offline, failed. The page says plainly that the file contains both members' notes and leaves
+the app once shared. Nothing is cached or kept after the share. Whether the share sheet works in
+Home Screen mode is checked on a real iPhone in 5c.
+
+#### Empirical stops (prove before any task builds on them; record the result in the plan)
+
+1. After `reauthenticateWithCredential` and `getIdToken(true)`, the callable sees a fresh
+   `auth_time` (emulator).
+2. The exact error `getIdToken(true)` produces after `deleteUser` (emulator; the real pilot is
+   re-checked in 5c).
+3. Whether another tab's `onAuthStateChanged` fires `null` once its refresh fails after the
+   account is deleted.
+4. `recursiveDelete` removes every subcollection in the emulator, including `usage`.
+5. `firebase-admin` 14 supports read-only transactions (`{ readOnly: true }`) against the emulator.
+
+#### Tests
+
+- **Functions + rules (emulator):**
+  - Non-last member deletes:
+    - claims, collection documents and `createdBy` carry the marker;
+    - their notes are gone and the other member's notes are intact;
+    - `memberIds` is updated;
+    - `users/{uid}`, the record and the Auth user are gone;
+    - nothing else changed: versions, `updatedAt` and the other member's claims are byte-equal.
+  - Last member deletes: the whole tree is gone, `usage` included.
+  - Resume from each step: seed the state after steps 1–5 in turn; one call converges to the same
+    end state as a clean run.
+  - Two members delete at once: both finish and the tree is deleted once.
+  - Stale `auth_time` → `recentLogin` (handler unit test with a fabricated token), plus one fresh
+    sign-in emulator pass.
+  - A `users` document without membership → `permission-denied`.
+  - Rules: `accountDeletions` readable only by its owner, never writable by a client.
+  - Export:
+    - the shape and the exclusions;
+    - a scan of the serialised output finds no UID and no email address;
+    - a non-member is refused;
+    - the size limit is tested by lowering the constant.
+- **Web unit:**
+  - the lost-response mapping;
+  - every state of the delete-account page;
+  - `AuthProvider` `deletionPending`;
+  - the registry: failures are reported, it never throws, and it runs before `resetDocument()`;
+  - export: share, download fallback and silent cancel.
+- **Browser (Playwright, emulators, retries 0):**
+  1. Ava deletes her account. Bogdan sees "Former member" on her evidence and her notes are gone.
+     Ava's sign-in then fails.
+  2. The last member deletes, and the household is gone.
+  3. Response lost after the server finished: `page.route` forwards the call and aborts the
+     response, and the success path follows.
+  4. Request never reached the server: the route aborts before forwarding. "Didn't finish"
+     appears, and **Finish deleting** completes the deletion.
+  5. A seeded deletion record shows **Finish deleting your account** at sign-in.
+  6. Deleting in one tab resets a second tab.
+  7. Export takes the download path (Chromium has no file share), and the JSON parses with the
+     expected content.
+- **Gate:** typecheck; web unit; functions + rules; browser; boot-guard, preview and upgrade;
+  guardrail greps.
+
+#### Decisions taken without owner input (override if wrong)
+
+| Decision | Reason |
+|----------|--------|
+| The delete page links to Export first | Deletion is irreversible; the export is one tap away |
+| The last member's deletion removes the household | §2.6; nothing would be readable by anyone afterwards |
+| 5-minute `auth_time` window; 70 s client timeout | Long enough to type a password and finish; the timeout exceeds the function's 60 s |
+| Marker `former-member` / "Former member" | Readable in the UI and the export; cannot collide with a UID |
+| Anonymisation does not bump `version` or `updatedAt` | A departure must not raise edit conflicts for the remaining member |
+| No UIDs or emails in the export | Names identify authorship; identifiers are internal |
+| **Delete this sign-in** on the not-invited screen | The only way out of the step 5–6 crash window; sign-up is disabled, so no stranger reaches it |
+| An admin-removed member (with a `users` doc) cannot self-delete | Not a state the app creates; refusing is safer than guessing |
+
+#### Deploy note
+
+Rules (the `accountDeletions` read) and functions first, then hosting. No new indexes: the
+per-restaurant `authorUid` and `updatedBy` equality queries use automatic single-field indexes.
+The pilot has served hosting since 2026-10-01 (Plan 4 bundle), so older clients exist. They
+need no compatibility gate: from step 2 an old client of the departing member is denied
+everything, and an old client signing in mid-deletion shows the not-invited screen (a new
+client offers **Finish deleting**).
+
+#### Not in this plan
+
+Offline download and the **Clear device data** button (5b); legal pages, cost checklist, icons and
+iPhone acceptance (5c); an admin removing another member; Cloud Logging retention (documented in
+5c).
