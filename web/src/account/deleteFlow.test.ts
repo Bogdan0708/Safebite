@@ -58,8 +58,19 @@ describe("deleteMyAccount", () => {
   });
 
   it("the request id is stored before the call is sent", async () => {
-    m.deleteAccountCall.mockImplementation(async () => { expect(readDeletionRequest()).toBe("R".repeat(43)); return { deleted: true, lastMember: false }; });
+    let seen: string | null = null;
+    m.deleteAccountCall.mockImplementation(async () => { seen = readDeletionRequest(); return { deleted: true, lastMember: false }; });
+    await expect(deleteMyAccount("pw")).resolves.toEqual({ kind: "deleted" });
+    expect(seen).toBe("R".repeat(43));
+  });
+
+  it("the notice is written and the request key cleared before sign-out", async () => {
+    let atSignOut: { notice: string | null; request: string | null } | null = null;
+    m.signOut.mockImplementation(async () => {
+      atSignOut = { notice: sessionStorage.getItem("safebite.accountDeleted"), request: readDeletionRequest() };
+    });
     await deleteMyAccount("pw");
+    expect(atSignOut).toEqual({ notice: "ok", request: null });
   });
 
   it("success with failed device clearing is reported separately", async () => {
