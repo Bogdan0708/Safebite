@@ -35,8 +35,8 @@ function readConfig(data: DocumentData | undefined): { enabled: boolean; cap: nu
  * Order matters and is what the tests pin down:
  *   1. a missing provider refuses before any read (nothing to bill, nothing to count);
  *   2. the kill switch is read on every call and fails closed;
- *   3. the usage transaction increments BEFORE the provider is called, so a failed upstream
- *      call still counts (a flapping provider cannot burn unlimited calls);
+ *   3. the usage transaction re-checks membership on the household document, then increments
+ *      BEFORE the provider is called, so a failed upstream call still counts (a flapping provider cannot burn unlimited calls);
  *   4. provider failures map to the codes the client turns into states.
  */
 export async function runSearch(deps: SearchDeps, member: Member, request: SearchRequest): Promise<DiscoveryResponse> {
@@ -50,7 +50,16 @@ export async function runSearch(deps: SearchDeps, member: Member, request: Searc
   if (!config.enabled) throw new HttpsError("failed-precondition", "Search is switched off.");
 
   const usageRef = deps.db.doc(usagePath(member.householdId, now));
+  const householdRef = deps.db.doc(`households/${member.householdId}`);
   await deps.db.runTransaction(async (tx) => {
+    // Membership is re-checked here, not only in requireMember: a request that passed that check
+    // and paused must not recreate households/{hid}/usage after the member left or the household
+    // was deleted (spec §3.8, review P1-3). Reads come before the write, as transactions require.
+    const household = await tx.get(householdRef);
+    const memberIds: unknown = household.get("memberIds");
+    if (!household.exists || !Array.isArray(memberIds) || !memberIds.includes(member.uid)) {
+      throw new HttpsError("permission-denied", "This account is not a household member.");
+    }
     const snap = await tx.get(usageRef);
     const current = snap.get("searches");
     const searches = typeof current === "number" ? current : 0;

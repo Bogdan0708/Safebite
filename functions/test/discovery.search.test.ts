@@ -72,6 +72,7 @@ beforeEach(async () => {
   await db.recursiveDelete(db.collection("config"));
   await db.recursiveDelete(db.collection("households"));
   await db.doc(CONFIG_PATH).set({ enabled: true, dailySearchCap: 3 });
+  await db.doc("households/home").set({ name: "Home", memberIds: ["ava"], createdAt: new Date() });
 });
 
 describe("usagePath", () => {
@@ -229,5 +230,45 @@ describe("runSearch — logs never carry caller-supplied content (spec §2.6, §
     // verbatim (no stack-trace wrapping, which only applies to ERROR severity) — so this is the
     // plainest proof that the payload search.ts builds carries no `message` field of its own.
     expect(allLoggedText()).toContain('"message":"discovery.search"');
+  });
+});
+
+describe("runSearch — membership is re-checked inside the usage transaction (spec §3.8, review P1-3)", () => {
+  it("refuses when the caller left the household after requireMember, writing nothing", async () => {
+    const { provider, selection } = stubProvider();
+    await db.doc("households/home").update({ memberIds: [] });
+    await expect(runSearch(deps(selection), member, { kind: "destination", query: "x" }))
+      .rejects.toMatchObject({ code: "permission-denied" });
+    expect((await db.doc(USAGE).get()).exists).toBe(false);
+    expect(provider.searchText).not.toHaveBeenCalled();
+  });
+
+  it("refuses when the household was deleted, and never recreates its usage document", async () => {
+    const { provider, selection } = stubProvider();
+    await db.recursiveDelete(db.doc("households/home"));
+    await expect(runSearch(deps(selection), member, { kind: "nearby", lat: 1, lng: 2 }))
+      .rejects.toMatchObject({ code: "permission-denied" });
+    expect((await db.doc(USAGE).get()).exists).toBe(false);
+    expect(provider.searchNearby).not.toHaveBeenCalled();
+  });
+
+  it("interleaving: a search paused after requireMember, then a last-member deletion, then the search resumes", async () => {
+    // Models the auditor's reproduction: requireMember passed (member is in hand), the tree is
+    // deleted while the request is paused, and only then does the usage transaction run.
+    const { provider, selection } = stubProvider();
+    await db.doc(USAGE).set({ searches: 1 });
+    await db.recursiveDelete(db.doc("households/home")); // last-member step 3b
+    await expect(runSearch(deps(selection), member, { kind: "destination", query: "x" }))
+      .rejects.toMatchObject({ code: "permission-denied" });
+    expect((await db.collection("households/home/usage").get()).size).toBe(0);
+    expect(provider.searchText).not.toHaveBeenCalled();
+  });
+
+  it("mirror case: a search that commits first leaves a usage document the tree deletion removes", async () => {
+    const { selection } = stubProvider();
+    await runSearch(deps(selection), member, { kind: "destination", query: "x" });
+    expect((await db.doc(USAGE).get()).exists).toBe(true);
+    await db.recursiveDelete(db.doc("households/home"));
+    expect((await db.collection("households/home/usage").get()).size).toBe(0);
   });
 });
