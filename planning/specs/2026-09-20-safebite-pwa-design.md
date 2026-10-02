@@ -1466,10 +1466,11 @@ export function clearDeviceData(): Promise<{ failed: string[] }>;
        serialises with any other tab's write. A persisted user in localStorage is checked and
        removed the same way. Then the record, the notice, clearing the request and the reload run
        synchronously, with no `await` in between. On any unexpected layout it does nothing; the record
-       still guards the UI. A residual window remains inside the SDK. Another tab still holding the
-       deleted session sees the removal on its persistence poll and clears its own key without a
-       check, which is two local IndexedDB operations instead of a network round trip. That is library
-       behaviour, recorded in the execution ledger. The layout is checked against
+       still guards the UI. A residual window remains inside the SDK. Any tab still holding the
+       deleted session, including the deletion tab before it unloads, sees the removal on its
+       persistence poll and clears the key without a check. That is two local IndexedDB operations
+       instead of a network round trip, the same window as any stock Firebase cross-tab sign-out.
+       That is library behaviour, recorded in the execution ledger. The layout is checked against
        `@firebase/auth` 1.13.6 (DB `firebaseLocalStorageDb`, store `firebaseLocalStorage`, key
        `firebase:authUser:<apiKey>:[DEFAULT]`).
      - **Remaining behaviour.** The Firebase SDK may itself sign out a deleted session when its token
