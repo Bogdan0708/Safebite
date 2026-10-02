@@ -4326,3 +4326,435 @@ Claude-Session: https://claude.ai/code/session_01MRsbJXkLpLQG7QzdeZmxsQ"
 | Re-review: completion (sign-out, deleted notice) only for the request's account, switches during the call and during cleanup, direct and via recovery | 13 |
 | Re-review: receipt tests establish their own Auth state; real Auth-only fixtures | 12 |
 | Minors: monotonic clock in the 300-restaurant test, README counts, logging wording (spec) | 12, 14, spec `dc30ae5` |
+
+---
+
+## Addendum 2: completion without sign-out (Tasks 15–16)
+
+**Why:** `planning/audits/2026-10-02-plan-5a-final-review.md` (at `d1981af`) reproduced a P2 three times. With Bogdan's sign-in already queued in the deletion tab's Firebase Auth queue, `finishDeleted`'s `signOut(auth)` is queued behind it, and Bogdan is signed out and shown "Your account has been deleted". The binding design is spec §3.8 at `604ebb4`, Delete account page step 4. Completion **never calls `signOut`**. A device-wide deleted-session record (`safebite.deletedUids`) keeps the deleted account out of the app, and signing in replaces the session.
+
+All earlier Global Constraints and addendum constraints still apply, with one more browser storage key: `localStorage["safebite.deletedUids"]`, mirrored to `sessionStorage`, with every access wrapped in try/catch. Baseline at `604ebb4`: web unit 481, functions + rules 441, browser 50.
+
+### Task 15: Web — deleted-session record, `deletedSession` state, no sign-out in completion
+
+**Files:**
+- Create: `web/src/account/deletedSessions.ts`, `web/src/account/deletedSessions.test.ts`
+- Modify: `web/src/account/deleteFlow.ts` (+test), `web/src/account/storage.ts` (+test), `web/src/account/deletedNotice.ts`, `web/src/auth/AuthProvider.tsx` (+test), `web/src/auth/SignInScreen.tsx`, `web/src/App.tsx`, `web/src/account/DeleteAccountPage.tsx` (+test)
+
+**Interfaces:**
+- Produces:
+  ```ts
+  // account/deletedSessions.ts
+  export const DELETED_UIDS_KEY = "safebite.deletedUids";
+  export const MAX_DELETED_UIDS = 10;
+  export function deletedUids(): string[];               // union of localStorage and sessionStorage; never throws
+  export function isDeletedUid(uid: string): boolean;
+  export function recordDeletedUid(uid: string): void;   // newest first, deduplicated, at most 10, written to both stores
+  export function forgetDeletedUid(uid: string): void;
+  // account/storage.ts — the notice flag is bound to an account
+  export interface DeletedNotice { kind: "ok" | "clearFailed"; uid: string | null }
+  export function writeDeletedNotice(notice: DeletedNotice): void;
+  export function takeDeletedNotice(): DeletedNotice | null;      // reads and removes; legacy plain values → null
+  export function discardDeletedNoticeUnlessFor(uid: string): void; // removes a flag naming any other uid
+  // auth/AuthProvider.tsx
+  // AuthState gains { status: "deletedSession"; uid: string; email: string | null }
+  ```
+  `finishDeleted(requestUid)` keeps its signature and return type but never calls `signOut`. The `App` gate renders `SignInScreen` for `deletedSession`.
+
+- [ ] **Step 1: Write the failing tests**
+
+Create `web/src/account/deletedSessions.test.ts`:
+
+```ts
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { DELETED_UIDS_KEY, deletedUids, forgetDeletedUid, isDeletedUid, recordDeletedUid } from "./deletedSessions";
+
+afterEach(() => { vi.restoreAllMocks(); localStorage.clear(); sessionStorage.clear(); });
+
+describe("deleted-session record", () => {
+  it("records newest first, deduplicates, keeps at most 10, and writes both stores", () => {
+    for (let i = 0; i < 12; i++) recordDeletedUid(`u${i}`);
+    recordDeletedUid("u5");
+    expect(deletedUids()).toHaveLength(10);
+    expect(deletedUids()[0]).toBe("u5");
+    expect(JSON.parse(localStorage.getItem(DELETED_UIDS_KEY)!)).toEqual(JSON.parse(sessionStorage.getItem(DELETED_UIDS_KEY)!));
+    expect(isDeletedUid("u0")).toBe(false);
+  });
+  it("forgets a uid", () => {
+    recordDeletedUid("ava-uid");
+    forgetDeletedUid("ava-uid");
+    expect(isDeletedUid("ava-uid")).toBe(false);
+  });
+  it("reads the union, so a tab whose localStorage is blocked still knows", () => {
+    sessionStorage.setItem(DELETED_UIDS_KEY, JSON.stringify(["ava-uid"]));
+    localStorage.setItem(DELETED_UIDS_KEY, JSON.stringify(["other"]));
+    expect(new Set(deletedUids())).toEqual(new Set(["ava-uid", "other"]));
+  });
+  it("ignores malformed values and never throws when storage is blocked (Review Focus 4)", () => {
+    localStorage.setItem(DELETED_UIDS_KEY, "{not json");
+    sessionStorage.setItem(DELETED_UIDS_KEY, JSON.stringify([1, "", "ok"]));
+    expect(deletedUids()).toEqual(["ok"]);
+    for (const m of ["getItem", "setItem"] as const) vi.spyOn(Storage.prototype, m).mockImplementation(() => { throw new Error("blocked"); });
+    expect(() => recordDeletedUid("x")).not.toThrow();
+    expect(deletedUids()).toEqual([]);
+  });
+});
+```
+
+`web/src/account/storage.test.ts`:
+- Change the notice tests to the object form:
+  ```ts
+  it("the deleted notice is bound to an account and shown once", () => {
+    writeDeletedNotice({ kind: "clearFailed", uid: "ava-uid" });
+    expect(takeDeletedNotice()).toEqual({ kind: "clearFailed", uid: "ava-uid" });
+    expect(takeDeletedNotice()).toBeNull();
+  });
+  it("a legacy plain notice value is ignored", () => {
+    sessionStorage.setItem("safebite.accountDeleted", "ok");
+    expect(takeDeletedNotice()).toBeNull();
+  });
+  it("discardDeletedNoticeUnlessFor removes a flag for any other account", () => {
+    writeDeletedNotice({ kind: "ok", uid: "ava-uid" });
+    discardDeletedNoticeUnlessFor("ava-uid");
+    expect(sessionStorage.getItem("safebite.accountDeleted")).not.toBeNull();
+    discardDeletedNoticeUnlessFor("bogdan-uid");
+    expect(takeDeletedNotice()).toBeNull();
+  });
+  ```
+- Update the blocked-storage test to call `writeDeletedNotice({ kind: "ok", uid: "u" })`.
+
+`web/src/account/deleteFlow.test.ts`:
+- Mock `./deletedSessions` with `recordDeletedUid: m.recordDeletedUid`, where `recordDeletedUid: vi.fn((uid: string) => m.order.push(\`record:${uid}\`))` is added to `m`.
+- The success-order test now expects `["reauth", "token", "call", "clear", "record:ava-uid", "reset"]`, and `expect(m.signOut).not.toHaveBeenCalled()`.
+- The notice assertion becomes `expect(takeDeletedNotice()).toEqual({ kind: "ok", uid: "ava-uid" })`, and similarly for `clearFailed`.
+- The ordering-at-sign-out test is replaced by an ordering-at-reset test. The `resetDocument` mock records `readDeletionRequest()`, the raw notice flag and `m.recordDeletedUid.mock.calls` when it runs, and the test asserts the request is null, the notice names `ava-uid` and the UID is recorded.
+- The two `deletedOtherAccount` tests also assert `m.recordDeletedUid` was not called.
+- In the "another account during cleanup" test, `m.clearDeviceData` is still called; in the "during the callable" test, it is not called.
+- Add:
+  ```ts
+  it("finishDeleted never calls signOut (final review P2)", async () => {
+    await finishDeleted("ava-uid");
+    m.current = null;
+    await finishDeleted(null);
+    expect(m.signOut).not.toHaveBeenCalled();
+  });
+  ```
+- `finishDeleted(null)` with nobody signed in writes the notice `{ kind: "ok", uid: null }` and records nothing.
+
+`web/src/auth/AuthProvider.test.tsx`:
+- Mock `../account/deletedSessions` with a controllable `isDeletedUid` (default `() => false`) and a `forgetDeletedUid` spy.
+- Mock `../account/storage`'s `discardDeletedNoticeUnlessFor` as a spy, and keep everything else real via `importOriginal`.
+- Add:
+
+```tsx
+it("a recorded deleted uid resolves deletedSession without any membership read (final review P2)", async () => {
+  isDeletedUid.mockImplementation((uid: string) => uid === "u1");
+  render(<AuthProvider><Probe /></AuthProvider>);
+  listeners[0]({ uid: "u1", email: "a@x" });
+  await waitFor(() => expect(screen.getByTestId("state")).toHaveTextContent('"deletedSession"'));
+  expect(getDocMock).not.toHaveBeenCalled();
+});
+
+it("a storage event recording the current uid resets this tab; another uid does not", async () => {
+  getDocMock.mockImplementation(async (path: string) =>
+    path === "users/u1" ? snap({ householdId: "home", displayName: "Ava" }) : snap({ memberIds: ["u1"] }));
+  render(<AuthProvider><Probe /></AuthProvider>);
+  listeners[0]({ uid: "u1", email: "a@x" });
+  await waitFor(() => expect(screen.getByTestId("state")).toHaveTextContent('"member"'));
+  isDeletedUid.mockImplementation((uid: string) => uid === "someone-else");
+  window.dispatchEvent(new StorageEvent("storage", { key: "safebite.deletedUids" }));
+  await new Promise((r) => setTimeout(r, 0));
+  expect(resetDocument).not.toHaveBeenCalled();
+  isDeletedUid.mockImplementation((uid: string) => uid === "u1");
+  window.dispatchEvent(new StorageEvent("storage", { key: "safebite.deletedUids" }));
+  await waitFor(() => expect(resetDocument).toHaveBeenCalledTimes(1));
+});
+
+it("resolving any account discards a notice flag that names a different account", async () => {
+  getDocMock.mockImplementation(async (path: string) =>
+    path === "users/u2" ? snap({ householdId: "home", displayName: "B" }) : snap({ memberIds: ["u2"] }));
+  render(<AuthProvider><Probe /></AuthProvider>);
+  listeners[0]({ uid: "u2", email: "b@x" });
+  await waitFor(() => expect(discardDeletedNoticeUnlessFor).toHaveBeenCalledWith("u2"));
+});
+```
+
+`web/src/account/DeleteAccountPage.test.tsx`:
+- Mock `../auth/AuthProvider`'s `useAuth` to return `{ state: { status: "member", email: "ava@safebite.test" } }`.
+- Assert `screen.getByTestId("delete-account-email")` has the text "Deleting the account ava@safebite.test".
+
+- [ ] **Step 2: Run them to see them fail**
+
+Run: `npm --prefix web test -- src/account src/auth`
+Expected: FAIL. The new module is missing, the signatures differ, `signOut` is still called, and there is no `deletedSession` state.
+
+- [ ] **Step 3: Implement**
+
+Create `web/src/account/deletedSessions.ts`:
+
+```ts
+/**
+ * Device-wide record of accounts this device has seen deleted (spec §3.8 step 4, amended after the
+ * final review). Completion never signs out: Firebase signOut queues a "no user" update that can
+ * land after another tab's queued sign-in and remove it. A deleted account's session instead stays
+ * recognised here and is kept out of the app; signing in replaces it. Mirrored into
+ * sessionStorage for a tab whose localStorage is blocked; readers take the union.
+ */
+export const DELETED_UIDS_KEY = "safebite.deletedUids";
+export const MAX_DELETED_UIDS = 10;
+
+type Store = "localStorage" | "sessionStorage";
+const STORES: readonly Store[] = ["localStorage", "sessionStorage"];
+
+function read(store: Store): string[] {
+  try {
+    const raw = window[store].getItem(DELETED_UIDS_KEY);
+    const value: unknown = raw ? JSON.parse(raw) : [];
+    return Array.isArray(value) ? value.filter((x): x is string => typeof x === "string" && x.length > 0) : [];
+  } catch {
+    return [];
+  }
+}
+
+function write(list: string[]): void {
+  for (const store of STORES) {
+    try { window[store].setItem(DELETED_UIDS_KEY, JSON.stringify(list)); } catch { /* blocked */ }
+  }
+}
+
+export function deletedUids(): string[] {
+  return [...new Set([...read("localStorage"), ...read("sessionStorage")])];
+}
+
+export function isDeletedUid(uid: string): boolean {
+  return deletedUids().includes(uid);
+}
+
+export function recordDeletedUid(uid: string): void {
+  write([uid, ...deletedUids().filter((x) => x !== uid)].slice(0, MAX_DELETED_UIDS));
+}
+
+export function forgetDeletedUid(uid: string): void {
+  write(deletedUids().filter((x) => x !== uid));
+}
+```
+
+The union read after a write can briefly order differently from the stores. Keep `recordDeletedUid`'s newest-first order: it rebuilds from the union and writes both.
+
+`web/src/account/storage.ts`: replace the notice helpers.
+
+```ts
+export interface DeletedNotice { kind: "ok" | "clearFailed"; uid: string | null }
+
+export const writeDeletedNotice = (notice: DeletedNotice) => set(ACCOUNT_DELETED_KEY, JSON.stringify(notice));
+
+function parseNotice(raw: string | null): DeletedNotice | null {
+  if (raw === null) return null;
+  try {
+    const v = JSON.parse(raw) as { kind?: unknown; uid?: unknown };
+    if ((v.kind === "ok" || v.kind === "clearFailed") && (v.uid === null || (typeof v.uid === "string" && v.uid.length > 0))) {
+      return { kind: v.kind, uid: v.uid };
+    }
+  } catch {
+    // legacy plain value
+  }
+  return null;
+}
+
+export function takeDeletedNotice(): DeletedNotice | null {
+  const notice = parseNotice(get(ACCOUNT_DELETED_KEY));
+  remove(ACCOUNT_DELETED_KEY);
+  return notice;
+}
+
+/** A notice belongs to one account: resolving any other account discards it (final review P2). */
+export function discardDeletedNoticeUnlessFor(uid: string): void {
+  const notice = parseNotice(get(ACCOUNT_DELETED_KEY));
+  if (notice && notice.uid !== uid) remove(ACCOUNT_DELETED_KEY);
+}
+```
+
+Delete the old `DeletedNotice` string type. `deletedNotice.ts` keeps `deletedNoticeOnce()`, now returning `DeletedNotice | null`.
+
+`web/src/account/deleteFlow.ts`:
+- Remove the `signOut` import and import `recordDeletedUid`.
+- Replace the success tail of `finishDeleted`:
+
+```ts
+  if (!ours()) { clearDeletionRequest(); return "otherAccount"; }
+  if (requestUid !== null) recordDeletedUid(requestUid);
+  writeDeletedNotice({ kind: failed.length === 0 ? "ok" : "clearFailed", uid: requestUid });
+  clearDeletionRequest();
+  // Never signOut here (final review P2): signOut queues a "no user" update that can remove another
+  // account whose sign-in is already queued. The record keeps this deleted session out of the app.
+  resetDocument();
+  return "finished";
+```
+
+Update the doc comment.
+
+`web/src/auth/AuthProvider.tsx`:
+- Add `| { status: "deletedSession"; uid: string; email: string | null }` to `AuthState`.
+- In `stateForUser`, first line:
+  ```ts
+  if (isDeletedUid(user.uid)) return { status: "deletedSession", uid: user.uid, email: user.email };
+  ```
+- After any non-`deletedSession` state resolves for a user (in `resolveForUser`'s `.then`, when `mine === generationRef.current`), call `discardDeletedNoticeUnlessFor(user.uid)`.
+- In the auth `useEffect`, add a `storage` listener and remove it in the cleanup:
+  ```ts
+  const onStorage = (event: StorageEvent) => {
+    if (event.key !== DELETED_UIDS_KEY) return;
+    const uid = lastUidRef.current;
+    if (uid === null || !isDeletedUid(uid)) return;
+    generationRef.current += 1;
+    setState({ status: "resetting" });
+    void clearDeviceData().finally(() => resetDocument());
+  };
+  window.addEventListener("storage", onStorage);
+  ```
+- `signIn` becomes:
+  ```ts
+  const signIn = useCallback(async (email: string, password: string) => {
+    const { user } = await signInWithEmailAndPassword(auth, email, password);
+    // A successful sign-in proves the account exists (e.g. re-created by an admin): forget it, then
+    // re-resolve in case the listener already resolved deletedSession for it.
+    if (isDeletedUid(user.uid)) { forgetDeletedUid(user.uid); resolveForUser(user); }
+  }, [resolveForUser]);
+  ```
+
+`web/src/App.tsx`: in `Gate`, add `case "deletedSession": return <SignInScreen deletedUid={state.uid} />;`.
+
+`web/src/auth/SignInScreen.tsx`:
+- Accept an optional `deletedUid?: string` and import `isDeletedUid`.
+- The notice to show is:
+  ```ts
+  const flag = useState(deletedNoticeOnce)[0];
+  const notice = deletedUid !== undefined
+    ? { kind: flag && flag.uid === deletedUid ? flag.kind : "ok" }
+    : flag && (flag.uid === null || isDeletedUid(flag.uid)) ? { kind: flag.kind } : null;
+  ```
+- Render as before from `notice.kind`.
+
+`web/src/account/DeleteAccountPage.tsx`: read `const { state } = useAuth();` and render, above the form:
+```tsx
+<p data-testid="delete-account-email">Deleting the account {state.status === "member" ? state.email : ""}</p>
+```
+
+- [ ] **Step 4: Run everything**
+
+Run: `npm run typecheck && npm run test:unit`, then `npm run emu:e2e` (10 min timeout).
+Expected:
+- unit tests green;
+- browser 50/50 green: the deletion scenarios still end on `signin-deleted-notice`, because the reloaded tab resolves `deletedSession`;
+- scenario 6's second tab resets through the `storage` event.
+
+If scenario 6 fails, check that the deletion tab writes `localStorage` before its own reload. Do not reintroduce `signOut`.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add web/src
+git commit -m "fix(account): completion never signs out; deleted sessions are recognised" -m "Final review P2: a sign-in already queued in Firebase Auth could be signed out by completion.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01MRsbJXkLpLQG7QzdeZmxsQ"
+```
+
+---
+
+### Task 16: The queued sign-in regression, and the full gate
+
+**Files:**
+- Modify: `web/e2e/account.spec.ts`, `web/playwright.config.ts` (count comment), `README.md`
+
+**Interfaces:**
+- Consumes: Task 15's behaviour, and the reproducer `planning/audits/plan-5a-review-probes/signout.spec.cjs` (read it first).
+
+- [ ] **Step 1: Port the reproducer as scenarios 9 and 10**
+
+Add to `web/e2e/account.spec.ts`, adapting the probe:
+
+```ts
+// Scenario 9 drives Firebase Auth's internal operations queue (auth.queue, _updateCurrentUser),
+// pinned to @firebase/auth 1.13.6, to put Bogdan's sign-in ahead of completion deterministically.
+// The app code under test is unmodified.
+test("9: completion never signs out a sign-in that was already queued (final review P2)", async ({ page, context, request }) => {
+  await signIn(page, "ava@safebite.test");
+  const other = await context.newPage();
+  await other.goto("/restaurants");
+  await expect(other.getByTestId("nav-settings")).toBeVisible({ timeout: 15_000 });
+
+  let serverDone!: () => void;
+  const completed = new Promise<void>((r) => (serverDone = r));
+  let sendResponse!: () => void;
+  const released = new Promise<void>((r) => (sendResponse = r));
+  await page.route(DELETE_URL, async (route) => {
+    if (route.request().method() !== "POST") return route.continue();
+    const response = await route.fetch({ timeout: 90_000 });
+    await page.evaluate(async () => {
+      const { auth } = await import("/src/firebase.ts");
+      const w = window as unknown as { queued: (string | null)[]; release: () => void };
+      w.queued = [];
+      (auth as unknown as { queue: (f: () => Promise<void>) => void }).queue(() => new Promise<void>((r) => (w.release = r)));
+      const a = auth as unknown as { _updateCurrentUser: (u: { uid: string } | null, s?: boolean) => Promise<void> };
+      const update = a._updateCurrentUser.bind(auth);
+      a._updateCurrentUser = (u, s) => { w.queued.push(u?.uid ?? null); return update(u, s); };
+    });
+    serverDone();
+    await released;
+    await route.fulfill({ response });
+  });
+  await page.goto("/settings/delete-account");
+  await page.getByTestId("delete-password").fill(PASSWORD);
+  await page.getByTestId("delete-submit").click();
+  await completed;
+  await other.evaluate(async (pw) => {
+    const { auth } = await import("/src/firebase.ts");
+    const { signInWithEmailAndPassword } = await import("/node_modules/.vite/deps/firebase_auth.js");
+    await signInWithEmailAndPassword(auth, "bogdan@safebite.test", pw);
+  }, PASSWORD);
+  await page.waitForFunction(() => (window as unknown as { queued: (string | null)[] }).queued.includes("bogdan-uid"));
+  sendResponse();
+  // Completion reloads the deletion tab; a null update must never be queued behind Bogdan's.
+  await expect(page.getByTestId("nav-settings")).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByTestId("signin-deleted-notice")).toHaveCount(0);
+  const otherUid = await other.evaluate(async () => (await import("/src/firebase.ts")).auth.currentUser?.uid ?? null);
+  expect(otherUid).toBe("bogdan-uid");
+  expect(await passwordAccepted(request, "ava@safebite.test", PASSWORD)).toBe(false);
+  expect(await passwordAccepted(request, "bogdan@safebite.test", PASSWORD)).toBe(true);
+  expect(await householdExists(request)).toBe(true);
+});
+```
+
+Port the probe's control test as scenario 10: the same queued switch with no deletion keeps Bogdan, and no notice is shown. Keep its assertions.
+
+Two dev-server paths may differ in this repo: the Vite optimised-deps path for `firebase/auth`, and whether `/src/firebase.ts` is importable from the page. If either does, find the working equivalent with the dev server running (for example `/@id/firebase/auth`), use it, and say so in the report. The page must call the real SDK `signInWithEmailAndPassword`.
+
+Before relying on scenario 9, prove it is a real regression test. Temporarily reintroduce `await signOut(auth)` in `finishDeleted`, run scenario 9 alone, and record the failure: `otherUid` is null, or the notice is shown. Then restore the code. This mirrors the reviewer's RED.
+
+- [ ] **Step 2: README and counts**
+
+Update the browser count and stress line in `README.md`, and the scenario count in `web/playwright.config.ts`. In the "Your data" paragraph, add: "Finishing a deletion never signs anyone out; a deleted account's session is recognised and shown the sign-in screen."
+
+- [ ] **Step 3: The full gate**
+
+Run every command in Task 11 Step 6, including `npm run emu:e2e:stress` (30 min timeout). The `getIdToken(true)` grep must still print exactly one line. Add one guardrail grep, `git grep -n "signOut(" -- web/src/account/deleteFlow.ts`, which must print nothing.
+
+Known host issues: backwards clock steps, `ERR_NETWORK_CHANGED`, socket hang-ups in seed restore, boot-guard port stalls, and "Loading…" stalls in untouched files. Record any you hit and rerun once. A deterministic failure is never "host".
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add web/e2e/account.spec.ts web/playwright.config.ts README.md
+git commit -m "test(account): a sign-in queued before completion survives it" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01MRsbJXkLpLQG7QzdeZmxsQ"
+```
+
+### Addendum 2 coverage
+
+| Final-review item | Task |
+|---|---|
+| P2: completion signs out a queued sign-in → completion never calls `signOut`; deleted-session record; `deletedSession` state; storage-event reset; notice bound to its UID | 15 |
+| P2 permanent regression (real SDK, queued sign-in) plus control; RED by reintroducing `signOut` | 16 |
+| Non-blocking: the delete page names its account | 15 |
+| Spec "device data is cleared either way" aligned (not cleared when another account is current) | spec `604ebb4` |
