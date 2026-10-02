@@ -174,3 +174,53 @@ Task 14: minor (deferred): scenario 4 does not assert the second deletion remove
 Task 14: minor (deferred): receipt cleanup ignores delete responses and pagination
 Task 14: minor (deferred, open flake): first stress run "Loading…" stalls in collection C3/C8b, discover 1 — no root cause; rerun green
 Task 14: complete (commits 01429c0..419e33f, review clean); counts web 481, fn+rules 441, browser 50, stress 150/150
+
+## Second correction round after the final review (Tasks 15–16 and follow-ups)
+
+Review: planning/audits/2026-10-02-plan-5a-final-review.md (P2: completion's signOut removed a queued sign-in). Spec 604ebb4, 4ae784d, f72c54b, 1b7b90d and the 5 s backstop sentence; plan addendum 2 1a3de04/6fc83dc. Commits 0a27d4e..a1122b6.
+
+Gate at a1122b6: typecheck; web unit 512; functions + rules 441 (unchanged since 6cf6883); browser 53; stress 159/159 twice (retries 0, through 18 host clock steps).
+
+Root cause of the long-running local e2e flakes (2026-10-02 investigation): the WSL clock steps back about 2 s every 30 s (hv_utils vs systemd-timesyncd). The Auth emulator rejects tokens minted in a second before a password write's validSince stamp. The e2e helpers now wait out that second (a1122b6). Environment fix (owner): w32tm /resync, or disable systemd-timesyncd in the distro.
+
+Residual (accepted): any tab still holding a deleted session clears the shared Firebase persistence key on its own poll without a check — the same window as a stock cross-tab sign-out.
+
+## Addendum 2 (Tasks 15–16) — final review 2026-10-02, spec 604ebb4, plan 1a3de04/6fc83dc
+Pre-flight scan:
+| Pair / task | Produces vs consumes | Finding |
+|---|---|---|
+| T15 self | deletedSessions API vs tests; notice object form vs SignInScreen/deletedNotice; finishDeleted no signOut vs order test | consistent |
+| T15 vs existing | storage.ts notice type change consumed by deleteFlow, SignInScreen, deletedNotice; AuthState deletedSession consumed by App gate | consistent |
+| T15→T16 | no signOut in finishDeleted; deletedSession → sign-in with notice; storage-event reset | T16 scenarios 9/10 + existing 1–8 rely on these; consistent |
+| T16 self | scenario 9 RED by reintroducing signOut; Vite dep path may differ (brief allows equivalent) | consistent |
+Scan clean; no rulings needed.
+Task 15: review (opus) Needs fixes — Important: keeping the deleted session persisted lets the Firebase SDK's start-up lookup (fails for a deleted user) call removeCurrentUser on the SHARED persistence key, which can remove another account that signed in during that round trip (same class as P2, moved to the next load)
+Task 15: Ruling: completion also removes the deleted account's persisted session with an atomic IndexedDB compare-and-delete (delete only if the stored user's uid === requestUid, in one readwrite transaction), with a localStorage-persistence equivalent; the deleted-session record stays as the UI guard. Layout (DB/store/key) verified empirically against @firebase/auth 1.13.6 in the dev browser; on any mismatch it does nothing. A browser scenario proves the reloaded tab makes no accounts:lookup for the deleted uid and a concurrent second-tab sign-in survives — cost if wrong: coupling to SDK persistence internals (fails safe to today's behaviour)
+Task 15: fix round 1 also: discard foreign notice on the error path (minor 1); storage-event reset only on a newly-added uid (minor 3); signIn re-resolves only when lastUid is that user (minor 4); unit tests for signIn forget/re-resolve and SignInScreen notice choice (minor 5)
+Task 15: minor (deferred): forget cannot reach another tab's sessionStorage mirror (union read is spec-mandated)
+Task 15: fix round 1 landed 3f0d6b5 (compare-and-delete persistence removal; scenario 11 counts accounts:lookup context-wide, RED 3 lookups; layout matches 1.13.6; minors 1,3,4,5 + SignInScreen tests); web 502, browser 51
+Task 15: Ruling: removal must precede recordDeletedUid (strict order remove → record → notice → clear → reset, no await after removal) so a storage-event reset in another tab can never reload into a lookup of the persisted deleted user — cost if wrong: none
+Task 15: fix round 2 landed e2958b5; re-review (opus): all addressed, no new Critical/Important
+Task 15: spec minor A fixed by controller (order + localStorage wording + SDK residual) in the commit after e2958b5
+Task 15: minor (deferred): scenario 11 title says "concurrent" but Bogdan signs in after both tabs settle; the guard is lookups == []
+Task 15: minor (deferred): IndexedDB open could act after an onblocked-settled result (unreachable with versionless open); close db if already settled
+Task 15: minor (deferred, residual SDK race): another tab holding the deleted session clears its own key unconditionally on its persistence poll — window is two local IDB ops
+Task 15: complete (commits 6fc83dc..e2958b5, review clean after 2 fix rounds); counts web 502, fn+rules 441, browser 51
+Task 16: note: plan's scenario 9 was vacuous with signOut reintroduced (held queue never released); implementer added release + wait, RED then GREEN
+Task 16: ⚠️ count checked: Task 15 added scenario 11 → 51 + 9 + 10 = 53, README consistent
+Task 16: review Needs fixes — Important: scenario 9 asserts right after release (can pass on the bug before the drain/reload); the 1.5 s wait is not tied to completion reaching signOut (slow host → otherAccount branch → passes on the bug)
+Task 16: minor (deferred): queue-hook/load/sign-in helpers duplicated three times; scenarios 9/10 after 11 in file
+Task 16: fix round 1/5 (2 addressed + additions, 0 open; commits 9f1129b..aaf80b4); RED 3/3 fail, GREEN 3/3 pass
+Task 16: complete (commits f72c54b..aaf80b4, review clean); counts web 502, fn+rules 441, browser 53
+Final review (addendum 2, opus): ready to merge, no Critical/Important. Residual SDK race confirmed and acceptable (applies to any tab incl. the deletion tab; same window as stock cross-tab sign-out) — spec wording fixed by controller
+Final (addendum 2): Ruling: one fix wave for Minor 1 (localStorage writes only localStorage's own list + new uid; union for reads), Minor 2 (1.5 s timeout on the IDB removal → unavailable), Minor 3 (third ours() after removal → otherAccount UI, no await before record), Minor 4 (email fallback to display name), Minor 5 (unit tests for persistedSession's localStorage branch) — all small; 1 and 2 remove the only stranding paths — cost if wrong: a slightly larger diff
+Final (addendum 2): controller stress run at aaf80b4: 159/159 passed (53×3, retries 0, 11.7 min)
+Final2 fix wave: 2563a9d; stress run 1 had scenario 11 see one accounts:lookup after deletion (158/159), rerun 159/159, scenario 11 alone 15/15 — unexplained; possible link to the new 1.5 s IDB timeout under load
+Final2 re-review (opus): G1, G3, G4 addressed; G2 introduced an Important regression — the 1500 ms timeout plus the no-late-delete guard (both prescribed by the controller's brief) can leave Ava's persisted user, so the reloaded tab's SDK start-up does accounts:lookup (most likely cause of the 1/159 scenario 11 failure). Recommended: allow the late uid-guarded delete, raise the bound to a 5–10 s liveness backstop on the open only, never cap the started transaction; rerun stress twice.
+Final2: residual load-bearing finding — per process no second fix wave; surfaced to owner with recommendation
+Final2: owner approved the correction ("Continue with recommendations")
+Final3: 49dbdbc correction green (unit 512, e2e 53) but stress runs had 1 and 3 failures — all account.spec signIn helper showing 'Sign-in failed. Try again.' before any deletion step; timeout warning never logged; dispatching root-cause investigation
+Final3: ROOT CAUSE of stress sign-in failures (high confidence): WSL clock steps back ~2 s every 30 s (hv_utils vs systemd-timesyncd); Auth emulator stamps validSince on restoreSeedAccounts' password write and rejects tokens with iat < validSince → accounts:lookup TOKEN_EXPIRED → auth/user-token-expired → generic message. Reproduced at aaf80b4 (3/88) and standalone; not caused by 2563a9d..49dbdbc. Earlier "clock-step" flakes are the same family.
+Final3: Ruling: apply the investigator's harness-only fix (skip password write when already accepted; wait until wall clock ≥ stamp second + 3 after any create/password write, in account-rest.ts and auth-rest.ts), then stress twice — test-only, no product change — cost if wrong: ~2 min longer stress
+Final3: harness fix a1122b6 (+auth.spec password-change wait, same mechanism from the product's own password stamp); e2e 53/53, stress 159/159 ×2 through 18 clock jumps; note: subagent ran a stray pkill (own runs only)
+Final3 re-review (opus): all addressed, no new Critical/Important; minor (deferred): restoreSeedAccounts stampedAt should take the max across creates; app-internal accounts:lookup after updatePassword faces the same emulator clock race (emulator-only)
