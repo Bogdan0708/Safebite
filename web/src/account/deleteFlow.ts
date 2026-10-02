@@ -68,12 +68,15 @@ export async function finishDeleted(requestUid: string | null): Promise<FinishRe
   if (!ours()) { clearDeletionRequest(); return "otherAccount"; }
   const { failed } = await clearDeviceData(); // device data goes either way
   if (!ours()) { clearDeletionRequest(); return "otherAccount"; }
+  // Strict order. First remove the deleted account's persisted user (compare-and-delete): the SDK's
+  // next start-up reload of it would remove the shared persisted-user key whatever it then holds.
+  // Then record, write the notice and clear the request with no await between them and the reset:
+  // an SDK persistence poll or a storage-event reset in another tab can fire at any await, and must
+  // find the record and notice already in place (or the persisted user already gone), never half.
+  if (requestUid !== null) await removePersistedUserIfUid(requestUid);
   if (requestUid !== null) recordDeletedUid(requestUid);
   writeDeletedNotice({ kind: failed.length === 0 ? "ok" : "clearFailed", uid: requestUid });
   clearDeletionRequest();
-  // The SDK's next start-up reload of this deleted user would remove the shared persisted-user key
-  // whatever it then holds; remove it ourselves, only if it is still this account's.
-  if (requestUid !== null && ours()) await removePersistedUserIfUid(requestUid);
   // Never signOut here (final review P2): signOut queues a "no user" update that can remove another
   // account whose sign-in is already queued. The record keeps this deleted session out of the app.
   resetDocument();
