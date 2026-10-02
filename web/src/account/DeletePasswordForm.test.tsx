@@ -2,9 +2,15 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const m = vi.hoisted(() => ({ deleteMyAccount: vi.fn(), resetDocument: vi.fn() }));
+const m = vi.hoisted(() => ({ deleteMyAccount: vi.fn(), resetDocument: vi.fn(), readDeletionRequest: vi.fn() }));
 vi.mock("./deleteFlow", () => ({ deleteMyAccount: m.deleteMyAccount }));
 vi.mock("../auth/resetDocument", () => ({ resetDocument: m.resetDocument }));
+vi.mock("./storage", () => ({ readDeletionRequest: m.readDeletionRequest }));
+vi.mock("./DeletionRecoveryScreen", () => ({
+  DeletionRecoveryScreen: ({ requestId, onDismiss }: { requestId: string; onDismiss: () => void }) => (
+    <button type="button" data-testid="stub-recovery" data-request={requestId} onClick={onDismiss}>recovery</button>
+  ),
+}));
 
 import { DeletePasswordForm } from "./DeletePasswordForm";
 
@@ -50,9 +56,22 @@ describe("DeletePasswordForm", () => {
 
   it("a lost response reloads the tab so the recovery screen takes over", async () => {
     m.deleteMyAccount.mockResolvedValue({ kind: "lost", requestId: "R" });
+    m.readDeletionRequest.mockReturnValue("R");
     render(<DeletePasswordForm submitLabel="Delete my account" testid="del" />);
     await submit();
     await waitFor(() => expect(m.resetDocument).toHaveBeenCalledTimes(1));
+    expect(screen.queryByTestId("stub-recovery")).toBeNull();
+  });
+
+  it.each([[null], ["OTHER"]])("a lost response whose request id was not stored (%s) shows recovery in place, without a reload (final review F5)", async (stored) => {
+    m.deleteMyAccount.mockResolvedValue({ kind: "lost", requestId: "R" });
+    m.readDeletionRequest.mockReturnValue(stored);
+    render(<DeletePasswordForm submitLabel="Delete my account" testid="del" />);
+    await submit();
+    await waitFor(() => expect(screen.getByTestId("stub-recovery")).toHaveAttribute("data-request", "R"));
+    expect(m.resetDocument).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByTestId("stub-recovery"));
+    expect(m.resetDocument).toHaveBeenCalledTimes(1);
   });
 
   it("is disabled while offline (Review Focus 5)", () => {

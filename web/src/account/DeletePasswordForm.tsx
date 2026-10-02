@@ -1,6 +1,8 @@
 import { useEffect, useState, type SubmitEvent } from "react";
 import { resetDocument } from "../auth/resetDocument";
 import { deleteMyAccount, type DeleteOutcome } from "./deleteFlow";
+import { DeletionRecoveryScreen } from "./DeletionRecoveryScreen";
+import { readDeletionRequest } from "./storage";
 
 const MESSAGES: Record<string, string> = {
   wrongCurrent: "That isn't your current password.",
@@ -35,6 +37,7 @@ export function DeletePasswordForm({ submitLabel, testid }: { submitLabel: strin
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ key: string } | null>(null);
+  const [lostRequestId, setLostRequestId] = useState<string | null>(null);
 
   async function onSubmit(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -43,12 +46,21 @@ export function DeletePasswordForm({ submitLabel, testid }: { submitLabel: strin
     setBusy(true);
     const outcome = await deleteMyAccount(password);
     if (outcome.kind === "deleted") return; // finishDeleted is resetting the tab
-    if (outcome.kind === "lost") { resetDocument(); return; } // the recovery screen takes over after the reload
+    if (outcome.kind === "lost") {
+      // The recovery screen takes over after the reload only if the id reached sessionStorage;
+      // when storage is blocked, recover in this document instead (final review F5).
+      if (readDeletionRequest() === outcome.requestId) resetDocument();
+      else setLostRequestId(outcome.requestId);
+      return;
+    }
     setBusy(false);
     setPassword("");
     setMessage({ key: messageKey(outcome) });
   }
 
+  if (lostRequestId !== null) {
+    return <DeletionRecoveryScreen requestId={lostRequestId} onDismiss={() => resetDocument()} />;
+  }
   if (busy) {
     return <p className="screen" role="status" data-testid="delete-progress">Deleting your account… keep this page open.</p>;
   }

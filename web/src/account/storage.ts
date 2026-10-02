@@ -10,7 +10,7 @@ function get(key: string): string | null {
   try { return sessionStorage.getItem(key); } catch { return null; }
 }
 function set(key: string, value: string): void {
-  try { sessionStorage.setItem(key, value); } catch { /* blocked: in-document recovery still works */ }
+  try { sessionStorage.setItem(key, value); } catch { /* blocked: callers read the key back and recover in the document instead of reloading */ }
 }
 function remove(key: string): void {
   try { sessionStorage.removeItem(key); } catch { /* blocked */ }
