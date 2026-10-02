@@ -19,6 +19,8 @@ function Gate() {
       return <main className="screen" data-testid="resetting"><p>Signing out…</p></main>;
     case "signedOut":
       return <SignInScreen />;
+    case "deletedSession":
+      return <SignInScreen deletedUid={state.uid} />;
     case "notMember":
       return <NotInvitedScreen />;
     case "deletionPending":

@@ -1,6 +1,7 @@
 import { doc, getDoc } from "firebase/firestore";
 import { useEffect, useState } from "react";
 import { Link } from "react-router";
+import { useAuth } from "../auth/AuthProvider";
 import { db } from "../firebase";
 import { useMember } from "../records/useMember";
 import { DeletePasswordForm } from "./DeletePasswordForm";
@@ -8,6 +9,7 @@ import { DeletePasswordForm } from "./DeletePasswordForm";
 /** The text is advisory: the server's step 2 transaction decides who is last (spec §3.8). */
 export function DeleteAccountPage() {
   const { householdId, uid } = useMember();
+  const { state } = useAuth();
   const [onlyMember, setOnlyMember] = useState<boolean | null>(null);
 
   useEffect(() => {
@@ -24,6 +26,7 @@ export function DeleteAccountPage() {
   return (
     <section>
       <h2>Delete account</h2>
+      <p data-testid="delete-account-email">Deleting the account {state.status === "member" ? state.email : ""}</p>
       {onlyMember !== null && (
         <p data-testid="delete-consequence">
           {onlyMember

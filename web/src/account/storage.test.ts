@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { clearDeletionRequest, readDeletionRequest, takeDeletedNotice, writeDeletedNotice, writeDeletionRequest } from "./storage";
+import { clearDeletionRequest, discardDeletedNoticeUnlessFor, readDeletionRequest, takeDeletedNotice, writeDeletedNotice, writeDeletionRequest } from "./storage";
 
 afterEach(() => { vi.restoreAllMocks(); sessionStorage.clear(); });
 
@@ -16,9 +16,20 @@ describe("account storage", () => {
     sessionStorage.setItem("safebite.deletionRequest", JSON.stringify({ requestId: "x", uid: "" }));
     expect(readDeletionRequest()).toEqual({ requestId: JSON.stringify({ requestId: "x", uid: "" }), uid: null });
   });
-  it("the deleted notice is shown once", () => {
-    writeDeletedNotice("clearFailed");
-    expect(takeDeletedNotice()).toBe("clearFailed");
+  it("the deleted notice is bound to an account and shown once", () => {
+    writeDeletedNotice({ kind: "clearFailed", uid: "ava-uid" });
+    expect(takeDeletedNotice()).toEqual({ kind: "clearFailed", uid: "ava-uid" });
+    expect(takeDeletedNotice()).toBeNull();
+  });
+  it("a legacy plain notice value is ignored", () => {
+    sessionStorage.setItem("safebite.accountDeleted", "ok");
+    expect(takeDeletedNotice()).toBeNull();
+  });
+  it("discardDeletedNoticeUnlessFor removes a flag for any other account", () => {
+    writeDeletedNotice({ kind: "ok", uid: "ava-uid" });
+    discardDeletedNoticeUnlessFor("ava-uid");
+    expect(sessionStorage.getItem("safebite.accountDeleted")).not.toBeNull();
+    discardDeletedNoticeUnlessFor("bogdan-uid");
     expect(takeDeletedNotice()).toBeNull();
   });
   it("ignores an unknown notice value", () => {
@@ -32,7 +43,7 @@ describe("account storage", () => {
     expect(() => writeDeletionRequest({ requestId: "x", uid: "u" })).not.toThrow();
     expect(readDeletionRequest()).toBeNull();
     expect(() => clearDeletionRequest()).not.toThrow();
-    expect(() => writeDeletedNotice("ok")).not.toThrow();
+    expect(() => writeDeletedNotice({ kind: "ok", uid: "u" })).not.toThrow();
     expect(takeDeletedNotice()).toBeNull();
   });
 });

@@ -10,6 +10,13 @@ const { resetDocument } = vi.hoisted(() => ({ resetDocument: vi.fn() }));
 vi.mock("./resetDocument", () => ({ resetDocument }));
 const { clearDeviceData } = vi.hoisted(() => ({ clearDeviceData: vi.fn() }));
 vi.mock("../device/cleanup", () => ({ clearDeviceData }));
+const { isDeletedUid, forgetDeletedUid, discardDeletedNoticeUnlessFor } = vi.hoisted(() => ({
+  isDeletedUid: vi.fn((_uid: string) => false),
+  forgetDeletedUid: vi.fn(),
+  discardDeletedNoticeUnlessFor: vi.fn(),
+}));
+vi.mock("../account/deletedSessions", () => ({ DELETED_UIDS_KEY: "safebite.deletedUids", isDeletedUid, forgetDeletedUid }));
+vi.mock("../account/storage", async (importOriginal) => ({ ...(await importOriginal<typeof import("../account/storage")>()), discardDeletedNoticeUnlessFor }));
 
 vi.mock("../firebase", () => ({ auth: {}, db: {}, functions: {}, usingEmulators: true }));
 vi.mock("firebase/auth", () => ({
@@ -51,6 +58,10 @@ beforeEach(() => {
   getDocMock.mockReset();
   resetDocument.mockReset();
   clearDeviceData.mockReset();
+  isDeletedUid.mockReset();
+  isDeletedUid.mockImplementation(() => false);
+  forgetDeletedUid.mockReset();
+  discardDeletedNoticeUnlessFor.mockReset();
   clearDeviceData.mockResolvedValue({ failed: [] });
 });
 
@@ -217,4 +228,35 @@ it("an offline failure reading the record is the error state, not notMember", as
   listeners[0]({ uid: "u1", email: "a@x" });
   await waitFor(() => expect(screen.getByTestId("state")).toHaveTextContent('"error"'));
 });
+
+  it("a recorded deleted uid resolves deletedSession without any membership read (final review P2)", async () => {
+    isDeletedUid.mockImplementation((uid: string) => uid === "u1");
+    render(<AuthProvider><Probe /></AuthProvider>);
+    listeners[0]({ uid: "u1", email: "a@x" });
+    await waitFor(() => expect(screen.getByTestId("state")).toHaveTextContent('"deletedSession"'));
+    expect(getDocMock).not.toHaveBeenCalled();
+  });
+
+  it("a storage event recording the current uid resets this tab; another uid does not", async () => {
+    getDocMock.mockImplementation(async (path: string) =>
+      path === "users/u1" ? snap({ householdId: "home", displayName: "Ava" }) : snap({ memberIds: ["u1"] }));
+    render(<AuthProvider><Probe /></AuthProvider>);
+    listeners[0]({ uid: "u1", email: "a@x" });
+    await waitFor(() => expect(screen.getByTestId("state")).toHaveTextContent('"member"'));
+    isDeletedUid.mockImplementation((uid: string) => uid === "someone-else");
+    window.dispatchEvent(new StorageEvent("storage", { key: "safebite.deletedUids" }));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(resetDocument).not.toHaveBeenCalled();
+    isDeletedUid.mockImplementation((uid: string) => uid === "u1");
+    window.dispatchEvent(new StorageEvent("storage", { key: "safebite.deletedUids" }));
+    await waitFor(() => expect(resetDocument).toHaveBeenCalledTimes(1));
+  });
+
+  it("resolving any account discards a notice flag that names a different account", async () => {
+    getDocMock.mockImplementation(async (path: string) =>
+      path === "users/u2" ? snap({ householdId: "home", displayName: "B" }) : snap({ memberIds: ["u2"] }));
+    render(<AuthProvider><Probe /></AuthProvider>);
+    listeners[0]({ uid: "u2", email: "b@x" });
+    await waitFor(() => expect(discardDeletedNoticeUnlessFor).toHaveBeenCalledWith("u2"));
+  });
 });

@@ -1,9 +1,9 @@
-import { signOut } from "firebase/auth";
 import { reauthenticate, type ReauthResult } from "../auth/reauthenticate";
 import { resetDocument } from "../auth/resetDocument";
 import { clearDeviceData } from "../device/cleanup";
 import { auth } from "../firebase";
 import { deleteAccountCall, newRequestId } from "./api";
+import { recordDeletedUid } from "./deletedSessions";
 import { classifyCallError } from "./recovery";
 import { clearDeletionRequest, writeDeletedNotice, writeDeletionRequest } from "./storage";
 
@@ -55,8 +55,9 @@ export type FinishResult = "finished" | "otherAccount";
 /**
  * The server confirmed deletion of requestUid's account. Completion acts only for that account
  * (auditor re-review, 2026-10-02): if a different account is current before or after the device
- * cleanup, it is never signed out and no deleted notice is written. requestUid null (a request
- * with no owner) acts only when nobody is signed in.
+ * cleanup, no deleted notice is written. Completion never signs anyone out: it records requestUid
+ * as a deleted session and resets the document; the auth listener keeps that session out of the
+ * app. requestUid null (a request with no owner) acts only when nobody is signed in.
  */
 export async function finishDeleted(requestUid: string | null): Promise<FinishResult> {
   const ours = () => {
@@ -66,15 +67,11 @@ export async function finishDeleted(requestUid: string | null): Promise<FinishRe
   if (!ours()) { clearDeletionRequest(); return "otherAccount"; }
   const { failed } = await clearDeviceData(); // device data goes either way
   if (!ours()) { clearDeletionRequest(); return "otherAccount"; }
-  writeDeletedNotice(failed.length === 0 ? "ok" : "clearFailed");
+  if (requestUid !== null) recordDeletedUid(requestUid);
+  writeDeletedNotice({ kind: failed.length === 0 ? "ok" : "clearFailed", uid: requestUid });
   clearDeletionRequest();
-  if (auth.currentUser !== null) {
-    try {
-      await signOut(auth); // the current account is requestUid's: checked synchronously above
-    } catch {
-      // Already signed out; the explicit reset below still runs.
-    }
-  }
+  // Never signOut here (final review P2): signOut queues a "no user" update that can remove another
+  // account whose sign-in is already queued. The record keeps this deleted session out of the app.
   resetDocument();
   return "finished";
 }

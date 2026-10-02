@@ -4,7 +4,6 @@
  */
 export const DELETION_REQUEST_KEY = "safebite.deletionRequest";
 export const ACCOUNT_DELETED_KEY = "safebite.accountDeleted";
-export type DeletedNotice = "ok" | "clearFailed";
 
 function get(key: string): string | null {
   try { return sessionStorage.getItem(key); } catch { return null; }
@@ -35,10 +34,31 @@ export function readDeletionRequest(): DeletionRequest | null {
 export const writeDeletionRequest = (request: { requestId: string; uid: string }) =>
   set(DELETION_REQUEST_KEY, JSON.stringify({ requestId: request.requestId, uid: request.uid }));
 export const clearDeletionRequest = () => remove(DELETION_REQUEST_KEY);
-export const writeDeletedNotice = (notice: DeletedNotice) => set(ACCOUNT_DELETED_KEY, notice);
+export interface DeletedNotice { kind: "ok" | "clearFailed"; uid: string | null }
+
+export const writeDeletedNotice = (notice: DeletedNotice) => set(ACCOUNT_DELETED_KEY, JSON.stringify(notice));
+
+function parseNotice(raw: string | null): DeletedNotice | null {
+  if (raw === null) return null;
+  try {
+    const v = JSON.parse(raw) as { kind?: unknown; uid?: unknown };
+    if ((v.kind === "ok" || v.kind === "clearFailed") && (v.uid === null || (typeof v.uid === "string" && v.uid.length > 0))) {
+      return { kind: v.kind, uid: v.uid };
+    }
+  } catch {
+    // legacy plain value
+  }
+  return null;
+}
 
 export function takeDeletedNotice(): DeletedNotice | null {
-  const value = get(ACCOUNT_DELETED_KEY);
+  const notice = parseNotice(get(ACCOUNT_DELETED_KEY));
   remove(ACCOUNT_DELETED_KEY);
-  return value === "ok" || value === "clearFailed" ? value : null;
+  return notice;
+}
+
+/** A notice belongs to one account: resolving any other account discards it (final review P2). */
+export function discardDeletedNoticeUnlessFor(uid: string): void {
+  const notice = parseNotice(get(ACCOUNT_DELETED_KEY));
+  if (notice && notice.uid !== uid) remove(ACCOUNT_DELETED_KEY);
 }

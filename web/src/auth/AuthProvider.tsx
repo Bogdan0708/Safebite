@@ -2,6 +2,8 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { onAuthStateChanged, signInWithEmailAndPassword, signOut as firebaseSignOut, type User } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
 import { auth, db } from "../firebase";
+import { DELETED_UIDS_KEY, forgetDeletedUid, isDeletedUid } from "../account/deletedSessions";
+import { discardDeletedNoticeUnlessFor } from "../account/storage";
 import { clearDeviceData } from "../device/cleanup";
 import { resolveMembership } from "./membership";
 import { resetDocument } from "./resetDocument";
@@ -12,6 +14,7 @@ export type AuthState =
   | { status: "signedOut" }
   | { status: "notMember"; uid: string; email: string | null; canDeleteSignIn: boolean }
   | { status: "deletionPending"; uid: string; email: string | null }
+  | { status: "deletedSession"; uid: string; email: string | null }
   | { status: "member"; uid: string; email: string | null; householdId: string; displayName: string }
   | { status: "error"; email: string | null; message: string };
 
@@ -40,6 +43,7 @@ async function readDoc(path: string): Promise<Record<string, unknown> | undefine
 }
 
 async function stateForUser(user: User): Promise<AuthState> {
+  if (isDeletedUid(user.uid)) return { status: "deletedSession", uid: user.uid, email: user.email };
   const userDoc = await readDoc(`users/${user.uid}`);
   const householdId = userDoc?.householdId;
   const householdDoc = typeof householdId === "string" ? await readDoc(`households/${householdId}`) : undefined;
@@ -63,7 +67,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setState({ status: "loading" });
     void stateForUser(user)
       .then((next) => {
-        if (mine === generationRef.current) setState(next);
+        if (mine !== generationRef.current) return;
+        if (next.status !== "deletedSession") discardDeletedNoticeUnlessFor(user.uid);
+        setState(next);
       })
       .catch(() => {
         if (mine === generationRef.current) {
@@ -94,12 +100,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       lastUidRef.current = user.uid;
       resolveForUser(user);
     });
-    return unsubscribe;
+    const onStorage = (event: StorageEvent) => {
+      if (event.key !== DELETED_UIDS_KEY) return;
+      const uid = lastUidRef.current;
+      if (uid === null || !isDeletedUid(uid)) return;
+      generationRef.current += 1;
+      setState({ status: "resetting" });
+      void clearDeviceData().finally(() => resetDocument());
+    };
+    window.addEventListener("storage", onStorage);
+    return () => {
+      window.removeEventListener("storage", onStorage);
+      unsubscribe();
+    };
   }, [resolveForUser]);
 
   const signIn = useCallback(async (email: string, password: string) => {
-    await signInWithEmailAndPassword(auth, email, password);
-  }, []);
+    const { user } = await signInWithEmailAndPassword(auth, email, password);
+    // A successful sign-in proves the account exists (e.g. re-created by an admin): forget it, then
+    // re-resolve in case the listener already resolved deletedSession for it.
+    if (isDeletedUid(user.uid)) { forgetDeletedUid(user.uid); resolveForUser(user); }
+  }, [resolveForUser]);
 
   const signOut = useCallback(async () => {
     // The listener resets this document (and every other tab) when the user becomes null.
