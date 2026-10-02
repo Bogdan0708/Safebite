@@ -4718,6 +4718,8 @@ test("9: completion never signs out a sign-in that was already queued (final rev
   // Completion reloads the deletion tab; a null update must never be queued behind Bogdan's.
   await expect(page.getByTestId("nav-settings")).toBeVisible({ timeout: 30_000 });
   await expect(page.getByTestId("signin-deleted-notice")).toHaveCount(0);
+  // The other tab reloads on its own Ava→Bogdan switch; wait for it to settle before reading its session.
+  await expect(other.getByTestId("nav-settings")).toBeVisible({ timeout: 30_000 });
   const otherUid = await other.evaluate(async () => (await import("/src/firebase.ts")).auth.currentUser?.uid ?? null);
   expect(otherUid).toBe("bogdan-uid");
   expect(await passwordAccepted(request, "ava@safebite.test", PASSWORD)).toBe(false);
