@@ -194,7 +194,7 @@ npm --prefix web run dev     # terminal 2: http://127.0.0.1:5173
 
 Saved shows the household's shortlist by default; "All records" shows everything. Each restaurant has shortlist and visited controls plus "Our notes": notes are personal and never evidence. Deleting a restaurant also deletes both members' notes and its shortlist state. Settings has "Change password".
 
-**Your data (Plan 5a).** Settings → *Export household data* prepares a JSON file with every record, its evidence, the shortlist and visit state, and notes, with author names (never IDs or emails). A second tap shares or saves it. *Delete account* asks for your password, then removes your sign-in and your notes; restaurants and evidence you added stay with the household as "Former member". If you are the last member, the whole household is deleted. An interrupted deletion can always be finished, and the app never reports success until the server confirms it.
+**Your data (Plan 5a).** Settings → *Export household data* prepares a JSON file with every record, its evidence, the shortlist and visit state, and notes, with author names (never IDs or emails). A second tap shares or saves it. *Delete account* asks for your password, then removes your sign-in and your notes; restaurants and evidence you added stay with the household as "Former member". If you are the last member, the whole household is deleted. An interrupted deletion can be finished by the account it belongs to, and the app never reports success until the server confirms it.
 
 Emulator UI: http://127.0.0.1:4000
 Records live under households/home/restaurants in the emulator; `npm run emu:e2e` clears them before each scenario via the emulator's REST API.
@@ -206,7 +206,7 @@ npm run typecheck   # both packages
 npm run test:unit   # web unit tests (no emulator)
 npm run emu:test    # functions + Firestore rules tests (starts emulators)
 npm run emu:e2e     # Playwright browser tests (starts emulators, seeds, runs Vite)
-npm run emu:e2e:stress   # 49 browser scenarios × 3 repeats, retries disabled (flakiness gate)
+npm run emu:e2e:stress   # 50 browser scenarios × 3 repeats, retries disabled (flakiness gate)
 npm --prefix web run build:check   # compile-only build (no Firebase config needed)
 npm --prefix web run build:e2e        # builds the three synthetic bundles: dist-preview, dist-preview-v2, dist-boot-guard (fixtures in web/.env.preview, .env.preview-v2, .env.boot-guard)
 npm --prefix web run e2e:boot-guard   # compile-only bundle with demo values refuses to start (Chromium, no emulators)
@@ -215,7 +215,7 @@ npm --prefix web run e2e:upgrade      # same-origin release upgrades and the upd
 npm --prefix web run icons            # re-render the PNG icon set from web/assets/safebite-mark.svg
 ```
 
-`npm run test:unit` currently reports 450 tests. `npm run emu:test` currently reports 421 tests (functions + rules). `npm run emu:e2e` currently reports 49 browser scenarios.
+`npm run test:unit` currently reports 481 tests. `npm run emu:test` currently reports 441 tests (functions + rules). `npm run emu:e2e` currently reports 50 browser scenarios.
 
 ### Guardrails
 

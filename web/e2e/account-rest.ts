@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { APIRequestContext } from "@playwright/test";
 import { setPasswordViaAdmin } from "./auth-rest";
 
@@ -43,6 +44,11 @@ export async function restoreSeedAccounts(request: APIRequestContext): Promise<v
     await put(request, `users/${a.uid}`, { householdId: s("home"), displayName: s(a.name) });
     await request.delete(`${FS}/accountDeletions/${a.uid}`, { headers: HEADERS });
   }
+  const receipts = await request.get(`${FS}/accountDeletionReceipts?pageSize=300`, { headers: HEADERS });
+  if (receipts.ok()) {
+    const body = (await receipts.json()) as { documents?: { name: string }[] };
+    for (const d of body.documents ?? []) await request.delete(`http://127.0.0.1:8080/v1/${d.name}`, { headers: HEADERS });
+  }
   await setMemberIds(request, SEED.map((a) => a.uid));
 }
 
@@ -57,5 +63,15 @@ export async function seedDeletionRecord(request: APIRequestContext, uid: string
     lastMember: { booleanValue: false },
     startedAt: { timestampValue: "2026-10-01T10:00:00Z" },
     step2At: { timestampValue: "2026-10-01T10:00:01Z" },
+  });
+}
+
+export async function seedReceipt(request: APIRequestContext, requestId: string, uid: string, status: "started" | "dataDeleted"): Promise<void> {
+  const id = createHash("sha256").update(requestId).digest("hex");
+  await put(request, `accountDeletionReceipts/${id}`, {
+    status: s(status),
+    uid: s(uid),
+    updatedAt: { timestampValue: new Date().toISOString() },
+    expireAt: { timestampValue: new Date(Date.now() + 7 * 86_400_000).toISOString() },
   });
 }

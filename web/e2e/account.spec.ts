@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { expect, test, type Page } from "@playwright/test";
 import { passwordAccepted } from "./auth-rest";
-import { PASSWORD, householdExists, restoreSeedAccounts, seedDeletionRecord, setMemberIds } from "./account-rest";
+import { PASSWORD, householdExists, restoreSeedAccounts, seedDeletionRecord, seedReceipt, setMemberIds } from "./account-rest";
 import { clearRecords, listNoteIds, listRestaurantIds, seedClaim, seedNote, seedRestaurant } from "./emulator-rest";
 
 const DELETE_URL = "**/europe-west2/deleteAccount";
@@ -82,15 +82,17 @@ test("3: a response lost after the server finished is resolved by the receipt as
   expect(await passwordAccepted(request, "ava@safebite.test", PASSWORD)).toBe(false);
 });
 
-test("4: a request that never reached the server shows 'didn't finish', and Finish deleting completes it", async ({ page, request }) => {
+test("4: a request that never reached the server is 'confirmation unavailable', and deleting again works", async ({ page, request }) => {
   await signIn(page, "ava@safebite.test");
   await page.route(DELETE_URL, (route) => (route.request().method() === "POST" ? route.abort("failed") : route.continue()));
   await deleteFromSettings(page);
-  await expect(page.getByTestId("recovery-unfinished")).toContainText("didn't finish", { timeout: 60_000 });
+  // Nothing reached the server, so there is no receipt: the screen must not claim either outcome.
+  await expect(page.getByTestId("recovery-unavailable")).toBeVisible({ timeout: 60_000 });
+  await expect(page.getByTestId("recovery-unavailable")).not.toContainText("didn't finish");
   expect(await passwordAccepted(request, "ava@safebite.test", PASSWORD)).toBe(true);
   await page.unroute(DELETE_URL);
-  await page.getByTestId("finish-password").fill(PASSWORD);
-  await page.getByTestId("finish-submit").click();
+  await page.getByTestId("recovery-continue").click();
+  await deleteFromSettings(page);
   await expect(page.getByTestId("signin-deleted-notice")).toBeVisible({ timeout: 90_000 });
 });
 
@@ -140,4 +142,22 @@ test("7: export downloads a JSON file with the household's records", async ({ pa
   expect(json).toMatchObject({ format: "safebite-export", formatVersion: 1, exportedBy: "Bogdan" });
   expect(json.restaurants.map((r: { name: string }) => r.name)).toEqual(["Casa Export"]);
   expect(json.restaurants[0].evidence[0]).toMatchObject({ kind: "gfMenu", authorName: "Ava" });
+});
+
+test("8: an interrupted request for Ava never deletes Bogdan, who is signed in (implementation audit P1-1)", async ({ page, request }) => {
+  // Ava's deletion stopped after step 2: she has left memberIds and her record exists.
+  await setMemberIds(request, ["bogdan-uid"]);
+  await seedDeletionRecord(request, "ava-uid");
+  const requestId = "A".repeat(43);
+  await seedReceipt(request, requestId, "ava-uid", "started");
+  await signIn(page, "bogdan@safebite.test");
+  await page.evaluate((id) => sessionStorage.setItem("safebite.deletionRequest", JSON.stringify({ requestId: id, uid: "ava-uid" })), requestId);
+  await page.reload();
+  await expect(page.getByTestId("recovery-other-account")).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByTestId("finish-password")).toHaveCount(0);
+  expect(await passwordAccepted(request, "bogdan@safebite.test", PASSWORD)).toBe(true);
+  expect(await passwordAccepted(request, "ava@safebite.test", PASSWORD)).toBe(true);
+  expect(await householdExists(request)).toBe(true);
+  await page.getByTestId("recovery-continue").click();
+  await expect(page.getByTestId("nav-settings")).toBeVisible({ timeout: 15_000 });
 });
