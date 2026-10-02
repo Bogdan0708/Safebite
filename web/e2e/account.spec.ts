@@ -70,7 +70,7 @@ test("2: the last member's deletion removes the household", async ({ page, reque
   expect(await listRestaurantIds(request)).toEqual([]);
 });
 
-test("3: a response lost after the server finished is resolved by the receipt as success", async ({ page }) => {
+test("3: a response lost after the server finished is resolved by the receipt as success", async ({ page, request }) => {
   await signIn(page, "ava@safebite.test");
   await page.route(DELETE_URL, async (route) => {
     if (route.request().method() !== "POST") return route.continue();
@@ -79,6 +79,7 @@ test("3: a response lost after the server finished is resolved by the receipt as
   });
   await deleteFromSettings(page);
   await expect(page.getByTestId("signin-deleted-notice")).toBeVisible({ timeout: 90_000 });
+  expect(await passwordAccepted(request, "ava@safebite.test", PASSWORD)).toBe(false);
 });
 
 test("4: a request that never reached the server shows 'didn't finish', and Finish deleting completes it", async ({ page, request }) => {
