@@ -3,6 +3,7 @@ import { getApps, initializeApp } from "firebase-admin/app";
 import { getFirestore } from "firebase-admin/firestore";
 import type { CallableRequest } from "firebase-functions/v2/https";
 import { requireMember } from "../src/membership";
+import { recursiveDeleteFresh } from "./emulator-helpers";
 
 function fakeRequest(uid?: string): CallableRequest<unknown> {
   return {
@@ -22,8 +23,8 @@ beforeAll(() => {
 
 beforeEach(async () => {
   const db = getFirestore();
-  await db.recursiveDelete(db.collection("users"));
-  await db.recursiveDelete(db.collection("households"));
+  await recursiveDeleteFresh(db, db.collection("users"));
+  await recursiveDeleteFresh(db, db.collection("households"));
   await db.doc("households/home").set({ name: "Home", memberIds: ["ava"], createdAt: new Date() });
   await db.doc("users/ava").set({ householdId: "home", displayName: "Ava" });
   await db.doc("users/orphan").set({ householdId: "home", displayName: "Orphan" }); // not in memberIds

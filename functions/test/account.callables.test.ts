@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { getAuth } from "firebase-admin/auth";
 import { getFirestore } from "firebase-admin/firestore";
-import { callFunction, createEmulatorUser, ensureAdminApp, signInForIdToken, warmUpFunctions } from "./emulator-helpers";
+import { callFunction, createEmulatorUser, ensureAdminApp, recursiveDeleteFresh, signInForIdToken, warmUpFunctions } from "./emulator-helpers";
 
 const PW = "pilot-password-1";
 const newRequestId = () => randomBytes(32).toString("base64url");
@@ -14,7 +14,7 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   const db = getFirestore();
-  await db.recursiveDelete(db.doc("households/delhome"));
+  await recursiveDeleteFresh(db, db.doc("households/delhome"));
   await db.doc("households/delhome").set({ name: "Del", memberIds: ["del-a-uid", "del-b-uid"], createdAt: new Date() });
   await db.doc("users/del-a-uid").set({ householdId: "delhome", displayName: "Del A" });
   await db.doc("users/del-b-uid").set({ householdId: "delhome", displayName: "Del B" });

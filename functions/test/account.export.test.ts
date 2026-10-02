@@ -1,7 +1,7 @@
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { getFirestore, Timestamp, type Firestore } from "firebase-admin/firestore";
 import { readExport } from "../src/account/exportData";
-import { ensureAdminApp } from "./emulator-helpers";
+import { ensureAdminApp, recursiveDeleteFresh } from "./emulator-helpers";
 
 let db: Firestore;
 const H = "households/exp";
@@ -23,7 +23,7 @@ beforeAll(() => {
 });
 
 beforeEach(async () => {
-  const w = db.bulkWriter(); try { await db.recursiveDelete(db.doc(H), w); } finally { await w.close(); }
+  await recursiveDeleteFresh(db, db.doc(H));
   await db.doc(H).set({ name: "Export Home", memberIds: ["x-ava", "x-bogdan"], createdAt: NOW });
   await db.doc("users/x-ava").set({ householdId: "exp", displayName: "Ava" });
   await db.doc("users/x-bogdan").set({ householdId: "exp", displayName: "Bogdan" });

@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { getFirestore } from "firebase-admin/firestore";
-import { callFunction, createEmulatorUser, ensureAdminApp, signInForIdToken, warmUpFunctions } from "./emulator-helpers";
+import { callFunction, createEmulatorUser, ensureAdminApp, recursiveDeleteFresh, signInForIdToken, warmUpFunctions } from "./emulator-helpers";
 
 const PASSWORD = "pilot-password-1";
 
@@ -13,8 +13,8 @@ beforeAll(async () => {
 
   ensureAdminApp();
   const db = getFirestore();
-  await db.recursiveDelete(db.collection("users"));
-  await db.recursiveDelete(db.collection("households"));
+  await recursiveDeleteFresh(db, db.collection("users"));
+  await recursiveDeleteFresh(db, db.collection("households"));
   await db.doc("households/home").set({ name: "Home", memberIds: ["ava-uid"], createdAt: new Date() });
   await db.doc("users/ava-uid").set({ householdId: "home", displayName: "Ava" });
   await createEmulatorUser("ava-uid", "ava@safebite.test", PASSWORD);

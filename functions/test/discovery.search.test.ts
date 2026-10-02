@@ -41,6 +41,7 @@ import type { Member } from "../src/membership";
 import { ProviderError, type PlacesProvider, type ProviderSelection } from "../src/discovery/provider";
 import { CONFIG_PATH, runSearch, usagePath, type SearchDeps } from "../src/discovery/search";
 import type { DiscoveryResult } from "../src/discovery/types";
+import { recursiveDeleteFresh } from "./emulator-helpers";
 
 const member: Member = { uid: "ava", householdId: "home", displayName: "Ava" };
 const NOW = new Date("2026-09-22T10:00:00Z");
@@ -69,8 +70,8 @@ beforeAll(() => {
 });
 
 beforeEach(async () => {
-  await db.recursiveDelete(db.collection("config"));
-  await db.recursiveDelete(db.collection("households"));
+  await recursiveDeleteFresh(db, db.collection("config"));
+  await recursiveDeleteFresh(db, db.collection("households"));
   await db.doc(CONFIG_PATH).set({ enabled: true, dailySearchCap: 3 });
   await db.doc("households/home").set({ name: "Home", memberIds: ["ava"], createdAt: new Date() });
 });
@@ -245,7 +246,7 @@ describe("runSearch — membership is re-checked inside the usage transaction (s
 
   it("refuses when the household was deleted, and never recreates its usage document", async () => {
     const { provider, selection } = stubProvider();
-    await db.recursiveDelete(db.doc("households/home"));
+    await recursiveDeleteFresh(db, db.doc("households/home"));
     await expect(runSearch(deps(selection), member, { kind: "nearby", lat: 1, lng: 2 }))
       .rejects.toMatchObject({ code: "permission-denied" });
     expect((await db.doc(USAGE).get()).exists).toBe(false);
@@ -257,7 +258,7 @@ describe("runSearch — membership is re-checked inside the usage transaction (s
     // deleted while the request is paused, and only then does the usage transaction run.
     const { provider, selection } = stubProvider();
     await db.doc(USAGE).set({ searches: 1 });
-    await db.recursiveDelete(db.doc("households/home")); // last-member step 3b
+    await recursiveDeleteFresh(db, db.doc("households/home")); // last-member step 3b
     await expect(runSearch(deps(selection), member, { kind: "destination", query: "x" }))
       .rejects.toMatchObject({ code: "permission-denied" });
     expect((await db.collection("households/home/usage").get()).size).toBe(0);
@@ -268,7 +269,7 @@ describe("runSearch — membership is re-checked inside the usage transaction (s
     const { selection } = stubProvider();
     await runSearch(deps(selection), member, { kind: "destination", query: "x" });
     expect((await db.doc(USAGE).get()).exists).toBe(true);
-    await db.recursiveDelete(db.doc("households/home"));
+    await recursiveDeleteFresh(db, db.doc("households/home"));
     expect((await db.collection("households/home/usage").get()).size).toBe(0);
   });
 });

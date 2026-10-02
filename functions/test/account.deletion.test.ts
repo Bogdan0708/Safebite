@@ -3,20 +3,14 @@ import { getAuth } from "firebase-admin/auth";
 import { getFirestore, Timestamp, type CollectionReference, type DocumentReference, type Firestore } from "firebase-admin/firestore";
 import { runDeletion, type DeletionDeps, type HookPoint } from "../src/account/deletion";
 import { startReceipt } from "../src/account/receipts";
-import { createEmulatorUser, ensureAdminApp } from "./emulator-helpers";
+import { createEmulatorUser, ensureAdminApp, recursiveDeleteFresh } from "./emulator-helpers";
 
 let db: Firestore;
 const H = "households/home";
 const T0 = Timestamp.fromDate(new Date("2026-09-01T10:00:00Z"));
 const PW = "pilot-password-1";
 
-/**
- * recursiveDelete with a fresh BulkWriter. The default one is shared per Firestore instance and
- * keeps a rate-limiter clock; a host clock that steps backwards (WSL does, about 1.8 s every
- * 30 s) makes it throw "Request time should not be before the last token refill time" and
- * wedges every later recursiveDelete in the process.
- */
-const rd = (ref: DocumentReference | CollectionReference) => db.recursiveDelete(ref, db.bulkWriter());
+const rd = (ref: DocumentReference | CollectionReference) => recursiveDeleteFresh(db, ref);
 
 function deps(over: Partial<DeletionDeps> = {}): DeletionDeps {
   return { db, auth: getAuth(), deleteTree: (ref: DocumentReference) => rd(ref), now: () => Date.now(), ...over };

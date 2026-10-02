@@ -2,7 +2,7 @@ import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { getAuth } from "firebase-admin/auth";
 import { getFirestore, type Firestore } from "firebase-admin/firestore";
 import { checkReceipt, markReceipt, parseRequestId, receiptIdFor, startReceipt } from "../src/account/receipts";
-import { createEmulatorUser, ensureAdminApp } from "./emulator-helpers";
+import { createEmulatorUser, ensureAdminApp, recursiveDeleteFresh } from "./emulator-helpers";
 
 const ID = "A".repeat(43);
 const NOW = Date.parse("2026-10-01T12:00:00Z");
@@ -16,7 +16,7 @@ beforeAll(() => {
 });
 
 beforeEach(async () => {
-  await db.recursiveDelete(db.collection("accountDeletionReceipts"));
+  await recursiveDeleteFresh(db, db.collection("accountDeletionReceipts"));
 });
 
 describe("parseRequestId", () => {

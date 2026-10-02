@@ -1,5 +1,6 @@
 import { getApps, initializeApp } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
+import type { CollectionReference, DocumentReference, Firestore } from "firebase-admin/firestore";
 
 export const PROJECT_ID = "demo-safebite";
 export const REGION = "europe-west2";
@@ -9,6 +10,21 @@ const REQUEST_TIMEOUT_MS = 30_000;
 
 export function ensureAdminApp(): void {
   if (getApps().length === 0) initializeApp({ projectId: PROJECT_ID });
+}
+
+/**
+ * recursiveDelete with its own BulkWriter, closed afterwards. The default writer is shared per
+ * Firestore instance and keeps a rate-limiter clock; a host clock that steps backwards (WSL does)
+ * makes it throw "Request time should not be before the last token refill time" and wedges every
+ * later recursiveDelete in the process.
+ */
+export async function recursiveDeleteFresh(db: Firestore, ref: DocumentReference | CollectionReference): Promise<void> {
+  const writer = db.bulkWriter();
+  try {
+    await db.recursiveDelete(ref, writer);
+  } finally {
+    await writer.close();
+  }
 }
 
 export async function createEmulatorUser(uid: string, email: string, password: string): Promise<void> {
