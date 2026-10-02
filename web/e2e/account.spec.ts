@@ -212,3 +212,91 @@ test("11: completion removes only Ava's persisted user, so no reload looks her u
   await expect(other.getByTestId("nav-settings")).toBeVisible();
   expect(await persistedUid(other)).toBe("bogdan-uid");
 });
+
+// Scenario 9 drives Firebase Auth's internal operations queue (auth.queue, _updateCurrentUser),
+// pinned to @firebase/auth 1.13.6, to put Bogdan's sign-in ahead of completion deterministically.
+// The app code under test is unmodified.
+test("9: completion never signs out a sign-in that was already queued (final review P2)", async ({ page, context, request }) => {
+  await signIn(page, "ava@safebite.test");
+  const other = await context.newPage();
+  await other.goto("/restaurants");
+  await expect(other.getByTestId("nav-settings")).toBeVisible({ timeout: 15_000 });
+
+  let serverDone!: () => void;
+  const completed = new Promise<void>((r) => (serverDone = r));
+  let sendResponse!: () => void;
+  const released = new Promise<void>((r) => (sendResponse = r));
+  await page.route(DELETE_URL, async (route) => {
+    if (route.request().method() !== "POST") return route.continue();
+    const response = await route.fetch({ timeout: 90_000 });
+    await page.evaluate(async () => {
+      const load = (path: string): Promise<any> => import(/* @vite-ignore */ path); // eslint-disable-line @typescript-eslint/no-explicit-any
+      const { auth } = await load("/src/firebase.ts");
+      const w = window as unknown as { queued: (string | null)[]; release: () => void };
+      w.queued = [];
+      (auth as unknown as { queue: (f: () => Promise<void>) => void }).queue(() => new Promise<void>((r) => (w.release = r)));
+      const a = auth as unknown as { _updateCurrentUser: (u: { uid: string } | null, s?: boolean) => Promise<void> };
+      const update = a._updateCurrentUser.bind(auth);
+      a._updateCurrentUser = (u, s) => { w.queued.push(u?.uid ?? null); return update(u, s); };
+    });
+    serverDone();
+    await released;
+    await route.fulfill({ response });
+  });
+  await page.goto("/settings/delete-account");
+  await page.getByTestId("delete-password").fill(PASSWORD);
+  await page.getByTestId("delete-submit").click();
+  await completed;
+  await other.evaluate(async (pw) => {
+    const load = (path: string): Promise<any> => import(/* @vite-ignore */ path); // eslint-disable-line @typescript-eslint/no-explicit-any
+    const { auth } = await load("/src/firebase.ts");
+    const { signInWithEmailAndPassword } = await load("/node_modules/.vite/deps/firebase_auth.js");
+    await signInWithEmailAndPassword(auth, "bogdan@safebite.test", pw);
+  }, PASSWORD);
+  await page.waitForFunction(() => (window as unknown as { queued: (string | null)[] }).queued.includes("bogdan-uid"));
+  sendResponse();
+  // Let completion run, then open the SDK queue the way the probe does. With a completion sign-out the
+  // queued null update only proceeds now (and removes Bogdan); without one the tab has already reloaded
+  // and the held queue died with it, so the release is best-effort.
+  await page.waitForTimeout(1_500);
+  await page.evaluate(() => (window as unknown as { release?: () => void }).release?.()).catch(() => {});
+  // Completion reloads the deletion tab; a null update must never be queued behind Bogdan's.
+  await expect(page.getByTestId("nav-settings")).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByTestId("signin-deleted-notice")).toHaveCount(0);
+  // The other tab reloads on its own Ava→Bogdan switch; wait for it to settle before reading its session.
+  await expect(other.getByTestId("nav-settings")).toBeVisible({ timeout: 30_000 });
+  const otherUid = await other.evaluate(async () => { const load = (path: string): Promise<any> => import(/* @vite-ignore */ path); return (await load("/src/firebase.ts")).auth.currentUser?.uid ?? null; });
+  expect(otherUid).toBe("bogdan-uid");
+  expect(await passwordAccepted(request, "ava@safebite.test", PASSWORD)).toBe(false);
+  expect(await passwordAccepted(request, "bogdan@safebite.test", PASSWORD)).toBe(true);
+  expect(await householdExists(request)).toBe(true);
+});
+
+test("10: control — the same queued account switch with no deletion keeps Bogdan and shows no notice", async ({ page, context }) => {
+  await signIn(page, "ava@safebite.test");
+  const other = await context.newPage();
+  await other.goto("/restaurants");
+  await expect(other.getByTestId("nav-settings")).toBeVisible({ timeout: 15_000 });
+  await page.evaluate(async () => {
+    const load = (path: string): Promise<any> => import(/* @vite-ignore */ path); // eslint-disable-line @typescript-eslint/no-explicit-any
+    const { auth } = await load("/src/firebase.ts");
+    const w = window as unknown as { queued: (string | null)[]; release: () => void };
+    w.queued = [];
+    (auth as unknown as { queue: (f: () => Promise<void>) => void }).queue(() => new Promise<void>((r) => (w.release = r)));
+    const a = auth as unknown as { _updateCurrentUser: (u: { uid: string } | null, s?: boolean) => Promise<void> };
+    const update = a._updateCurrentUser.bind(auth);
+    a._updateCurrentUser = (u, s) => { w.queued.push(u?.uid ?? null); return update(u, s); };
+  });
+  await other.evaluate(async (pw) => {
+    const load = (path: string): Promise<any> => import(/* @vite-ignore */ path); // eslint-disable-line @typescript-eslint/no-explicit-any
+    const { auth } = await load("/src/firebase.ts");
+    const { signInWithEmailAndPassword } = await load("/node_modules/.vite/deps/firebase_auth.js");
+    await signInWithEmailAndPassword(auth, "bogdan@safebite.test", pw);
+  }, PASSWORD);
+  await page.waitForFunction(() => (window as unknown as { queued: (string | null)[] }).queued.includes("bogdan-uid"));
+  await page.evaluate(() => (window as unknown as { release: () => void }).release());
+  await expect(other.getByTestId("nav-settings")).toBeVisible({ timeout: 30_000 });
+  const uid = await other.evaluate(async () => { const load = (path: string): Promise<any> => import(/* @vite-ignore */ path); return (await load("/src/firebase.ts")).auth.currentUser?.uid ?? null; });
+  expect(uid).toBe("bogdan-uid");
+  await expect(page.getByTestId("signin-deleted-notice")).toHaveCount(0);
+});
