@@ -1191,6 +1191,7 @@ one P1 and two P2 findings against the built branch at `4bde68e`, all verified a
 | P1-1 Recovery deletes whichever account is signed in | The saved request is bound to its UID; recovery refuses a different account; `deleteMyAccount` pins the account across reauthentication and the call; the server refuses an `expectedUid` that differs from the token; completion (sign-out and the deleted notice) acts only for the request's account (auditor re-review, 2026-10-02) |
 | P2-2 Some completed deletions leave a receipt at `started` | Every path records `dataDeleted` before Auth deletion; `checkAccountDeletion` reconciles `started` and `dataDeleted` receipts from server state |
 | P2-3 An expired or missing receipt reads as "didn't finish" | `none` maps to "confirmation unavailable", never to "unfinished" |
+| Final review P2: a queued sign-in can be signed out by completion | Completion never calls `signOut`; a device-wide deleted-session record keeps the deleted account out of the app (Delete account page, step 4) |
 
 #### Data model
 
@@ -1423,18 +1424,43 @@ export function clearDeviceData(): Promise<{ failed: string[] }>;
      `safebite.deletionRequest` before the call, so a reload of this tab can still check it, and only
      for that account. Call `deleteAccount({ requestId, expectedUid })` with a 70-second client timeout, behind a
      non-dismissable "Deleting your account… keep this page open" screen.
-  4. Success: `finishDeleted(requestUid)`. *Amended after the auditor's re-review (2026-10-02):*
-     completion acts only for the request's account. It checks that the signed-in account is none
-     or `requestUid` before `clearDeviceData()`, and again after it. When both checks pass it sets
-     the `sessionStorage` notice flag, clears the request, signs out only if `requestUid` is still
-     signed in (every tab resets) and reloads. After the reload the sign-in screen shows "Your
-     account has been deleted." once (or the failed-clearing variant above). When a different
-     account has become current at either check (another tab signed in during the call or the
-     cleanup), it clears the request, never signs that account out, writes no deleted notice, and
-     shows **Other account, deletion confirmed**: "The account this request was for has been
-     deleted. You're now signed in as a different account, which was not changed." with
-     **Continue**. It never says "Nothing was deleted" once the server confirmed the deletion.
-     Device data is cleared either way.
+  4. Success: `finishDeleted(requestUid)`. *Amended after the auditor's re-review and again after
+     the final review (2026-10-02, `planning/audits/2026-10-02-plan-5a-final-review.md`):* completion
+     **never signs anyone out**. Firebase `signOut` only queues a "no user" update and signs out
+     whoever is current when the queue reaches it. Another tab's sign-in already waiting in that
+     queue would be applied first and then removed, and no SDK call signs out one named account.
+     A deleted account needs no sign-out: its Auth record is gone and the rules deny it everything.
+     It needs to be recognised and kept out of the app, as follows.
+     - **Checks.** `finishDeleted` checks that the signed-in account is none or `requestUid` before
+       `clearDeviceData()`, and again after it.
+     - **Both checks pass.** It records `requestUid` as deleted on this device (below), sets the
+       per-tab notice flag `{ kind, uid: requestUid }`, clears the request and reloads the tab.
+     - **Another account is current at either check** (another tab signed in during the call or the
+       cleanup). It clears the request and writes no record and no notice. It shows **Other account,
+       deletion confirmed**: "The account this request was for has been deleted. You're now signed in
+       as a different account, which was not changed." with **Continue**. It never says "Nothing was
+       deleted" once the server confirmed the deletion. It does not clear device data in this case,
+       because the current account's session owns the device copy; 5b's per-UID cleanup removes the
+       deleted UID's copy.
+
+     **Deleted-session record.** `localStorage["safebite.deletedUids"]` is a JSON array of UIDs this
+     device has seen deleted (at most 10, newest kept), mirrored into `sessionStorage` for a tab whose
+     localStorage is blocked. Readers take the union of both.
+     - **`AuthProvider`.** When the current user's UID is in the record, the provider resolves a new
+       state, `deletedSession`, before reading any membership document. The gate renders the sign-in
+       screen with "Your account has been deleted." (or the failed-clearing variant).
+     - **Signing in replaces the session.** Signing in calls `signInWithEmailAndPassword`, which
+       replaces the current account, so no other account can be removed. A successful sign-in removes
+       that UID from the record, which covers an account an admin re-created.
+     - **Other tabs.** A `storage` event on the record's key resets any tab whose current UID is now
+       recorded. This replaces the cross-tab reset that the sign-out used to cause.
+     - **The notice belongs to an account.** It shows only in the `deletedSession` state, for the
+       recorded UID, or on a signed-out sign-in screen in a tab whose notice flag names a recorded UID.
+       The flag is discarded as soon as the provider resolves any other account.
+     - **Remaining behaviour.** The Firebase SDK may itself sign out a deleted session when its token
+       refresh fails; the app's code never calls `signOut` during completion. If both storages are
+       blocked, the deleted session falls back to the not-invited screen: nothing is exposed and no
+       outcome is claimed.
 - `recentLogin` from the server → "For security, enter your password again." `accountChanged`
   (client or server) → "The signed-in account changed. Nothing was deleted." `permission-denied`
   → "This account can't be deleted here."
@@ -1452,7 +1478,7 @@ unit-tested function maps the result, the request's saved UID and the signed-in 
 | Receipt (after server reconciliation) | Signed-in account | Screen |
 |---|---|---|
 | the check call fails | any | **Uncertain:** "We couldn't confirm whether your account was deleted." **Check again** repeats only the check, without a password; **Sign out** |
-| `complete` | none, or the request's account | The success path, through `finishDeleted(requestUid)`: if a different account becomes current during the cleanup, the screen switches to **Other account** with the confirmed line instead |
+| `complete` | none, or the request's account | The success path, through `finishDeleted(requestUid)` (no sign-out; the deleted-session record): if a different account becomes current during the cleanup, the screen switches to **Other account** with the confirmed line instead |
 | any | a **different** account | **Other account:** "This deletion request belongs to another account. Nothing will be deleted from this one." **Sign out** and **Continue as this account** (both clear the key). No delete form. With a `complete` receipt it adds "That account's deletion is confirmed." and never signs the current account out |
 | `none` | none, or the request's account | **Confirmation unavailable:** "We can't confirm what happened to this deletion request. The confirmation may have expired." **Sign out** and **Continue** (both clear the key). It never says the deletion did not finish and never promises that signing in finishes it |
 | `started` or `dataDeleted` | the request's account | "Your account deletion didn't finish." **Finish deleting** (password; bound to the request's UID; a new `requestId`) and **Sign out** |
@@ -1578,6 +1604,15 @@ the share sheet works in Home Screen mode is checked on a real iPhone in 5c.
   7. Export: **Prepare export**, then **Share or save export** takes the download path (Chromium
      has no file share), and the JSON parses with the expected content.
 - **Regressions from the implementation audit (permanent):**
+  - Browser (final review): with the deletion tab's Auth queue held, Bogdan's sign-in from a second
+    tab is queued before the completed response is delivered. Afterwards Bogdan is still the
+    signed-in account in both tabs, no deleted notice is shown, Ava's sign-in fails, and Bogdan and
+    the household survive. A control with the same queued switch and no deletion keeps Bogdan.
+    The probe is kept at `planning/audits/plan-5a-review-probes/signout.spec.cjs`.
+  - Web unit (final review): `finishDeleted` never calls `signOut`. `AuthProvider` maps a recorded
+    UID to `deletedSession` without membership reads. A `storage` event resets only a tab whose
+    current UID is recorded. A successful sign-in removes its UID from the record. The notice flag
+    is discarded when another account resolves.
   - Browser: Ava's interrupted request is saved in a tab, Bogdan signs in, and recovery shows
     **Other account** with no delete form. Bogdan and the household survive, and Ava's sign-in
     still works.
