@@ -1457,6 +1457,16 @@ export function clearDeviceData(): Promise<{ failed: string[] }>;
      - **The notice belongs to an account.** It shows only in the `deletedSession` state, for the
        recorded UID, or on a signed-out sign-in screen in a tab whose notice flag names a recorded UID.
        The flag is discarded as soon as the provider resolves any other account.
+     - **Persisted session removed by compare-and-delete** (amended after the Task 15 review,
+       2026-10-02). Left persisted, a deleted session makes the SDK's start-up lookup fail, and the
+       SDK then removes the shared persistence key whoever it holds. A second-tab sign-in made during
+       that round trip would be removed. So completion, after recording the UID, deletes the
+       persisted Firebase user **only if its UID is `requestUid`**. For IndexedDB persistence this
+       happens in one readwrite transaction, which serialises with any other tab's write. Its
+       localStorage equivalent is used only when that is the active persistence. On any unexpected
+       layout it does nothing; the record still guards the UI. The layout is checked against
+       `@firebase/auth` 1.13.6 (DB `firebaseLocalStorageDb`, store `firebaseLocalStorage`, key
+       `firebase:authUser:<apiKey>:[DEFAULT]`).
      - **Remaining behaviour.** The Firebase SDK may itself sign out a deleted session when its token
        refresh fails; the app's code never calls `signOut` during completion. If both storages are
        blocked, the deleted session falls back to the not-invited screen: nothing is exposed and no
