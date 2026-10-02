@@ -1,4 +1,4 @@
-import { beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { getAuth } from "firebase-admin/auth";
 import { getFirestore, Timestamp, type CollectionReference, type DocumentReference, type Firestore } from "firebase-admin/firestore";
 import { runDeletion, type DeletionDeps, type HookPoint } from "../src/account/deletion";
@@ -119,16 +119,78 @@ describe("runDeletion — clean runs", () => {
     expect(await get(`${H}/restaurants/r1/claims/c1`)).toMatchObject({ authorUid: "ava-uid" }); // untouched
   });
 
-  it("anonymises a restaurant with 450 claims in chunks below the 500-write limit (Review Focus 2)", async () => {
+  it("anonymises a restaurant with 600 claims in many small chunks, each below the 500-write limit (Review Focus 2, final review F3)", async () => {
     const batch = db.bulkWriter();
-    for (let i = 0; i < 450; i++) {
+    for (let i = 0; i < 600; i++) {
       void batch.set(db.doc(`${H}/restaurants/r1/claims/bulk${i}`), { kind: "gfMenu", value: "yes", detail: "d", source: { type: "ownVisit", label: "v" }, checkedAt: T0, createdAt: T0, authorUid: "ava-uid", authorName: "Ava" });
     }
     await batch.close();
-    await runDeletion(deps(), "ava-uid", "rcpt");
+    // The emulator commits a 600-write transaction (probed 2026-10-02), so a run that ignored the
+    // chunk would still pass on outcome alone; counting transactions proves 60+ pages of 10.
+    const spy = vi.spyOn(db, "runTransaction");
+    try {
+      await runDeletion(deps({ chunk: 10 }), "ava-uid", "rcpt");
+      expect(spy.mock.calls.length).toBeGreaterThanOrEqual(60);
+    } finally {
+      spy.mockRestore();
+    }
     const left = await db.collection(`${H}/restaurants/r1/claims`).where("authorUid", "==", "ava-uid").get();
     expect(left.size).toBe(0);
+    const marked = await db.collection(`${H}/restaurants/r1/claims`).where("authorUid", "==", "former-member").get();
+    expect(marked.size).toBe(601);
   });
+
+  it("anonymises a collection document whose restaurant no longer exists (final review F2)", async () => {
+    await db.doc(`${H}/collection/rX`).set({ shortlisted: false, visited: true, updatedBy: "ava-uid", updatedByName: "Ava", updatedAt: T0, version: 4 });
+    await db.doc(`${H}/collection/rY`).set({ shortlisted: false, visited: true, updatedBy: "bogdan-uid", updatedByName: "Bogdan", updatedAt: T0, version: 4 });
+    await runDeletion(deps(), "ava-uid", "rcpt");
+    expect(await exists(`${H}/restaurants/rX`)).toBe(false);
+    expect(await get(`${H}/collection/rX`)).toMatchObject({ updatedBy: "former-member", updatedByName: "Former member", version: 4, updatedAt: T0 });
+    expect(await get(`${H}/collection/rY`)).toMatchObject({ updatedBy: "bogdan-uid", updatedByName: "Bogdan", version: 4 });
+    await expectAvaGoneNonLast();
+  });
+});
+
+describe("runDeletion — large households (final review F1)", () => {
+  it("anonymises a 300-restaurant household within 30 s, touching only the departing member's records", async () => {
+    const touched = [7, 61, 150, 222, 299];
+    const w = db.bulkWriter();
+    const base = { address: "1 Street", createdAt: T0, updatedAt: T0, version: 3, deleting: false };
+    const claim = { kind: "gfMenu", value: "yes", detail: "Menu", source: { type: "ownVisit", label: "Visit" }, checkedAt: T0, createdAt: T0 };
+    for (let i = 0; i < 300; i++) {
+      const r = `${H}/restaurants/big${i}`;
+      const mine = touched.includes(i);
+      void w.set(db.doc(r), { name: `Big ${i}`, createdBy: mine ? "ava-uid" : "bogdan-uid", ...base });
+      void w.set(db.doc(`${r}/claims/b`), { ...claim, authorUid: "bogdan-uid", authorName: "Bogdan" });
+      void w.set(db.doc(`${H}/collection/big${i}`), { shortlisted: true, visited: false, updatedBy: mine ? "ava-uid" : "bogdan-uid", updatedByName: mine ? "Ava" : "Bogdan", updatedAt: T0, version: 2 });
+      if (mine) {
+        void w.set(db.doc(`${r}/claims/a`), { ...claim, authorUid: "ava-uid", authorName: "Ava" });
+        void w.set(db.doc(`${r}/notes/a`), { createdAt: T0, updatedAt: T0, version: 1, text: "Ava's note", authorUid: "ava-uid", authorName: "Ava" });
+      }
+    }
+    await w.close();
+
+    const started = Date.now();
+    await expect(runDeletion(deps(), "ava-uid", "rcpt")).resolves.toEqual({ lastMember: false });
+    const elapsed = Date.now() - started;
+    console.info(`[F1] 300-restaurant deletion took ${elapsed} ms`);
+
+    await expectAvaGoneNonLast();
+    for (const i of touched) {
+      const r = `${H}/restaurants/big${i}`;
+      expect(await get(r)).toMatchObject({ createdBy: "former-member", version: 3, updatedAt: T0 });
+      expect(await get(`${r}/claims/a`)).toMatchObject({ authorUid: "former-member", authorName: "Former member" });
+      expect(await exists(`${r}/notes/a`)).toBe(false);
+      expect(await get(`${H}/collection/big${i}`)).toMatchObject({ updatedBy: "former-member", updatedByName: "Former member", version: 2, updatedAt: T0 });
+    }
+    expect((await db.collectionGroup("claims").where("authorUid", "==", "ava-uid").get()).size).toBe(0);
+    expect((await db.collectionGroup("notes").where("authorUid", "==", "ava-uid").get()).size).toBe(0);
+    expect((await db.collection(`${H}/restaurants`).where("createdBy", "==", "ava-uid").get()).size).toBe(0);
+    expect((await db.collection(`${H}/collection`).where("updatedBy", "==", "ava-uid").get()).size).toBe(0);
+    expect((await db.collectionGroup("claims").where("authorUid", "==", "bogdan-uid").get()).size).toBe(301);
+    expect((await get(`${H}/restaurants/big8`))).toMatchObject({ createdBy: "bogdan-uid" });
+    expect(elapsed).toBeLessThan(30_000);
+  }, 180_000);
 });
 
 describe("runDeletion — failure injection (review P1-1, P1-2)", () => {

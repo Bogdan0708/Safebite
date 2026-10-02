@@ -135,32 +135,83 @@ export async function runDeletion(deps: DeletionDeps, uid: string, receiptId: st
   return { lastMember };
 }
 
+/** Restaurants anonymised at once; each still awaits its own `step3:restaurant` hook first. */
+const CONCURRENCY = 8;
+
 /**
  * One transaction per chunk per restaurant re-reads every document it changes, so it writes the
  * marker only where the field still equals the departing uid at commit time: an edit by the
  * other member in between keeps their own attribution (review P2-4). Never bumps version or
  * updatedAt, so a departure raises no edit conflicts.
+ *
+ * A cheap read outside any transaction skips restaurants with nothing attributed to the uid, so a
+ * retry does not pay four transactional reads per restaurant again (final review F1). Correctness
+ * does not rest on it: membership left in step 2, so every write attributing to the uid committed
+ * before this read and is visible to it. Then collection documents whose restaurant is gone.
  */
 async function anonymise(deps: DeletionDeps, hook: (p: HookPoint) => Promise<void>, householdId: string, uid: string): Promise<void> {
   const { db } = deps;
   const chunk = deps.chunk ?? 200;
   const restaurants = await db.collection(`households/${householdId}/restaurants`).listDocuments();
-  for (const restaurantRef of restaurants) {
-    await hook("step3:restaurant");
-    const stateRef = db.doc(`households/${householdId}/collection/${restaurantRef.id}`);
-    for (;;) {
-      const more = await db.runTransaction(async (tx) => {
-        const claims = await tx.get(restaurantRef.collection("claims").where("authorUid", "==", uid).limit(chunk));
-        const notes = await tx.get(restaurantRef.collection("notes").where("authorUid", "==", uid).limit(chunk));
-        const restaurant = await tx.get(restaurantRef);
-        const state = await tx.get(stateRef);
-        for (const c of claims.docs) tx.update(c.ref, { authorUid: MARKER_UID, authorName: MARKER_NAME });
-        for (const n of notes.docs) tx.delete(n.ref);
-        if (restaurant.exists && restaurant.get("createdBy") === uid) tx.update(restaurantRef, { createdBy: MARKER_UID });
-        if (state.exists && state.get("updatedBy") === uid) tx.update(stateRef, { updatedBy: MARKER_UID, updatedByName: MARKER_NAME });
-        return claims.size === chunk || notes.size === chunk;
-      });
-      if (!more) break;
+  const collectionRef = db.collection(`households/${householdId}/collection`);
+
+  // Bounded pool: workers take the next restaurant until the list is done or one has failed;
+  // every worker settles before the error is rethrown, so nothing writes after this returns.
+  let next = 0;
+  let failed = false;
+  const worker = async () => {
+    while (!failed && next < restaurants.length) {
+      const restaurantRef = restaurants[next++];
+      try {
+        await hook("step3:restaurant");
+        await anonymiseRestaurant(db, restaurantRef, collectionRef.doc(restaurantRef.id), uid, chunk);
+      } catch (err) {
+        failed = true;
+        throw err;
+      }
     }
+  };
+  const results = await Promise.allSettled(Array.from({ length: Math.min(CONCURRENCY, restaurants.length) }, worker));
+  const rejected = results.find((r): r is PromiseRejectedResult => r.status === "rejected");
+  if (rejected) throw rejected.reason;
+
+  // Collection documents attributed to the uid whose restaurant no longer exists (final review F2).
+  for (;;) {
+    const page = await collectionRef.where("updatedBy", "==", uid).limit(chunk).select().get();
+    if (page.empty) break;
+    await db.runTransaction(async (tx) => {
+      const states = await tx.getAll(...page.docs.map((d) => d.ref));
+      for (const state of states) {
+        if (state.exists && state.get("updatedBy") === uid) tx.update(state.ref, { updatedBy: MARKER_UID, updatedByName: MARKER_NAME });
+      }
+    });
+    if (page.size < chunk) break;
+  }
+}
+
+async function anonymiseRestaurant(db: Firestore, restaurantRef: DocumentReference, stateRef: DocumentReference, uid: string, chunk: number): Promise<void> {
+  const [claimsProbe, notesProbe, [restaurantProbe, stateProbe]] = await Promise.all([
+    restaurantRef.collection("claims").where("authorUid", "==", uid).limit(1).select().get(),
+    restaurantRef.collection("notes").where("authorUid", "==", uid).limit(1).select().get(),
+    db.getAll(restaurantRef, stateRef, { fieldMask: ["createdBy", "updatedBy"] }),
+  ]);
+  const attributed = !claimsProbe.empty || !notesProbe.empty || restaurantProbe.get("createdBy") === uid || stateProbe.get("updatedBy") === uid;
+  if (!attributed) return;
+
+  for (;;) {
+    const more = await db.runTransaction(async (tx) => {
+      const [claims, notes, restaurant, state] = await Promise.all([
+        tx.get(restaurantRef.collection("claims").where("authorUid", "==", uid).limit(chunk)),
+        tx.get(restaurantRef.collection("notes").where("authorUid", "==", uid).limit(chunk)),
+        tx.get(restaurantRef),
+        tx.get(stateRef),
+      ]);
+      for (const c of claims.docs) tx.update(c.ref, { authorUid: MARKER_UID, authorName: MARKER_NAME });
+      for (const n of notes.docs) tx.delete(n.ref);
+      if (restaurant.exists && restaurant.get("createdBy") === uid) tx.update(restaurantRef, { createdBy: MARKER_UID });
+      if (state.exists && state.get("updatedBy") === uid) tx.update(stateRef, { updatedBy: MARKER_UID, updatedByName: MARKER_NAME });
+      return claims.size === chunk || notes.size === chunk;
+    });
+    if (!more) break;
   }
 }
