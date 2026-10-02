@@ -3573,6 +3573,16 @@ Append to `functions/test/account.receipts.test.ts`, inside `describe("checkRece
   });
 ```
 
+The existing test "reports started as is" relies on a receipt whose Auth user may not exist. With reconciliation, a missing Auth user, `users` doc and record would correctly make it `complete`. Make it establish its own state: create the Auth user first and use that uid (auditor re-review):
+
+```ts
+  it("reports started as is while the account still exists", async () => {
+    await createEmulatorUser("receipt-uid", "receipt@safebite.test", "pilot-password-1");
+    await startReceipt(db, "r1", "receipt-uid", NOW);
+    expect(await checkReceipt(db, getAuth(), "r1", NOW)).toBe("started");
+  });
+```
+
 Add to the same file:
 
 ```ts
@@ -3602,12 +3612,26 @@ describe("runDeletion — receipts always reconcile (implementation audit P2-2)"
     expect(await checkReceipt(db, getAuth(), "rcpt", Date.now())).toBe("complete");
   });
 
-  it("Auth-only path records dataDeleted before Auth deletion, and a crash after it still completes", async () => {
-    await db.doc("users/ava-uid").delete();
-    await db.doc(H).update({ memberIds: ["bogdan-uid"] });
-    await expect(runDeletion(deps({ hook: crashAfterAuth }), "ava-uid", "rcpt")).rejects.toThrow("after Auth deletion");
-    expect((await get("accountDeletionReceipts/rcpt"))?.status).toBe("dataDeleted");
+  // Auth-only fixtures are real states (auditor re-review): a never-provisioned account, and a real
+  // deletion interrupted after step 5. Never strip membership by hand while contributions remain.
+  it("Auth-only path, never-provisioned account: dataDeleted before Auth deletion; a crash after it still completes", async () => {
+    await createEmulatorUser("lone-uid", "lone@safebite.test", PW);
+    await startReceipt(db, "rcpt-lone", "lone-uid", Date.now());
+    await expect(runDeletion(deps({ hook: crashAfterAuth }), "lone-uid", "rcpt-lone")).rejects.toThrow("after Auth deletion");
+    expect((await get("accountDeletionReceipts/rcpt-lone"))?.status).toBe("dataDeleted");
+    expect(await checkReceipt(db, getAuth(), "rcpt-lone", Date.now())).toBe("complete");
+  });
+
+  it("Auth-only path after a real deletion interrupted after step 5: the retry and the original receipt both complete", async () => {
+    await expect(runDeletion(deps({ hook: crashBefore("step6") }), "ava-uid", "rcpt")).rejects.toThrow();
+    expect(await exists("accountDeletions/ava-uid")).toBe(false);
+    expect(await exists("users/ava-uid")).toBe(false);
+    await startReceipt(db, "rcpt-retry", "ava-uid", Date.now());
+    await expect(runDeletion(deps({ hook: crashAfterAuth }), "ava-uid", "rcpt-retry")).rejects.toThrow("after Auth deletion");
+    expect((await get("accountDeletionReceipts/rcpt-retry"))?.status).toBe("dataDeleted");
+    expect(await checkReceipt(db, getAuth(), "rcpt-retry", Date.now())).toBe("complete");
     expect(await checkReceipt(db, getAuth(), "rcpt", Date.now())).toBe("complete");
+    await expectAvaGoneNonLast();
   });
 
   it("an older request interrupted mid-deletion reconciles once a newer request finishes", async () => {
@@ -3765,9 +3789,12 @@ One task in two parts: the logic (part A) changes signatures that the screens (p
   export type RecoveryView = "success" | "otherAccount" | "confirmationUnavailable" | "unfinishedSignedIn" | "unfinishedSignedOut" | "uncertain";
   export function recoveryView(check: CheckResult, requestUid: string | null, currentUid: string | null): RecoveryView;
   // deleteFlow.ts
-  export type DeleteOutcome = … | { kind: "accountChanged" };
+  export type DeleteOutcome = … | { kind: "accountChanged" } | { kind: "deletedOtherAccount" };
   export function deleteMyAccount(password: string, expectedUid: string): Promise<DeleteOutcome>;
+  export type FinishResult = "finished" | "otherAccount";
+  export function finishDeleted(requestUid: string | null): Promise<FinishResult>; // null = act only if signed out
   ```
+  `deletedOtherAccount` means the server confirmed the request's deletion, but another account is now current. Nothing was signed out and no notice was written (auditor re-review).
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -3881,6 +3908,31 @@ Then add:
     expect(m.deleteAccountCall).not.toHaveBeenCalled();
   });
 
+  it("another account becomes current during the callable: deleted, but that account is untouched (auditor re-review)", async () => {
+    m.deleteAccountCall.mockImplementation(async () => { m.order.push("call"); m.current = { uid: "bogdan-uid", getIdToken: m.getIdToken }; return { deleted: true, lastMember: false }; });
+    await expect(deleteMyAccount("pw", "ava-uid")).resolves.toEqual({ kind: "deletedOtherAccount" });
+    expect(m.signOut).not.toHaveBeenCalled();
+    expect(m.resetDocument).not.toHaveBeenCalled();
+    expect(takeDeletedNotice()).toBeNull();
+    expect(readDeletionRequest()).toBeNull();
+  });
+
+  it("another account becomes current during device cleanup: no sign-out, no notice", async () => {
+    m.clearDeviceData.mockImplementation(async () => { m.current = { uid: "bogdan-uid", getIdToken: m.getIdToken }; return { failed: [] }; });
+    await expect(deleteMyAccount("pw", "ava-uid")).resolves.toEqual({ kind: "deletedOtherAccount" });
+    expect(m.clearDeviceData).toHaveBeenCalled();
+    expect(m.signOut).not.toHaveBeenCalled();
+    expect(takeDeletedNotice()).toBeNull();
+  });
+
+  it("finishDeleted(null) acts only when nobody is signed in", async () => {
+    await expect(finishDeleted(null)).resolves.toBe("otherAccount");
+    expect(m.signOut).not.toHaveBeenCalled();
+    m.current = null;
+    await expect(finishDeleted(null)).resolves.toBe("finished");
+    expect(m.resetDocument).toHaveBeenCalled();
+  });
+
   it("a server accountChanged refusal clears the request", async () => {
     m.deleteAccountCall.mockRejectedValue(fnErr("permission-denied", { reason: "accountChanged" }));
     await expect(deleteMyAccount("pw", "ava-uid")).resolves.toEqual({ kind: "accountChanged" });
@@ -3988,6 +4040,45 @@ export async function deleteMyAccount(password: string, expectedUid: string): Pr
 }
 ```
 
+Replace `finishDeleted` (import `finishDeleted` into the test file alongside `deleteMyAccount`):
+
+```ts
+export type FinishResult = "finished" | "otherAccount";
+
+/**
+ * The server confirmed deletion of requestUid's account. Completion acts only for that account
+ * (auditor re-review, 2026-10-02): if a different account is current before or after the device
+ * cleanup, it is never signed out and no deleted notice is written. requestUid null (a request
+ * with no owner) acts only when nobody is signed in.
+ */
+export async function finishDeleted(requestUid: string | null): Promise<FinishResult> {
+  const ours = () => {
+    const current = auth.currentUser?.uid ?? null;
+    return current === null || current === requestUid;
+  };
+  if (!ours()) { clearDeletionRequest(); return "otherAccount"; }
+  const { failed } = await clearDeviceData(); // device data goes either way
+  if (!ours()) { clearDeletionRequest(); return "otherAccount"; }
+  writeDeletedNotice(failed.length === 0 ? "ok" : "clearFailed");
+  clearDeletionRequest();
+  if (auth.currentUser !== null) {
+    try {
+      await signOut(auth); // the current account is requestUid's: checked synchronously above
+    } catch {
+      // Already signed out; the explicit reset below still runs.
+    }
+  }
+  resetDocument();
+  return "finished";
+}
+```
+
+In `deleteMyAccount`, replace the two lines after the call's `try`/`catch` with:
+
+```ts
+  return (await finishDeleted(expectedUid)) === "finished" ? { kind: "deleted" } : { kind: "deletedOtherAccount" };
+```
+
 The write and the call are synchronous with respect to each other: there is no `await` between the last `unchanged()` check and `deleteAccountCall`, apart from `newRequestId` and `writeDeletionRequest`, which are synchronous. Keep it that way.
 
 #### Part B: screens (same task)
@@ -4010,6 +4101,8 @@ The write and the call are synchronous with respect to each other: there is no `
 `DeletePasswordForm.test.tsx`:
 - Render with `expectedUid="ava-uid"` throughout, and assert `m.deleteMyAccount` was called with `("pilot-password-1", "ava-uid")`.
 - Add the outcome `[{ kind: "accountChanged" }, "The signed-in account changed. Nothing was deleted."]` to the `it.each` table.
+- Add a test: when `deleteMyAccount` resolves `{ kind: "deletedOtherAccount" }`, `delete-other-account` shows its copy and does not contain "Nothing was deleted". Clicking `delete-other-continue` calls `resetDocument`.
+- In `DeletionRecoveryScreen.test.tsx`, the existing "complete: finishes deleting" test mocks `finishDeleted` resolving `"finished"` and asserts it was called with `"ava-uid"`.
 - The two in-place-recovery cases mock `readDeletionRequest` to return `null`, then `{ requestId: "OTHER", uid: "ava-uid" }`. They assert the rendered `DeletionRecoveryScreen` receives `{ requestId: <lost id>, uid: "ava-uid" }`. The reload case returns `{ requestId: <lost id>, uid: "ava-uid" }`.
 
 `DeletionRecoveryScreen.test.tsx`:
@@ -4052,6 +4145,17 @@ The write and the call are synchronous with respect to each other: there is no `
     expect(screen.queryByTestId("finish-password")).toBeNull();
   });
 
+  it("complete, then another account becomes current during cleanup: Other account with the confirmed line, no sign-out (auditor re-review)", async () => {
+    m.currentUser = { uid: "ava-uid", email: "ava@x" };
+    m.checkDeletion.mockResolvedValue({ ok: true, status: "complete" });
+    m.finishDeleted.mockResolvedValue("otherAccount");
+    render(<DeletionRecoveryScreen request={{ requestId: "R", uid: "ava-uid" }} onDismiss={vi.fn()} />);
+    expect(await screen.findByTestId("recovery-other-account")).toBeInTheDocument();
+    expect(screen.getByTestId("recovery-confirmed")).toHaveTextContent("That account's deletion is confirmed.");
+    expect(m.finishDeleted).toHaveBeenCalledWith("ava-uid");
+    expect(m.signOut).not.toHaveBeenCalled();
+  });
+
   it("a request with no owner never shows a delete form", async () => {
     m.currentUser = { uid: "ava-uid", email: "ava@x" };
     m.checkDeletion.mockResolvedValue({ ok: true, status: "started" });
@@ -4073,7 +4177,8 @@ Expected: FAIL on the new props, views and state fields.
 - `AuthProvider.tsx`: add `uid: string` to the `notMember` and `deletionPending` members of `AuthState`. In `stateForUser`, return `{ status: "deletionPending", uid: user.uid, email: user.email }` and `{ status: "notMember", uid: user.uid, email: user.email, canDeleteSignIn: userDoc === undefined }`.
 - `DeletePasswordForm.tsx`:
   - Add the required prop `expectedUid: string` and call `deleteMyAccount(password, expectedUid)`.
-  - Add `accountChanged: "The signed-in account changed. Nothing was deleted."` to `MESSAGES`.
+  - Add `accountChanged: "The signed-in account changed. Nothing was deleted."` to `MESSAGES`. This applies only to refusals before or at the call.
+  - On `deletedOtherAccount`, render `<section data-testid="delete-other-account">`. It contains "The account this request was for has been deleted. You're now signed in as a different account, which was not changed." and a **Continue** button (`data-testid="delete-other-continue"`) that calls `resetDocument()`. Never show "Nothing was deleted" here.
   - The lost branch becomes `if (readDeletionRequest()?.requestId === outcome.requestId) resetDocument(); else setLostRequestId(outcome.requestId);`.
   - The in-place screen renders `<DeletionRecoveryScreen request={{ requestId: lostRequestId, uid: expectedUid }} onDismiss={() => resetDocument()} />`.
 - `DeleteAccountPage.tsx`: `const { householdId, uid } = useMember();` and pass `expectedUid={uid}`.
@@ -4082,7 +4187,10 @@ Expected: FAIL on the new props, views and state fields.
 - `App.tsx` `Root`: `pending` is a `DeletionRequest | null`; render `<DeletionRecoveryScreen request={pending} onDismiss={() => setPending(null)} />`.
 - `DeletionRecoveryScreen.tsx`:
   - Change the props to `{ request: DeletionRequest; onDismiss }`.
-  - In `check`, after `await auth.authStateReady()`: `const current = auth.currentUser; const next = recoveryView(result, request.uid, current?.uid ?? null);`, then set the email from `current`. Only call `finishDeleted()` when `next === "success"`.
+  - In `check`, after `await auth.authStateReady()`: `const current = auth.currentUser; const next = recoveryView(result, request.uid, current?.uid ?? null);`, then set the email from `current`.
+  - Keep `const [confirmed, setConfirmed] = useState(false)`, and set it to `result.ok && result.status === "complete"`.
+  - When `next === "success"`, call `finishDeleted(request.uid)`. If it returns `"otherAccount"`, set the view to `"otherAccount"`; `confirmed` stays true.
+  - In the `otherAccount` view, render `<p data-testid="recovery-confirmed">That account's deletion is confirmed.</p>` when `confirmed`.
   - Add `const proceed = () => { clearDeletionRequest(); onDismiss(); };`.
   - New views:
 
@@ -4215,4 +4323,6 @@ Claude-Session: https://claude.ai/code/session_01MRsbJXkLpLQG7QzdeZmxsQ"
 | P1-1 browser reproduction as a permanent regression | 14 |
 | P2-2 `dataDeleted` before Auth deletion on every path; reconciliation of `started`/`dataDeleted` | 12 |
 | P2-3 `none` → confirmation unavailable | 13, 14 |
+| Re-review: completion (sign-out, deleted notice) only for the request's account, switches during the call and during cleanup, direct and via recovery | 13 |
+| Re-review: receipt tests establish their own Auth state; real Auth-only fixtures | 12 |
 | Minors: monotonic clock in the 300-restaurant test, README counts, logging wording (spec) | 12, 14, spec `dc30ae5` |
