@@ -2,7 +2,7 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { getAuth } from "firebase-admin/auth";
 import { getFirestore, Timestamp, type CollectionReference, type DocumentReference, type Firestore } from "firebase-admin/firestore";
 import { runDeletion, type DeletionDeps, type HookPoint } from "../src/account/deletion";
-import { startReceipt } from "../src/account/receipts";
+import { checkReceipt, startReceipt } from "../src/account/receipts";
 import { createEmulatorUser, ensureAdminApp, recursiveDeleteFresh } from "./emulator-helpers";
 
 let db: Firestore;
@@ -164,9 +164,9 @@ describe("runDeletion — large households (final review F1)", () => {
     }
     await w.close();
 
-    const started = Date.now();
+    const started = performance.now();
     await expect(runDeletion(deps(), "ava-uid", "rcpt")).resolves.toEqual({ lastMember: false });
-    const elapsed = Date.now() - started;
+    const elapsed = Math.round(performance.now() - started);
     console.info(`[F1] 300-restaurant deletion took ${elapsed} ms`);
 
     await expectAvaGoneNonLast();
@@ -270,5 +270,47 @@ describe("runDeletion — interleavings (review P2-4)", () => {
     expect((await db.collection(`${H}/restaurants`).get()).size).toBe(0);
     expect(await authExists("ava-uid")).toBe(false);
     expect(await authExists("bogdan-uid")).toBe(false);
+  });
+});
+
+describe("runDeletion — receipts always reconcile (implementation audit P2-2)", () => {
+  const crashAfterAuth = async (p: HookPoint) => { if (p === "step6:afterAuth") throw new Error("injected crash after Auth deletion"); };
+
+  it("member path: crash after Auth deletion, before complete → checkReceipt completes it", async () => {
+    await expect(runDeletion(deps({ hook: crashAfterAuth }), "ava-uid", "rcpt")).rejects.toThrow("after Auth deletion");
+    expect(await authExists("ava-uid")).toBe(false);
+    expect((await get("accountDeletionReceipts/rcpt"))?.status).toBe("dataDeleted");
+    expect(await checkReceipt(db, getAuth(), "rcpt", Date.now())).toBe("complete");
+  });
+
+  // Auth-only fixtures are real states (auditor re-review): a never-provisioned account, and a real
+  // deletion interrupted after step 5. Never strip membership by hand while contributions remain.
+  it("Auth-only path, never-provisioned account: dataDeleted before Auth deletion; a crash after it still completes", async () => {
+    await createEmulatorUser("lone-uid", "lone@safebite.test", PW);
+    await startReceipt(db, "rcpt-lone", "lone-uid", Date.now());
+    await expect(runDeletion(deps({ hook: crashAfterAuth }), "lone-uid", "rcpt-lone")).rejects.toThrow("after Auth deletion");
+    expect((await get("accountDeletionReceipts/rcpt-lone"))?.status).toBe("dataDeleted");
+    expect(await checkReceipt(db, getAuth(), "rcpt-lone", Date.now())).toBe("complete");
+  });
+
+  it("Auth-only path after a real deletion interrupted after step 5: the retry and the original receipt both complete", async () => {
+    await expect(runDeletion(deps({ hook: crashBefore("step6") }), "ava-uid", "rcpt")).rejects.toThrow();
+    expect(await exists("accountDeletions/ava-uid")).toBe(false);
+    expect(await exists("users/ava-uid")).toBe(false);
+    await startReceipt(db, "rcpt-retry", "ava-uid", Date.now());
+    await expect(runDeletion(deps({ hook: crashAfterAuth }), "ava-uid", "rcpt-retry")).rejects.toThrow("after Auth deletion");
+    expect((await get("accountDeletionReceipts/rcpt-retry"))?.status).toBe("dataDeleted");
+    expect(await checkReceipt(db, getAuth(), "rcpt-retry", Date.now())).toBe("complete");
+    expect(await checkReceipt(db, getAuth(), "rcpt", Date.now())).toBe("complete");
+    await expectAvaGoneNonLast();
+  });
+
+  it("an older request interrupted mid-deletion reconciles once a newer request finishes", async () => {
+    await expect(runDeletion(deps({ hook: crashBefore("step3") }), "ava-uid", "rcpt")).rejects.toThrow();
+    await startReceipt(db, "rcpt-new", "ava-uid", Date.now());
+    await runDeletion(deps(), "ava-uid", "rcpt-new");
+    expect((await get("accountDeletionReceipts/rcpt"))?.status).toBe("started");
+    expect(await checkReceipt(db, getAuth(), "rcpt", Date.now())).toBe("complete");
+    expect(await checkReceipt(db, getAuth(), "rcpt-new", Date.now())).toBe("complete");
   });
 });

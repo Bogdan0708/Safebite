@@ -1,7 +1,7 @@
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { getAuth } from "firebase-admin/auth";
 import { getFirestore, type Firestore } from "firebase-admin/firestore";
-import { checkReceipt, markReceipt, parseRequestId, receiptIdFor, startReceipt } from "../src/account/receipts";
+import { checkReceipt, markReceipt, parseDeleteRequest, parseRequestId, receiptIdFor, startReceipt } from "../src/account/receipts";
 import { createEmulatorUser, ensureAdminApp, recursiveDeleteFresh } from "./emulator-helpers";
 
 const ID = "A".repeat(43);
@@ -26,6 +26,16 @@ describe("parseRequestId", () => {
   it.each([undefined, null, [], {}, { requestId: 5 }, { requestId: "x".repeat(42) }, { requestId: "x".repeat(44) }, { requestId: "x".repeat(42) + "=" }, { requestId: "x".repeat(42) + "/" }])(
     "refuses %j", (data) => {
       expect(() => parseRequestId(data)).toThrow(expect.objectContaining({ code: "invalid-argument" }));
+    });
+});
+
+describe("parseDeleteRequest", () => {
+  it("accepts a request id and an expected uid", () => {
+    expect(parseDeleteRequest({ requestId: ID, expectedUid: "ava-uid" })).toEqual({ requestId: ID, expectedUid: "ava-uid" });
+  });
+  it.each([{ requestId: ID }, { requestId: ID, expectedUid: "" }, { requestId: ID, expectedUid: 5 }, { requestId: ID, expectedUid: "x".repeat(129) }, { expectedUid: "a" }])(
+    "refuses %j", (data) => {
+      expect(() => parseDeleteRequest(data)).toThrow(expect.objectContaining({ code: "invalid-argument" }));
     });
 });
 
@@ -79,9 +89,34 @@ describe("checkReceipt", () => {
   it("reports none for an unknown receipt", async () => {
     expect(await checkReceipt(db, getAuth(), "nope", NOW)).toBe("none");
   });
-  it("reports started as is", async () => {
-    await startReceipt(db, "r1", "ava-uid", NOW);
+  it("reports started as is while the account still exists", async () => {
+    await createEmulatorUser("receipt-uid", "receipt@safebite.test", "pilot-password-1");
+    await startReceipt(db, "r1", "receipt-uid", NOW);
     expect(await checkReceipt(db, getAuth(), "r1", NOW)).toBe("started");
+  });
+  it("started, Auth gone, no users doc and no record: reconciled to complete (implementation audit P2-2)", async () => {
+    await createEmulatorUser("receipt-uid", "receipt@safebite.test", "pilot-password-1");
+    await startReceipt(db, "r1", "receipt-uid", NOW);
+    await getAuth().deleteUser("receipt-uid");
+    expect(await checkReceipt(db, getAuth(), "r1", NOW)).toBe("complete");
+    expect(await receipt("r1")).not.toHaveProperty("uid");
+  });
+  it("started, Auth gone but users doc present: stays started (Auth absence alone proves nothing)", async () => {
+    await createEmulatorUser("receipt-uid", "receipt@safebite.test", "pilot-password-1");
+    await db.doc("users/receipt-uid").set({ householdId: "h", displayName: "R" });
+    await startReceipt(db, "r1", "receipt-uid", NOW);
+    await getAuth().deleteUser("receipt-uid");
+    expect(await checkReceipt(db, getAuth(), "r1", NOW)).toBe("started");
+    await db.doc("users/receipt-uid").delete();
+  });
+  it("dataDeleted, Auth gone but deletion record present: stays dataDeleted", async () => {
+    await createEmulatorUser("receipt-uid", "receipt@safebite.test", "pilot-password-1");
+    await db.doc("accountDeletions/receipt-uid").set({ householdId: "h" });
+    await startReceipt(db, "r1", "receipt-uid", NOW);
+    await markReceipt(db, "r1", "dataDeleted", NOW);
+    await getAuth().deleteUser("receipt-uid");
+    expect(await checkReceipt(db, getAuth(), "r1", NOW)).toBe("dataDeleted");
+    await db.doc("accountDeletions/receipt-uid").delete();
   });
   it("dataDeleted with the Auth user still present stays dataDeleted", async () => {
     await createEmulatorUser("receipt-uid", "receipt@safebite.test", "pilot-password-1");

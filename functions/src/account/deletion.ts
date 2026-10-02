@@ -10,7 +10,7 @@ import { markReceipt } from "./receipts";
  * converges on retry. Membership leaves first (rules then deny the departing member everything),
  * the Auth record goes last, and the receipt reaches "complete" only after it is gone.
  */
-export type HookPoint = "step1" | "step2" | "step3" | "step3:restaurant" | "step4" | "step5" | "step6";
+export type HookPoint = "step1" | "step2" | "step3" | "step3:restaurant" | "step4" | "step5" | "step6" | "step6:afterAuth";
 
 export interface DeletionDeps {
   db: Firestore;
@@ -125,12 +125,16 @@ export async function runDeletion(deps: DeletionDeps, uid: string, receiptId: st
   }
 
   // Step 6: the Auth record last; only now is the receipt complete.
+  // The Auth-only path proves steps 4 and 5 already ran (or the account was never provisioned):
+  // record that before Auth deletion, as the record path does (implementation audit P2-2).
+  if (start.kind === "authOnly") await markReceipt(db, receiptId, "dataDeleted", deps.now());
   await hook("step6");
   try {
     await deps.auth.deleteUser(uid);
   } catch (err) {
     if ((err as { code?: string }).code !== "auth/user-not-found") throw err;
   }
+  await hook("step6:afterAuth");
   await markReceipt(db, receiptId, "complete", deps.now());
   return { lastMember };
 }

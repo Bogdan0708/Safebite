@@ -38,13 +38,25 @@ describe("deleteAccount", () => {
   it("deletes a member after a fresh sign-in, and the receipt then reports complete without a sign-in", async () => {
     const token = await signInForIdToken("del-a@safebite.test", PW);
     const requestId = newRequestId();
-    const res = await callFunction("deleteAccount", { requestId }, token);
+    const res = await callFunction("deleteAccount", { requestId, expectedUid: "del-a-uid" }, token);
     expect(res.status).toBe(200);
     expect(res.body.result).toEqual({ deleted: true, lastMember: false });
     const check = await callFunction("checkAccountDeletion", { requestId });
     expect(check.body.result).toEqual({ status: "complete" });
     await expect(signInForIdToken("del-a@safebite.test", PW)).rejects.toThrow();
     expect((await getFirestore().doc("households/delhome").get()).get("memberIds")).toEqual(["del-b-uid"]);
+  });
+
+  it("refuses an expectedUid that is not the signed-in account, before any receipt or data change", async () => {
+    const token = await signInForIdToken("del-a@safebite.test", PW);
+    const requestId = newRequestId();
+    const res = await callFunction("deleteAccount", { requestId, expectedUid: "del-b-uid" }, token);
+    expect(res.body.error?.status).toBe("PERMISSION_DENIED");
+    expect(JSON.stringify(res.body)).toContain("accountChanged");
+    expect((await callFunction("checkAccountDeletion", { requestId })).body.result).toEqual({ status: "none" });
+    expect(await getAuth().getUser("del-a-uid")).toBeTruthy();
+    expect(await getAuth().getUser("del-b-uid")).toBeTruthy();
+    expect((await getFirestore().doc("households/delhome").get()).get("memberIds")).toEqual(["del-a-uid", "del-b-uid"]);
   });
 });
 

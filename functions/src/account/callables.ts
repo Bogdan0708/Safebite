@@ -6,7 +6,7 @@ import { runDeletion } from "./deletion";
 import { readExport, type HouseholdExport } from "./exportData";
 import { MARKER_UID } from "./marker";
 import { requireRecentAuth } from "./recentAuth";
-import { checkReceipt, parseRequestId, receiptIdFor, startReceipt, type ReceiptStatus } from "./receipts";
+import { checkReceipt, parseDeleteRequest, parseRequestId, receiptIdFor, startReceipt, type ReceiptStatus } from "./receipts";
 
 // Set on each callable, not via setGlobalOptions: onCall snapshots options at definition (§3.6).
 export const CALLABLE_OPTIONS = { region: "europe-west2", maxInstances: 2, timeoutSeconds: 60 } as const;
@@ -16,8 +16,11 @@ export const deleteAccount = onCall<unknown, Promise<{ deleted: true; lastMember
   const uid = request.auth?.uid;
   if (!uid) throw new HttpsError("unauthenticated", "Sign in required.");
   if (uid === MARKER_UID) throw new HttpsError("permission-denied", "This account is not a household member.");
+  const { requestId, expectedUid } = parseDeleteRequest(request.data);
+  // A guard, never a grant: authority comes only from the verified token (implementation audit P1-1).
+  if (expectedUid !== uid) throw new HttpsError("permission-denied", "The signed-in account changed.", { reason: "accountChanged" });
   requireRecentAuth(request.auth?.token.auth_time, Date.now());
-  const receiptId = receiptIdFor(parseRequestId(request.data));
+  const receiptId = receiptIdFor(requestId);
   const db = getFirestore();
   const started = Date.now();
   await startReceipt(db, receiptId, uid, started);

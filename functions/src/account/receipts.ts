@@ -27,6 +27,16 @@ export function parseRequestId(data: unknown): string {
   return requestId;
 }
 
+/** deleteAccount request (spec §3.8, amended after the implementation audit P1-1). */
+export function parseDeleteRequest(data: unknown): { requestId: string; expectedUid: string } {
+  const requestId = parseRequestId(data);
+  const expectedUid = (data as Record<string, unknown>).expectedUid;
+  if (typeof expectedUid !== "string" || expectedUid.length === 0 || expectedUid.length > 128) {
+    throw new HttpsError("invalid-argument", "expectedUid is malformed.");
+  }
+  return { requestId, expectedUid };
+}
+
 export function receiptIdFor(requestId: string): string {
   return createHash("sha256").update(requestId).digest("hex");
 }
@@ -72,22 +82,34 @@ export async function markReceipt(db: Firestore, receiptId: string, next: "dataD
 }
 
 /**
- * The only way a client learns a receipt's state. For dataDeleted it checks the Auth record
- * itself: the browser SDK cannot tell a deleted account from a revoked session (spec §3.8).
+ * The only way a client learns a receipt's state. Reconciles `started` and `dataDeleted` from
+ * server state (spec §3.8; implementation audit P2-2): complete only when the Auth record is gone
+ * AND the users document and deletion record are gone. Step 4 deletes users/{uid} only after the
+ * data steps recorded completion and step 5 deletes the record after that, so the three together
+ * prove the household data was handled. Auth absence alone proves nothing. The browser SDK cannot
+ * tell a deleted account from a revoked session, so the client never decides this itself.
  */
 export async function checkReceipt(db: Firestore, auth: Pick<Auth, "getUser">, receiptId: string, nowMs: number): Promise<ReceiptStatus> {
   const snap = await receiptRef(db, receiptId).get();
   const status: unknown = snap.get("status");
   if (!snap.exists || !isStatus(status)) return "none";
-  if (status !== "dataDeleted") return status;
+  if (status === "complete") return status;
   const uid: unknown = snap.get("uid");
   if (typeof uid !== "string") return status;
-  try {
-    await auth.getUser(uid);
-    return "dataDeleted";
-  } catch (err) {
-    if ((err as { code?: string }).code !== "auth/user-not-found") throw err;
+  const [authGone, userDoc, record] = await Promise.all([
+    auth.getUser(uid).then(
+      () => false,
+      (err: unknown) => {
+        if ((err as { code?: string }).code === "auth/user-not-found") return true;
+        throw err;
+      },
+    ),
+    db.doc(`users/${uid}`).get(),
+    db.doc(`accountDeletions/${uid}`).get(),
+  ]);
+  if (authGone && !userDoc.exists && !record.exists) {
     await markReceipt(db, receiptId, "complete", nowMs);
     return "complete";
   }
+  return status;
 }
