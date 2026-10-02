@@ -1464,7 +1464,8 @@ export function clearDeviceData(): Promise<{ failed: string[] }>;
        recording the UID, deletes the persisted Firebase user **only if its UID is `requestUid`**.
        For IndexedDB persistence the read and the delete happen in one readwrite transaction, which
        serialises with any other tab's write. A persisted user in localStorage is checked and
-       removed the same way. Then the record, the notice, clearing the request and the reload run
+       removed the same way. Opening the database has a 5 s liveness backstop; a removal that has
+       started is never abandoned, and a late open still performs the uid-checked delete. Then the record, the notice, clearing the request and the reload run
        synchronously, with no `await` in between. On any unexpected layout it does nothing; the record
        still guards the UI. A residual window remains inside the SDK. Any tab still holding the
        deleted session, including the deletion tab before it unloads, sees the removal on its

@@ -1,6 +1,8 @@
 import { auth } from "../firebase";
+import { CLEANER_TIMEOUT_MS } from "../device/cleanup";
 
-const IDB_TIMEOUT_MS = 1500;
+// Liveness backstop on the OPEN only; shares the cleaner budget (web/src/device/cleanup.ts).
+const IDB_OPEN_TIMEOUT_MS = CLEANER_TIMEOUT_MS;
 
 export type PersistedRemoval = "removed" | "notOurs" | "unavailable";
 
@@ -46,8 +48,13 @@ function removeFromIndexedDb(key: string, uid: string): Promise<PersistedRemoval
   return new Promise((resolve) => {
     let settled = false;
     const done = (result: PersistedRemoval) => { if (!settled) { settled = true; clearTimeout(timer); resolve(result); } };
-    // A hung open (blocked by another tab, a stalled browser) must not hang completion.
-    const timer = setTimeout(() => done("unavailable"), IDB_TIMEOUT_MS);
+    // A hung open (blocked by another tab, a stalled browser) must not hang completion. The timer
+    // covers the open only: a late open still performs the uid-checked delete (it can only ever
+    // remove this uid's own record), and a started transaction settles only through its events.
+    const timer = setTimeout(() => {
+      console.warn("safebite: persisted-session removal timed out");
+      done("unavailable");
+    }, IDB_OPEN_TIMEOUT_MS);
     try {
       const open = indexedDB.open(DB_NAME); // no version: never creates or upgrades the SDK's database
       open.onerror = () => done("unavailable");
@@ -58,9 +65,8 @@ function removeFromIndexedDb(key: string, uid: string): Promise<PersistedRemoval
         done("unavailable");
       };
       open.onsuccess = () => {
+        clearTimeout(timer);
         const db = open.result;
-        // Already settled (timeout or onblocked): close and never touch the store.
-        if (settled) { try { db.close(); } catch { /* ignore */ } return; }
         try {
           if (!db.objectStoreNames.contains(STORE)) { db.close(); done("unavailable"); return; }
           const tx = db.transaction(STORE, "readwrite");
