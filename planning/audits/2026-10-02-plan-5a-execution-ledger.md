@@ -135,3 +135,42 @@ Final: minor (deferred): attribution-race test no longer deterministic under the
 Final: minor (deferred): nothing pins default chunk ≤ 249 (2×chunk+2 < 500); emulator does not enforce the 500-write limit
 Final: note: ERR_NETWORK_CHANGED host flakes added to known host issues
 Final review: clean after one fix wave (commits c7a9dca..9f82276)
+
+## Correction round after the implementation audit (Tasks 12–14)
+
+Spec amended at dc30ae5 and a2b1bfe (auditor re-review); plan addendum a251a0e + a2b1bfe. Commits 6cf6883..419e33f. Final review of the round: ready to merge, no Critical/Important. Gate at 419e33f: typecheck; web unit 481; functions + rules 441; browser 50; stress 150/150 (first run 147/150, three 'Loading…' stalls in untouched files, no link to the diff found); boot-guard 1, preview 4, upgrade 7.
+
+Pre-deploy check (2026-10-02, read-only): both pilot members have a users document with householdId 'home' and a memberIds entry; no 'former-member' UID exists.
+
+Open before 5b or the next provisioning: make provisioning write users/{uid} before memberIds (a uid in memberIds without a users doc takes the Auth-only path); align 'device data is cleared either way' with finishDeleted, which skips cleanup when another account is already current at its first check.
+
+## Addendum (Tasks 12–14) — implementation audit 2026-10-02, spec dc30ae5 + a2b1bfe
+
+Pre-flight scan (addendum):
+| Pair / task | Produces vs consumes | Finding |
+|---|---|---|
+| T12→T13 | server `deleteAccount({requestId, expectedUid})`, `details.reason "accountChanged"` | T13 api type + classifyCallError consume both; consistent |
+| T12 self | receipts tests vs reconciliation (users+record+Auth absence); "started as is" now creates its Auth user; Auth-only fixtures are real states | consistent |
+| T13A→T13B | DeletionRequest, recoveryView(check, requestUid, currentUid), deleteMyAccount(pw, expectedUid), finishDeleted(requestUid)→FinishResult, DeleteOutcome accountChanged/deletedOtherAccount | consumed by DeletePasswordForm, DeletionRecoveryScreen, App; consistent |
+| T13 vs T9 code | AuthState notMember/deletionPending gain uid | NotInvited/DeletionPending read state.uid; consistent |
+| T13→T14 | testids recovery-other-account, recovery-unavailable, recovery-continue, recovery-confirmed, delete-other-account | T14 uses recovery-other-account/-unavailable/-continue; consistent |
+| T14 self | scenario 4 now expects recovery-unavailable then deletes again; scenario 8 seeds record+receipt+session key | consistent; seedReceipt hash matches receiptIdFor (sha256 hex) |
+Scan clean; no rulings needed.
+Task 12: note: server now requires expectedUid; the current web client omits it, so browser deletion scenarios break until Task 13 lands (expected, interim)
+Task 12: minor (deferred): users/{uid} is the only membership index — a uid in memberIds without a users doc takes the Auth-only path and reconciles complete while listed (provisioning writes not atomic; pre-existing)
+Task 12: minor (deferred): a record with non-string householdId is treated as Auth-only (unreachable today)
+Task 12: minor (deferred): no real interrupted-run + external Auth deletion test asserting started stays started
+Task 12: minor (deferred): accountChanged asserted by substring, not error.details.reason
+Task 12: complete (commits a2b1bfe..6cf6883, review clean); counts web 452, fn+rules 441, browser (deletion scenarios interim-broken until Task 13)
+Task 13: review (opus) Needs fixes — Important: in-place recovery passes an inline request object; check effect keyed on it restarts on every outer re-render (online/offline flip) → unmounts finish form, duplicate finishDeleted, stale overwrite
+Task 13: Ruling: fix round also removes the success-message flash (show success only after finishDeleted returns "finished") — cheap, avoids the other account briefly seeing "Your account has been deleted" — cost if wrong: none
+Task 13: minor (deferred): uncertain view says "your account" to a different signed-in account (copy only, no form)
+Task 13: minor (deferred): redundant user.uid check in unchanged()
+Task 13: fix round 1/5 (2 addressed, 0 open; commits 1ddd21c..01429c0)
+Task 13: minor (deferred): stale-result generation guard has no dedicated test (restart path covered)
+Task 13: complete (commits 6cf6883..01429c0, review clean); counts web 481, fn+rules 441; browser: only scenario 4 failing by design until Task 14
+Task 14: note: first stress run 147/150 — C3, C8b, discover 1 stalled at Loading… consecutively in repeat 1 (files untouched; matches the earlier ERR_NETWORK_CHANGED Loading… stalls); rerun 150/150
+Task 14: minor (deferred): scenario 4 does not assert the second deletion removed Ava (passwordAccepted false)
+Task 14: minor (deferred): receipt cleanup ignores delete responses and pagination
+Task 14: minor (deferred, open flake): first stress run "Loading…" stalls in collection C3/C8b, discover 1 — no root cause; rerun green
+Task 14: complete (commits 01429c0..419e33f, review clean); counts web 481, fn+rules 441, browser 50, stress 150/150
