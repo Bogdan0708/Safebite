@@ -161,3 +161,54 @@ test("8: an interrupted request for Ava never deletes Bogdan, who is signed in (
   await page.getByTestId("recovery-continue").click();
   await expect(page.getByTestId("nav-settings")).toBeVisible({ timeout: 15_000 });
 });
+
+/** The Firebase Auth persisted user's uid, read from the SDK's IndexedDB record; null when none. */
+async function persistedUid(page: Page): Promise<string | null> {
+  return page.evaluate(
+    () => new Promise<string | null>((resolve) => {
+      const open = indexedDB.open("firebaseLocalStorageDb");
+      open.onerror = () => resolve(null);
+      open.onsuccess = () => {
+        const db = open.result;
+        const get = db.transaction("firebaseLocalStorage", "readonly").objectStore("firebaseLocalStorage").getAll();
+        get.onsuccess = () => {
+          const records = get.result as Array<{ fbase_key: string; value?: { uid?: string } }>;
+          db.close();
+          resolve(records.find((r) => r.fbase_key.startsWith("firebase:authUser:"))?.value?.uid ?? null);
+        };
+        get.onerror = () => { db.close(); resolve(null); };
+      };
+    }),
+  );
+}
+
+test("11: completion removes only Ava's persisted user, so no reload looks her up and Bogdan's sign-in survives (final review P2)", async ({ page, context }) => {
+  await signIn(page, "ava@safebite.test");
+  const other = await context.newPage();
+  await other.goto("/restaurants");
+  await expect(other.getByTestId("nav-settings")).toBeVisible({ timeout: 15_000 });
+  // Once the server has deleted Ava, any account lookup by either tab is the SDK checking her deleted
+  // user at start-up (and failing, which makes it remove the shared persisted-user key).
+  const lookups: string[] = [];
+  let deleted = false;
+  context.on("response", (res) => { if (/deleteAccount/.test(res.url())) deleted = true; });
+  context.on("request", (req) => { if (deleted && /accounts:lookup/.test(req.url())) lookups.push(req.url()); });
+  await deleteFromSettings(page);
+  await expect(page.getByTestId("signin-deleted-notice")).toBeVisible({ timeout: 90_000 });
+  expect(await persistedUid(page)).not.toBe("ava-uid");
+  await page.reload();
+  await expect(page.getByTestId("signin-form")).toBeVisible({ timeout: 15_000 });
+  await expect(other.getByTestId("signin-form")).toBeVisible({ timeout: 30_000 });
+  await page.waitForTimeout(2_000);
+  expect(lookups).toEqual([]);
+  // Bogdan signs in in tab B and stays signed in in both tabs.
+  await other.getByTestId("signin-email").fill("bogdan@safebite.test");
+  await other.getByTestId("signin-password").fill(PASSWORD);
+  await other.getByTestId("signin-submit").click();
+  await expect(other.getByTestId("nav-settings")).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByTestId("nav-settings")).toBeVisible({ timeout: 30_000 });
+  await page.waitForTimeout(2_000);
+  await expect(page.getByTestId("nav-settings")).toBeVisible();
+  await expect(other.getByTestId("nav-settings")).toBeVisible();
+  expect(await persistedUid(other)).toBe("bogdan-uid");
+});

@@ -6,6 +6,7 @@ const m = vi.hoisted(() => ({
   clearDeviceData: vi.fn(),
   signOut: vi.fn(),
   resetDocument: vi.fn(),
+  removePersisted: vi.fn(async (uid: string) => { m.order.push(`persisted:${uid}`); return "removed"; }),
   recordDeletedUid: vi.fn((uid: string) => { m.order.push(`record:${uid}`); }),
   getIdToken: vi.fn(),
   order: [] as string[],
@@ -16,6 +17,7 @@ vi.mock("./api", () => ({ deleteAccountCall: m.deleteAccountCall, newRequestId: 
 vi.mock("../device/cleanup", () => ({ clearDeviceData: m.clearDeviceData }));
 vi.mock("../auth/resetDocument", () => ({ resetDocument: m.resetDocument }));
 vi.mock("./deletedSessions", () => ({ recordDeletedUid: m.recordDeletedUid }));
+vi.mock("./persistedSession", () => ({ removePersistedUserIfUid: m.removePersisted }));
 vi.mock("firebase/auth", () => ({ signOut: m.signOut }));
 vi.mock("../firebase", () => ({ get auth() { return { currentUser: m.current }; } }));
 
@@ -52,9 +54,9 @@ describe("deleteMyAccount", () => {
     expect(readDeletionRequest()).toBeNull();
   });
 
-  it("success: reauth → fresh token → call → clear device → record → reset, never signOut; the token is never refreshed after the call", async () => {
+  it("success: reauth → fresh token → call → clear device → record → remove persisted user → reset, never signOut; the token is never refreshed after the call", async () => {
     await expect(deleteMyAccount("pw", "ava-uid")).resolves.toEqual({ kind: "deleted" });
-    expect(m.order).toEqual(["reauth", "token", "call", "clear", "record:ava-uid", "reset"]);
+    expect(m.order).toEqual(["reauth", "token", "call", "clear", "record:ava-uid", "persisted:ava-uid", "reset"]);
     expect(m.signOut).not.toHaveBeenCalled();
     expect(m.getIdToken).toHaveBeenCalledWith(true);
     expect(m.reauthenticate).toHaveBeenCalledWith("pw", m.current);
@@ -167,6 +169,14 @@ describe("deleteMyAccount", () => {
     expect(m.resetDocument).toHaveBeenCalled();
     expect(m.recordDeletedUid).not.toHaveBeenCalled();
     expect(takeDeletedNotice()).toEqual({ kind: "ok", uid: null });
+  });
+
+  it("the persisted user is not removed when another account is current or requestUid is null", async () => {
+    await finishDeleted(null).catch(() => {});
+    expect(m.removePersisted).not.toHaveBeenCalled();
+    m.current = null;
+    await finishDeleted(null);
+    expect(m.removePersisted).not.toHaveBeenCalled();
   });
 
   it("finishDeleted never calls signOut (final review P2)", async () => {

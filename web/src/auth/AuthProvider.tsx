@@ -57,6 +57,15 @@ async function stateForUser(user: User): Promise<AuthState> {
   return { status: "notMember", uid: user.uid, email: user.email, canDeleteSignIn: userDoc === undefined };
 }
 
+function uidsIn(raw: string | null): string[] {
+  try {
+    const value: unknown = raw ? JSON.parse(raw) : [];
+    return Array.isArray(value) ? value.filter((x): x is string => typeof x === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AuthState>({ status: "loading" });
   const generationRef = useRef(0);
@@ -65,10 +74,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const resolveForUser = useCallback((user: User) => {
     const mine = ++generationRef.current;
     setState({ status: "loading" });
+    // A notice names one account: resolving any other account discards it, error path included.
+    if (!isDeletedUid(user.uid)) discardDeletedNoticeUnlessFor(user.uid);
     void stateForUser(user)
       .then((next) => {
         if (mine !== generationRef.current) return;
-        if (next.status !== "deletedSession") discardDeletedNoticeUnlessFor(user.uid);
         setState(next);
       })
       .catch(() => {
@@ -103,7 +113,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const onStorage = (event: StorageEvent) => {
       if (event.key !== DELETED_UIDS_KEY) return;
       const uid = lastUidRef.current;
-      if (uid === null || !isDeletedUid(uid)) return;
+      // Reset only when this write newly added the current uid, not on any unrelated record write.
+      if (uid === null || !uidsIn(event.newValue).includes(uid) || uidsIn(event.oldValue).includes(uid)) return;
+      if (!isDeletedUid(uid)) return;
       generationRef.current += 1;
       setState({ status: "resetting" });
       void clearDeviceData().finally(() => resetDocument());
@@ -119,7 +131,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const { user } = await signInWithEmailAndPassword(auth, email, password);
     // A successful sign-in proves the account exists (e.g. re-created by an admin): forget it, then
     // re-resolve in case the listener already resolved deletedSession for it.
-    if (isDeletedUid(user.uid)) { forgetDeletedUid(user.uid); resolveForUser(user); }
+    if (isDeletedUid(user.uid)) {
+      forgetDeletedUid(user.uid);
+      if (lastUidRef.current === user.uid) resolveForUser(user);
+    }
   }, [resolveForUser]);
 
   const signOut = useCallback(async () => {

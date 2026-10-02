@@ -6,6 +6,7 @@ const { listeners, unsubscribes, getDocMock } = vi.hoisted(() => ({
   unsubscribes: [] as Array<ReturnType<typeof vi.fn>>,
   getDocMock: vi.fn(),
 }));
+const { signInMock } = vi.hoisted(() => ({ signInMock: vi.fn() }));
 const { resetDocument } = vi.hoisted(() => ({ resetDocument: vi.fn() }));
 vi.mock("./resetDocument", () => ({ resetDocument }));
 const { clearDeviceData } = vi.hoisted(() => ({ clearDeviceData: vi.fn() }));
@@ -26,7 +27,7 @@ vi.mock("firebase/auth", () => ({
     unsubscribes.push(unsubscribe);
     return unsubscribe;
   },
-  signInWithEmailAndPassword: vi.fn(),
+  signInWithEmailAndPassword: signInMock,
   signOut: vi.fn(),
 }));
 vi.mock("firebase/firestore", () => ({
@@ -244,12 +245,64 @@ it("an offline failure reading the record is the error state, not notMember", as
     listeners[0]({ uid: "u1", email: "a@x" });
     await waitFor(() => expect(screen.getByTestId("state")).toHaveTextContent('"member"'));
     isDeletedUid.mockImplementation((uid: string) => uid === "someone-else");
-    window.dispatchEvent(new StorageEvent("storage", { key: "safebite.deletedUids" }));
+    const ev = (oldValue: string[] | null, newValue: string[]) =>
+      new StorageEvent("storage", { key: "safebite.deletedUids", oldValue: oldValue && JSON.stringify(oldValue), newValue: JSON.stringify(newValue) });
+    window.dispatchEvent(ev(null, ["someone-else"]));
     await new Promise((r) => setTimeout(r, 0));
     expect(resetDocument).not.toHaveBeenCalled();
     isDeletedUid.mockImplementation((uid: string) => uid === "u1");
-    window.dispatchEvent(new StorageEvent("storage", { key: "safebite.deletedUids" }));
+    window.dispatchEvent(ev(["someone-else"], ["u1", "someone-else"]));
     await waitFor(() => expect(resetDocument).toHaveBeenCalledTimes(1));
+  });
+
+  it("an unrelated record write that already contained the current uid does not reset", async () => {
+    getDocMock.mockImplementation(async (path: string) =>
+      path === "users/u1" ? snap({ householdId: "home", displayName: "Ava" }) : snap({ memberIds: ["u1"] }));
+    render(<AuthProvider><Probe /></AuthProvider>);
+    listeners[0]({ uid: "u1", email: "a@x" });
+    await waitFor(() => expect(screen.getByTestId("state")).toHaveTextContent('"member"'));
+    isDeletedUid.mockImplementation((uid: string) => uid === "u1");
+    window.dispatchEvent(new StorageEvent("storage", { key: "safebite.deletedUids", oldValue: JSON.stringify(["u1"]), newValue: JSON.stringify(["other", "u1"]) }));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(resetDocument).not.toHaveBeenCalled();
+  });
+
+  it("a notice for another account is discarded even when the membership lookup fails", async () => {
+    getDocMock.mockRejectedValue(new Error("offline"));
+    render(<AuthProvider><Probe /></AuthProvider>);
+    listeners[0]({ uid: "u3", email: "c@x" });
+    await waitFor(() => expect(screen.getByTestId("state")).toHaveTextContent('"error"'));
+    expect(discardDeletedNoticeUnlessFor).toHaveBeenCalledWith("u3");
+  });
+
+  it("signing in as a recorded deleted uid forgets it and re-resolves, when it is the current user", async () => {
+    getDocMock.mockImplementation(async (path: string) =>
+      path === "users/u1" ? snap({ householdId: "home", displayName: "Ava" }) : snap({ memberIds: ["u1"] }));
+    isDeletedUid.mockImplementation((uid: string) => uid === "u1");
+    let signIn!: (e: string, p: string) => Promise<void>;
+    function Grab() { signIn = useAuth().signIn; return null; }
+    render(<AuthProvider><Probe /><Grab /></AuthProvider>);
+    const user = { uid: "u1", email: "a@x" };
+    listeners[0](user);
+    await waitFor(() => expect(screen.getByTestId("state")).toHaveTextContent('"deletedSession"'));
+    forgetDeletedUid.mockImplementation(() => { isDeletedUid.mockImplementation(() => false); });
+    signInMock.mockResolvedValue({ user });
+    await signIn("a@x", "pw");
+    expect(forgetDeletedUid).toHaveBeenCalledWith("u1");
+    await waitFor(() => expect(screen.getByTestId("state")).toHaveTextContent('"member"'));
+  });
+
+  it("signing in as a deleted uid that is not this document's current user only forgets it", async () => {
+    isDeletedUid.mockImplementation((uid: string) => uid === "u9");
+    let signIn!: (e: string, p: string) => Promise<void>;
+    function Grab() { signIn = useAuth().signIn; return null; }
+    render(<AuthProvider><Probe /><Grab /></AuthProvider>);
+    listeners[0](null);
+    await waitFor(() => expect(screen.getByTestId("state")).toHaveTextContent('"signedOut"'));
+    signInMock.mockResolvedValue({ user: { uid: "u9", email: "z@x" } });
+    await signIn("z@x", "pw");
+    expect(forgetDeletedUid).toHaveBeenCalledWith("u9");
+    expect(getDocMock).not.toHaveBeenCalled();
   });
 
   it("resolving any account discards a notice flag that names a different account", async () => {

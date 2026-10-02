@@ -4,6 +4,7 @@ import { clearDeviceData } from "../device/cleanup";
 import { auth } from "../firebase";
 import { deleteAccountCall, newRequestId } from "./api";
 import { recordDeletedUid } from "./deletedSessions";
+import { removePersistedUserIfUid } from "./persistedSession";
 import { classifyCallError } from "./recovery";
 import { clearDeletionRequest, writeDeletedNotice, writeDeletionRequest } from "./storage";
 
@@ -70,6 +71,9 @@ export async function finishDeleted(requestUid: string | null): Promise<FinishRe
   if (requestUid !== null) recordDeletedUid(requestUid);
   writeDeletedNotice({ kind: failed.length === 0 ? "ok" : "clearFailed", uid: requestUid });
   clearDeletionRequest();
+  // The SDK's next start-up reload of this deleted user would remove the shared persisted-user key
+  // whatever it then holds; remove it ourselves, only if it is still this account's.
+  if (requestUid !== null && ours()) await removePersistedUserIfUid(requestUid);
   // Never signOut here (final review P2): signOut queues a "no user" update that can remove another
   // account whose sign-in is already queued. The record keeps this deleted session out of the app.
   resetDocument();
