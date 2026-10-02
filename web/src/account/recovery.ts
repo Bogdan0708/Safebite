@@ -5,7 +5,7 @@ import { checkAccountDeletionCall, type ReceiptStatus } from "./api";
  * resolved by the receipt. Auth error codes are never read: the SDK reports a deleted account and
  * a revoked session with the same code.
  */
-export type CallErrorKind = "lost" | "recentLogin" | "permission" | "failed";
+export type CallErrorKind = "lost" | "recentLogin" | "permission" | "accountChanged" | "failed";
 
 const REFUSALS = new Set(["invalid-argument", "unauthenticated", "not-found", "resource-exhausted", "already-exists", "out-of-range", "unimplemented"]);
 
@@ -13,7 +13,10 @@ export function classifyCallError(err: unknown): CallErrorKind {
   const code = (err as { code?: unknown } | null)?.code;
   if (typeof code !== "string" || !code.startsWith("functions/")) return "lost";
   const name = code.slice("functions/".length);
-  if (name === "permission-denied") return "permission";
+  if (name === "permission-denied") {
+    const reason = ((err as { details?: { reason?: unknown } }).details ?? {}).reason;
+    return reason === "accountChanged" ? "accountChanged" : "permission";
+  }
   if (name === "failed-precondition") {
     const reason = ((err as { details?: { reason?: unknown } }).details ?? {}).reason;
     return reason === "recentLogin" ? "recentLogin" : "failed";
@@ -22,12 +25,19 @@ export function classifyCallError(err: unknown): CallErrorKind {
 }
 
 export type CheckResult = { ok: true; status: ReceiptStatus } | { ok: false };
-export type RecoveryView = "success" | "unfinishedSignedIn" | "unfinishedSignedOut" | "uncertain";
+export type RecoveryView = "success" | "otherAccount" | "confirmationUnavailable" | "unfinishedSignedIn" | "unfinishedSignedOut" | "uncertain";
 
-export function recoveryView(check: CheckResult, signedIn: boolean): RecoveryView {
+/**
+ * Spec §3.8 Recovery table (amended after the implementation audit P1-1, P2-3). Only the request's
+ * own account can ever see a delete form; a missing receipt is never read as "unfinished".
+ */
+export function recoveryView(check: CheckResult, requestUid: string | null, currentUid: string | null): RecoveryView {
   if (!check.ok) return "uncertain";
+  if (requestUid === null) return check.status === "complete" && currentUid === null ? "success" : "confirmationUnavailable";
+  if (currentUid !== null && currentUid !== requestUid) return "otherAccount";
   if (check.status === "complete") return "success";
-  return signedIn ? "unfinishedSignedIn" : "unfinishedSignedOut";
+  if (check.status === "none") return "confirmationUnavailable";
+  return currentUid === null ? "unfinishedSignedOut" : "unfinishedSignedIn";
 }
 
 const STATUSES: readonly ReceiptStatus[] = ["none", "started", "dataDeleted", "complete"];

@@ -33,7 +33,7 @@ function Gate() {
 /** A deletion request id in this tab means recovery comes before anything else (spec §3.8). */
 function Root() {
   const [pending, setPending] = useState(() => readDeletionRequest());
-  if (pending) return <DeletionRecoveryScreen requestId={pending} onDismiss={() => setPending(null)} />;
+  if (pending) return <DeletionRecoveryScreen request={pending} onDismiss={() => setPending(null)} />;
   return <Gate />;
 }
 

@@ -4,11 +4,17 @@ import { clearDeletionRequest, readDeletionRequest, takeDeletedNotice, writeDele
 afterEach(() => { vi.restoreAllMocks(); sessionStorage.clear(); });
 
 describe("account storage", () => {
-  it("round-trips the deletion request id", () => {
-    writeDeletionRequest("id-1");
-    expect(readDeletionRequest()).toBe("id-1");
+  it("round-trips a request bound to its uid", () => {
+    writeDeletionRequest({ requestId: "id-1", uid: "ava-uid" });
+    expect(readDeletionRequest()).toEqual({ requestId: "id-1", uid: "ava-uid" });
     clearDeletionRequest();
     expect(readDeletionRequest()).toBeNull();
+  });
+  it("a legacy bare id or malformed value has no owner", () => {
+    sessionStorage.setItem("safebite.deletionRequest", "R".repeat(43));
+    expect(readDeletionRequest()).toEqual({ requestId: "R".repeat(43), uid: null });
+    sessionStorage.setItem("safebite.deletionRequest", JSON.stringify({ requestId: "x", uid: "" }));
+    expect(readDeletionRequest()).toEqual({ requestId: JSON.stringify({ requestId: "x", uid: "" }), uid: null });
   });
   it("the deleted notice is shown once", () => {
     writeDeletedNotice("clearFailed");
@@ -23,7 +29,7 @@ describe("account storage", () => {
     for (const m of ["getItem", "setItem", "removeItem"] as const) {
       vi.spyOn(Storage.prototype, m).mockImplementation(() => { throw new Error("blocked"); });
     }
-    expect(() => writeDeletionRequest("x")).not.toThrow();
+    expect(() => writeDeletionRequest({ requestId: "x", uid: "u" })).not.toThrow();
     expect(readDeletionRequest()).toBeNull();
     expect(() => clearDeletionRequest()).not.toThrow();
     expect(() => writeDeletedNotice("ok")).not.toThrow();

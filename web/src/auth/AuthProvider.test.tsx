@@ -191,6 +191,7 @@ it("a non-member with an unfinished deletion record is deletionPending", async (
   render(<AuthProvider><Probe /></AuthProvider>);
   listeners[0]({ uid: "u1", email: "a@x" });
   await waitFor(() => expect(screen.getByTestId("state")).toHaveTextContent('"deletionPending"'));
+  expect(screen.getByTestId("state")).toHaveTextContent('"uid":"u1"');
 });
 
 it("canDeleteSignIn is true only without a users document and without a record", async () => {
@@ -198,11 +199,13 @@ it("canDeleteSignIn is true only without a users document and without a record",
   const { unmount } = render(<AuthProvider><Probe /></AuthProvider>);
   listeners[0]({ uid: "u1", email: "a@x" });
   await waitFor(() => expect(screen.getByTestId("state")).toHaveTextContent('"canDeleteSignIn":true'));
+  expect(screen.getByTestId("state")).toHaveTextContent('"uid":"u1"');
   unmount();
   getDocMock.mockImplementation(async (path: string) => (path === "users/u2" ? snap({ householdId: "home", displayName: "X" }) : snap(undefined)));
   render(<AuthProvider><Probe /></AuthProvider>);
   listeners[1]({ uid: "u2", email: "b@x" });
   await waitFor(() => expect(screen.getByTestId("state")).toHaveTextContent('"canDeleteSignIn":false'));
+  expect(screen.getByTestId("state")).toHaveTextContent('"uid":"u2"');
 });
 
 it("an offline failure reading the record is the error state, not notMember", async () => {

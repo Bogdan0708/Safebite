@@ -11,11 +11,12 @@ const MESSAGES: Record<string, string> = {
   reauthFailed: "Couldn't check your password. Try again.",
   recentLogin: "For security, enter your password again.",
   permission: "This account can't be deleted here.",
+  accountChanged: "The signed-in account changed. Nothing was deleted.",
   failed: "Couldn't delete your account. Try again.",
   empty: "Enter your password.",
 };
 
-function messageKey(outcome: Exclude<DeleteOutcome, { kind: "deleted" } | { kind: "lost" }>): string {
+function messageKey(outcome: Exclude<DeleteOutcome, { kind: "deleted" } | { kind: "lost" } | { kind: "deletedOtherAccount" }>): string {
   if (outcome.kind === "reauth") return outcome.result === "failed" ? "reauthFailed" : outcome.result;
   return outcome.kind;
 }
@@ -32,24 +33,26 @@ function useOnline(): boolean {
 }
 
 /** Password, submit, progress and outcome; shared by every screen that deletes the account (spec §3.8). */
-export function DeletePasswordForm({ submitLabel, testid }: { submitLabel: string; testid: string }) {
+export function DeletePasswordForm({ submitLabel, testid, expectedUid }: { submitLabel: string; testid: string; expectedUid: string }) {
   const online = useOnline();
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ key: string } | null>(null);
   const [lostRequestId, setLostRequestId] = useState<string | null>(null);
+  const [otherAccount, setOtherAccount] = useState(false);
 
   async function onSubmit(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault();
     if (password.length === 0) { setMessage({ key: "empty" }); return; }
     setMessage(null);
     setBusy(true);
-    const outcome = await deleteMyAccount(password);
+    const outcome = await deleteMyAccount(password, expectedUid);
     if (outcome.kind === "deleted") return; // finishDeleted is resetting the tab
+    if (outcome.kind === "deletedOtherAccount") { setOtherAccount(true); return; }
     if (outcome.kind === "lost") {
       // The recovery screen takes over after the reload only if the id reached sessionStorage;
       // when storage is blocked, recover in this document instead (final review F5).
-      if (readDeletionRequest() === outcome.requestId) resetDocument();
+      if (readDeletionRequest()?.requestId === outcome.requestId) resetDocument();
       else setLostRequestId(outcome.requestId);
       return;
     }
@@ -59,7 +62,15 @@ export function DeletePasswordForm({ submitLabel, testid }: { submitLabel: strin
   }
 
   if (lostRequestId !== null) {
-    return <DeletionRecoveryScreen requestId={lostRequestId} onDismiss={() => resetDocument()} />;
+    return <DeletionRecoveryScreen request={{ requestId: lostRequestId, uid: expectedUid }} onDismiss={() => resetDocument()} />;
+  }
+  if (otherAccount) {
+    return (
+      <section data-testid="delete-other-account">
+        <p>The account this request was for has been deleted. You're now signed in as a different account, which was not changed.</p>
+        <button type="button" data-testid="delete-other-continue" onClick={() => resetDocument()}>Continue</button>
+      </section>
+    );
   }
   if (busy) {
     return <p className="screen" role="status" data-testid="delete-progress">Deleting your account… keep this page open.</p>;

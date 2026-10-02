@@ -27,6 +27,12 @@ describe("reauthenticate", () => {
     await expect(reauthenticate("pw")).resolves.toBe("ok");
     expect(f.credential).toHaveBeenCalledWith("ava@safebite.test", "pw");
   });
+  it("reauthenticates the user it is given, not whoever is current", async () => {
+    const given = { email: "given@safebite.test" };
+    await expect(reauthenticate("pw", given as never)).resolves.toBe("ok");
+    expect(f.credential).toHaveBeenCalledWith("given@safebite.test", "pw");
+    expect(f.reauthenticateWithCredential).toHaveBeenCalledWith(given, expect.anything());
+  });
   it("is offline without a request when the browser is offline", async () => {
     Object.defineProperty(navigator, "onLine", { configurable: true, value: false });
     await expect(reauthenticate("pw")).resolves.toBe("offline");

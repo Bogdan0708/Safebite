@@ -10,8 +10,8 @@ export type AuthState =
   | { status: "loading" }
   | { status: "resetting" }
   | { status: "signedOut" }
-  | { status: "notMember"; email: string | null; canDeleteSignIn: boolean }
-  | { status: "deletionPending"; email: string | null }
+  | { status: "notMember"; uid: string; email: string | null; canDeleteSignIn: boolean }
+  | { status: "deletionPending"; uid: string; email: string | null }
   | { status: "member"; uid: string; email: string | null; householdId: string; displayName: string }
   | { status: "error"; email: string | null; message: string };
 
@@ -49,8 +49,8 @@ async function stateForUser(user: User): Promise<AuthState> {
   }
   // An interrupted account deletion (spec §3.8): the owner may read their own record.
   const record = await readDoc(`accountDeletions/${user.uid}`);
-  if (record !== undefined) return { status: "deletionPending", email: user.email };
-  return { status: "notMember", email: user.email, canDeleteSignIn: userDoc === undefined };
+  if (record !== undefined) return { status: "deletionPending", uid: user.uid, email: user.email };
+  return { status: "notMember", uid: user.uid, email: user.email, canDeleteSignIn: userDoc === undefined };
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {

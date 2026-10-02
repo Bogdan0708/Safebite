@@ -13,47 +13,68 @@ export type DeleteOutcome =
   | { kind: "recentLogin" }
   | { kind: "permission" }
   | { kind: "failed" }
+  | { kind: "accountChanged" }
+  | { kind: "deletedOtherAccount" }
   | { kind: "lost"; requestId: string };
 
 /**
- * Spec §3.8 sequence: reauthenticate, refresh the token so the server sees the new auth_time,
- * store a fresh request id, call. After the call is sent the token is never refreshed again: for
- * a deleted account the SDK would report a revoked session and sign the tab out mid-recovery.
+ * Spec §3.8 sequence, bound to one account (implementation audit P1-1). The user object captured at
+ * the start must still be auth.currentUser, with the expected uid, after reauthentication, after
+ * the token refresh and right before the call: the callable sends whatever token is current then.
+ * After the call is sent the token is never refreshed again.
  */
-export async function deleteMyAccount(password: string): Promise<DeleteOutcome> {
+export async function deleteMyAccount(password: string, expectedUid: string): Promise<DeleteOutcome> {
   if (typeof navigator !== "undefined" && navigator.onLine === false) return { kind: "reauth", result: "offline" };
-  const reauth = await reauthenticate(password);
-  if (reauth !== "ok") return { kind: "reauth", result: reauth };
   const user = auth.currentUser;
-  if (!user) return { kind: "failed" };
+  if (!user || user.uid !== expectedUid) return { kind: "accountChanged" };
+  const unchanged = () => auth.currentUser === user && user.uid === expectedUid;
+  const reauth = await reauthenticate(password, user);
+  if (reauth !== "ok") return { kind: "reauth", result: reauth };
+  if (!unchanged()) return { kind: "accountChanged" };
   try {
     await user.getIdToken(true);
   } catch {
     return { kind: "failed" };
   }
+  if (!unchanged()) return { kind: "accountChanged" };
   const requestId = newRequestId();
-  writeDeletionRequest(requestId);
+  writeDeletionRequest({ requestId, uid: expectedUid });
   try {
-    await deleteAccountCall({ requestId });
+    await deleteAccountCall({ requestId, expectedUid });
   } catch (err) {
     const kind = classifyCallError(err);
     if (kind === "lost") return { kind: "lost", requestId };
     clearDeletionRequest();
     return { kind };
   }
-  await finishDeleted();
-  return { kind: "deleted" };
+  return (await finishDeleted(expectedUid)) === "finished" ? { kind: "deleted" } : { kind: "deletedOtherAccount" };
 }
 
-/** The server confirmed deletion. Device data first; a clearing failure is reported separately. */
-export async function finishDeleted(): Promise<void> {
-  const { failed } = await clearDeviceData();
+export type FinishResult = "finished" | "otherAccount";
+
+/**
+ * The server confirmed deletion of requestUid's account. Completion acts only for that account
+ * (auditor re-review, 2026-10-02): if a different account is current before or after the device
+ * cleanup, it is never signed out and no deleted notice is written. requestUid null (a request
+ * with no owner) acts only when nobody is signed in.
+ */
+export async function finishDeleted(requestUid: string | null): Promise<FinishResult> {
+  const ours = () => {
+    const current = auth.currentUser?.uid ?? null;
+    return current === null || current === requestUid;
+  };
+  if (!ours()) { clearDeletionRequest(); return "otherAccount"; }
+  const { failed } = await clearDeviceData(); // device data goes either way
+  if (!ours()) { clearDeletionRequest(); return "otherAccount"; }
   writeDeletedNotice(failed.length === 0 ? "ok" : "clearFailed");
   clearDeletionRequest();
-  try {
-    await signOut(auth);
-  } catch {
-    // Already signed out (the SDK may have done it); the explicit reset below still runs.
+  if (auth.currentUser !== null) {
+    try {
+      await signOut(auth); // the current account is requestUid's: checked synchronously above
+    } catch {
+      // Already signed out; the explicit reset below still runs.
+    }
   }
   resetDocument();
+  return "finished";
 }

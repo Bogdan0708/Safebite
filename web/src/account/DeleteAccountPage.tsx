@@ -7,7 +7,7 @@ import { DeletePasswordForm } from "./DeletePasswordForm";
 
 /** The text is advisory: the server's step 2 transaction decides who is last (spec §3.8). */
 export function DeleteAccountPage() {
-  const { householdId } = useMember();
+  const { householdId, uid } = useMember();
   const [onlyMember, setOnlyMember] = useState<boolean | null>(null);
 
   useEffect(() => {
@@ -32,7 +32,7 @@ export function DeleteAccountPage() {
         </p>
       )}
       <p>This cannot be undone. <Link to="/settings" data-testid="export-first">Export first</Link></p>
-      <DeletePasswordForm submitLabel="Delete my account" testid="delete" />
+      <DeletePasswordForm submitLabel="Delete my account" testid="delete" expectedUid={uid} />
     </section>
   );
 }
