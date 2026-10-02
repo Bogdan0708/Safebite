@@ -3513,3 +3513,706 @@ Claude-Session: https://claude.ai/code/session_01MRsbJXkLpLQG7QzdeZmxsQ"
 | Empirical stops 1, 2, 4, 5 | Answered in "Verified facts" |
 | Empirical stop 3 (other tab after refresh failure) | Production: SDK source (Verified facts). Emulator: covered only through the deleting tab's own sign-out (scenario 6) |
 | Empirical stop 6 (TTL policy on the pilot) | Deploy time, owner-run; command in README (Task 11) |
+
+---
+
+## Addendum: implementation-audit corrections (Tasks 12–14)
+
+**Why:** `planning/audits/2026-10-02-plan-5a-implementation-audit.md` (at `4bde68e`) found three defects. **P1-1:** recovery deletes whichever account is signed in. **P2-2:** some completed deletions leave a receipt at `started` forever. **P2-3:** a missing or expired receipt reads as "didn't finish". The binding design is spec §3.8 as amended at `dc30ae5`. Global Constraints above still apply. Two constraint lines change:
+
+- The client never infers deletion from an Auth error code, and never calls `getIdToken(true)` once a deletion call has been sent. *Unchanged.*
+- New: every deletion is bound to one UID end to end. The screen passes `expectedUid`; `deleteMyAccount` pins the `auth.currentUser` object it started with; the saved request is `{ requestId, uid }`; the server refuses `expectedUid !== request.auth.uid` with `permission-denied`, `details.reason === "accountChanged"`.
+
+Baseline at `dc30ae5`: web unit 452, functions + rules 427, browser 49.
+
+### Task 12: Server — bind the call to its UID; reconcile every receipt
+
+**Files:**
+- Modify: `functions/src/account/receipts.ts`, `functions/src/account/deletion.ts`, `functions/src/account/callables.ts`
+- Test: `functions/test/account.receipts.test.ts`, `functions/test/account.deletion.test.ts`, `functions/test/account.callables.test.ts`
+
+**Interfaces:**
+- Produces:
+  ```ts
+  // receipts.ts
+  export function parseDeleteRequest(data: unknown): { requestId: string; expectedUid: string }; // invalid-argument otherwise
+  // checkReceipt keeps its signature; it now reconciles "started" and "dataDeleted" (below)
+  // deletion.ts
+  export type HookPoint = "step1" | "step2" | "step3" | "step3:restaurant" | "step4" | "step5" | "step6" | "step6:afterAuth";
+  ```
+  `deleteAccount({ requestId, expectedUid })` refuses a mismatch with `HttpsError("permission-denied", "The signed-in account changed.", { reason: "accountChanged" })`. It does this after the `unauthenticated` and marker checks and before `requireRecentAuth`, `startReceipt` or any data access.
+
+- [ ] **Step 1: Write the failing tests**
+
+Append to `functions/test/account.receipts.test.ts`, inside `describe("checkReceipt")`:
+
+```ts
+  it("started, Auth gone, no users doc and no record: reconciled to complete (implementation audit P2-2)", async () => {
+    await createEmulatorUser("receipt-uid", "receipt@safebite.test", "pilot-password-1");
+    await startReceipt(db, "r1", "receipt-uid", NOW);
+    await getAuth().deleteUser("receipt-uid");
+    expect(await checkReceipt(db, getAuth(), "r1", NOW)).toBe("complete");
+    expect(await receipt("r1")).not.toHaveProperty("uid");
+  });
+  it("started, Auth gone but users doc present: stays started (Auth absence alone proves nothing)", async () => {
+    await createEmulatorUser("receipt-uid", "receipt@safebite.test", "pilot-password-1");
+    await db.doc("users/receipt-uid").set({ householdId: "h", displayName: "R" });
+    await startReceipt(db, "r1", "receipt-uid", NOW);
+    await getAuth().deleteUser("receipt-uid");
+    expect(await checkReceipt(db, getAuth(), "r1", NOW)).toBe("started");
+    await db.doc("users/receipt-uid").delete();
+  });
+  it("dataDeleted, Auth gone but deletion record present: stays dataDeleted", async () => {
+    await createEmulatorUser("receipt-uid", "receipt@safebite.test", "pilot-password-1");
+    await db.doc("accountDeletions/receipt-uid").set({ householdId: "h" });
+    await startReceipt(db, "r1", "receipt-uid", NOW);
+    await markReceipt(db, "r1", "dataDeleted", NOW);
+    await getAuth().deleteUser("receipt-uid");
+    expect(await checkReceipt(db, getAuth(), "r1", NOW)).toBe("dataDeleted");
+    await db.doc("accountDeletions/receipt-uid").delete();
+  });
+```
+
+Add to the same file:
+
+```ts
+describe("parseDeleteRequest", () => {
+  it("accepts a request id and an expected uid", () => {
+    expect(parseDeleteRequest({ requestId: ID, expectedUid: "ava-uid" })).toEqual({ requestId: ID, expectedUid: "ava-uid" });
+  });
+  it.each([{ requestId: ID }, { requestId: ID, expectedUid: "" }, { requestId: ID, expectedUid: 5 }, { requestId: ID, expectedUid: "x".repeat(129) }, { expectedUid: "a" }])(
+    "refuses %j", (data) => {
+      expect(() => parseDeleteRequest(data)).toThrow(expect.objectContaining({ code: "invalid-argument" }));
+    });
+});
+```
+
+Add `parseDeleteRequest` to that file's import from `../src/account/receipts`.
+
+Append to `functions/test/account.deletion.test.ts`. The file's existing helpers are `deps`, `get`, `exists`, `authExists`, `seedHousehold` and `expectAvaGoneNonLast`; `rcpt` is started in `beforeEach`:
+
+```ts
+describe("runDeletion — receipts always reconcile (implementation audit P2-2)", () => {
+  const crashAfterAuth = async (p: HookPoint) => { if (p === "step6:afterAuth") throw new Error("injected crash after Auth deletion"); };
+
+  it("member path: crash after Auth deletion, before complete → checkReceipt completes it", async () => {
+    await expect(runDeletion(deps({ hook: crashAfterAuth }), "ava-uid", "rcpt")).rejects.toThrow("after Auth deletion");
+    expect(await authExists("ava-uid")).toBe(false);
+    expect((await get("accountDeletionReceipts/rcpt"))?.status).toBe("dataDeleted");
+    expect(await checkReceipt(db, getAuth(), "rcpt", Date.now())).toBe("complete");
+  });
+
+  it("Auth-only path records dataDeleted before Auth deletion, and a crash after it still completes", async () => {
+    await db.doc("users/ava-uid").delete();
+    await db.doc(H).update({ memberIds: ["bogdan-uid"] });
+    await expect(runDeletion(deps({ hook: crashAfterAuth }), "ava-uid", "rcpt")).rejects.toThrow("after Auth deletion");
+    expect((await get("accountDeletionReceipts/rcpt"))?.status).toBe("dataDeleted");
+    expect(await checkReceipt(db, getAuth(), "rcpt", Date.now())).toBe("complete");
+  });
+
+  it("an older request interrupted mid-deletion reconciles once a newer request finishes", async () => {
+    await expect(runDeletion(deps({ hook: crashBefore("step3") }), "ava-uid", "rcpt")).rejects.toThrow();
+    await startReceipt(db, "rcpt-new", "ava-uid", Date.now());
+    await runDeletion(deps(), "ava-uid", "rcpt-new");
+    expect((await get("accountDeletionReceipts/rcpt"))?.status).toBe("started");
+    expect(await checkReceipt(db, getAuth(), "rcpt", Date.now())).toBe("complete");
+    expect(await checkReceipt(db, getAuth(), "rcpt-new", Date.now())).toBe("complete");
+  });
+});
+```
+
+Add `checkReceipt` to that file's import from `../src/account/receipts`.
+
+In the same file, in the 300-restaurant test, replace both `Date.now()` timing reads with `performance.now()`. This host's wall clock steps backwards (audit minor). Keep the 30 000 ms bound.
+
+In `functions/test/account.callables.test.ts`, change the successful call to send `{ requestId, expectedUid: "del-a-uid" }`. Then add:
+
+```ts
+  it("refuses an expectedUid that is not the signed-in account, before any receipt or data change", async () => {
+    const token = await signInForIdToken("del-a@safebite.test", PW);
+    const requestId = newRequestId();
+    const res = await callFunction("deleteAccount", { requestId, expectedUid: "del-b-uid" }, token);
+    expect(res.body.error?.status).toBe("PERMISSION_DENIED");
+    expect(JSON.stringify(res.body)).toContain("accountChanged");
+    expect((await callFunction("checkAccountDeletion", { requestId })).body.result).toEqual({ status: "none" });
+    expect(await getAuth().getUser("del-a-uid")).toBeTruthy();
+    expect(await getAuth().getUser("del-b-uid")).toBeTruthy();
+    expect((await getFirestore().doc("households/delhome").get()).get("memberIds")).toEqual(["del-a-uid", "del-b-uid"]);
+  });
+```
+
+`HttpsError` details appear in the callable's JSON error body as `error.details`. If the emulator puts them elsewhere, assert on the field where they actually appear, and say so in the report.
+
+- [ ] **Step 2: Run them to see them fail**
+
+Run: `npm run emu:test` (10 min timeout).
+Expected:
+- the new receipts tests fail, because `started` is returned unreconciled and `parseDeleteRequest` is missing;
+- the new deletion tests fail on the unknown hook or the `started` status;
+- the mismatch test fails, because the call deletes `del-a`.
+
+- [ ] **Step 3: Implement**
+
+In `functions/src/account/receipts.ts`, add:
+
+```ts
+/** deleteAccount request (spec §3.8, amended after the implementation audit P1-1). */
+export function parseDeleteRequest(data: unknown): { requestId: string; expectedUid: string } {
+  const requestId = parseRequestId(data);
+  const expectedUid = (data as Record<string, unknown>).expectedUid;
+  if (typeof expectedUid !== "string" || expectedUid.length === 0 || expectedUid.length > 128) {
+    throw new HttpsError("invalid-argument", "expectedUid is malformed.");
+  }
+  return { requestId, expectedUid };
+}
+```
+
+Then replace the body of `checkReceipt` after the `isStatus` guard:
+
+```ts
+  if (status === "complete") return status;
+  const uid: unknown = snap.get("uid");
+  if (typeof uid !== "string") return status;
+  // Reconcile from server state (implementation audit P2-2): complete only when the Auth record is
+  // gone AND the users document and deletion record are gone. Step 4 deletes users/{uid} only
+  // after the data steps recorded completion and step 5 deletes the record after that, so the three
+  // together prove the household data was handled. Auth absence alone proves nothing.
+  const [authGone, userDoc, record] = await Promise.all([
+    auth.getUser(uid).then(
+      () => false,
+      (err: unknown) => {
+        if ((err as { code?: string }).code === "auth/user-not-found") return true;
+        throw err;
+      },
+    ),
+    db.doc(`users/${uid}`).get(),
+    db.doc(`accountDeletions/${uid}`).get(),
+  ]);
+  if (authGone && !userDoc.exists && !record.exists) {
+    await markReceipt(db, receiptId, "complete", nowMs);
+    return "complete";
+  }
+  return status;
+```
+
+Update the `checkReceipt` doc comment to match.
+
+In `functions/src/account/deletion.ts`:
+- add `"step6:afterAuth"` to `HookPoint`;
+- immediately before `await hook("step6")`, add:
+  ```ts
+  // The Auth-only path proves steps 4 and 5 already ran (or the account was never provisioned):
+  // record that before Auth deletion, as the record path does (implementation audit P2-2).
+  if (start.kind === "authOnly") await markReceipt(db, receiptId, "dataDeleted", deps.now());
+  ```
+- between the `deleteUser` try/catch and the final `markReceipt(... "complete" ...)`, add `await hook("step6:afterAuth");`.
+
+In `functions/src/account/callables.ts` `deleteAccount`, import `parseDeleteRequest`. Replace `const receiptId = receiptIdFor(parseRequestId(request.data));` and its position so the start of the handler reads:
+
+```ts
+  const uid = request.auth?.uid;
+  if (!uid) throw new HttpsError("unauthenticated", "Sign in required.");
+  if (uid === MARKER_UID) throw new HttpsError("permission-denied", "This account is not a household member.");
+  const { requestId, expectedUid } = parseDeleteRequest(request.data);
+  // A guard, never a grant: authority comes only from the verified token (implementation audit P1-1).
+  if (expectedUid !== uid) throw new HttpsError("permission-denied", "The signed-in account changed.", { reason: "accountChanged" });
+  requireRecentAuth(request.auth?.token.auth_time, Date.now());
+  const receiptId = receiptIdFor(requestId);
+```
+
+Remove the now-unused `parseRequestId` import there only if nothing else in the file uses it; `checkAccountDeletion` still does.
+
+- [ ] **Step 4: Run everything**
+
+Run: `npm run typecheck && npm run test:unit`, then `npm run emu:test` (10 min timeout).
+Expected: PASS; functions + rules = 427 + the new tests. Every earlier deletion and receipt test stays green unchanged, apart from the `Date.now` → `performance.now` swap.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add functions/src/account functions/test/account.receipts.test.ts functions/test/account.deletion.test.ts functions/test/account.callables.test.ts
+git commit -m "fix(account): bind deleteAccount to its uid and reconcile every receipt" -m "Implementation audit P1-1 (server half) and P2-2.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01MRsbJXkLpLQG7QzdeZmxsQ"
+```
+
+---
+
+### Task 13: Web — a UID-bound request, a pinned account, recovery that refuses other accounts
+
+One task in two parts: the logic (part A) changes signatures that the screens (part B) consume, so the task is committed once, green, at the end of part B.
+
+#### Part A: logic
+
+**Files:**
+- Modify: `web/src/account/storage.ts`, `web/src/account/api.ts`, `web/src/account/recovery.ts`, `web/src/account/deleteFlow.ts`, `web/src/auth/reauthenticate.ts`
+- Test: `web/src/account/storage.test.ts`, `web/src/account/recovery.test.ts`, `web/src/account/deleteFlow.test.ts`, `web/src/auth/reauthenticate.test.ts`
+
+**Interfaces:**
+- Produces:
+  ```ts
+  // storage.ts
+  export interface DeletionRequest { requestId: string; uid: string | null } // uid null = no owner (legacy bare id or malformed)
+  export function readDeletionRequest(): DeletionRequest | null;
+  export function writeDeletionRequest(request: { requestId: string; uid: string }): void; // JSON
+  // reauthenticate.ts
+  export function reauthenticate(password: string, user?: User | null): Promise<ReauthResult>; // default auth.currentUser
+  // api.ts
+  export const deleteAccountCall: (d: { requestId: string; expectedUid: string }) => Promise<{ deleted: true; lastMember: boolean }>;
+  // recovery.ts
+  export type CallErrorKind = "lost" | "recentLogin" | "permission" | "accountChanged" | "failed";
+  export type RecoveryView = "success" | "otherAccount" | "confirmationUnavailable" | "unfinishedSignedIn" | "unfinishedSignedOut" | "uncertain";
+  export function recoveryView(check: CheckResult, requestUid: string | null, currentUid: string | null): RecoveryView;
+  // deleteFlow.ts
+  export type DeleteOutcome = … | { kind: "accountChanged" };
+  export function deleteMyAccount(password: string, expectedUid: string): Promise<DeleteOutcome>;
+  ```
+
+- [ ] **Step 1: Write the failing tests**
+
+`web/src/account/storage.test.ts`: replace the round-trip test, and add:
+
+```ts
+  it("round-trips a request bound to its uid", () => {
+    writeDeletionRequest({ requestId: "id-1", uid: "ava-uid" });
+    expect(readDeletionRequest()).toEqual({ requestId: "id-1", uid: "ava-uid" });
+    clearDeletionRequest();
+    expect(readDeletionRequest()).toBeNull();
+  });
+  it("a legacy bare id or malformed value has no owner", () => {
+    sessionStorage.setItem("safebite.deletionRequest", "R".repeat(43));
+    expect(readDeletionRequest()).toEqual({ requestId: "R".repeat(43), uid: null });
+    sessionStorage.setItem("safebite.deletionRequest", JSON.stringify({ requestId: "x", uid: "" }));
+    expect(readDeletionRequest()).toEqual({ requestId: JSON.stringify({ requestId: "x", uid: "" }), uid: null });
+  });
+```
+
+Update the blocked-storage test to call `writeDeletionRequest({ requestId: "x", uid: "u" })`.
+
+`web/src/account/recovery.test.ts`: replace the `recoveryView` table with:
+
+```ts
+describe("recoveryView (spec §3.8 Recovery table, amended after the implementation audit)", () => {
+  const ok = (status: string) => ({ ok: true, status }) as const;
+  it.each([
+    [{ ok: false }, "ava", "ava", "uncertain"],
+    [{ ok: false }, "ava", null, "uncertain"],
+    [ok("complete"), "ava", null, "success"],
+    [ok("complete"), "ava", "ava", "success"],
+    [ok("complete"), "ava", "bogdan", "otherAccount"],
+    [ok("started"), "ava", "bogdan", "otherAccount"],
+    [ok("none"), "ava", "bogdan", "otherAccount"],
+    [ok("none"), "ava", "ava", "confirmationUnavailable"],
+    [ok("none"), "ava", null, "confirmationUnavailable"],
+    [ok("started"), "ava", "ava", "unfinishedSignedIn"],
+    [ok("dataDeleted"), "ava", "ava", "unfinishedSignedIn"],
+    [ok("started"), "ava", null, "unfinishedSignedOut"],
+    [ok("dataDeleted"), "ava", null, "unfinishedSignedOut"],
+    // A request with no owner (legacy) never shows a delete form.
+    [ok("started"), null, "ava", "confirmationUnavailable"],
+    [ok("started"), null, null, "confirmationUnavailable"],
+    [ok("complete"), null, "ava", "confirmationUnavailable"],
+    [ok("complete"), null, null, "success"],
+  ] as const)("%j request=%s current=%s → %s", (check, requestUid, currentUid, view) => {
+    expect(recoveryView(check, requestUid, currentUid)).toBe(view);
+  });
+});
+```
+
+and add to `describe("classifyCallError")`:
+
+```ts
+  it("an accountChanged refusal is recognised by its details reason", () => {
+    expect(classifyCallError(fnErr("permission-denied", { reason: "accountChanged" }))).toBe("accountChanged");
+    expect(classifyCallError(fnErr("permission-denied"))).toBe("permission");
+  });
+```
+
+`web/src/auth/reauthenticate.test.ts`: add
+
+```ts
+  it("reauthenticates the user it is given, not whoever is current", async () => {
+    const given = { email: "given@safebite.test" };
+    await expect(reauthenticate("pw", given as never)).resolves.toBe("ok");
+    expect(f.credential).toHaveBeenCalledWith("given@safebite.test", "pw");
+    expect(f.reauthenticateWithCredential).toHaveBeenCalledWith(given, expect.anything());
+  });
+```
+
+`web/src/account/deleteFlow.test.ts`:
+- The existing `../firebase` mock returns a new `currentUser` object on every access, which an identity check would reject. Replace it with a stable, swappable object:
+  ```ts
+  const m = vi.hoisted(() => ({ …existing fields…, current: null as unknown }));
+  vi.mock("../firebase", () => ({ get auth() { return { currentUser: m.current }; } }));
+  ```
+- In `beforeEach`, set `m.current = { uid: "ava-uid", getIdToken: m.getIdToken }`.
+- Change every `deleteMyAccount("pw")` to `deleteMyAccount("pw", "ava-uid")`, and every expected call body to `{ requestId: "R".repeat(43), expectedUid: "ava-uid" }`.
+- The request-id capture test now expects `{ requestId: "R".repeat(43), uid: "ava-uid" }` from `readDeletionRequest()`.
+- The mocked `reauthenticate` receives the user, so assert `toHaveBeenCalledWith("pw", m.current)`.
+
+Then add:
+
+```ts
+  it("refuses when the current account is not the expected one, sending nothing", async () => {
+    await expect(deleteMyAccount("pw", "bogdan-uid")).resolves.toEqual({ kind: "accountChanged" });
+    expect(m.reauthenticate).not.toHaveBeenCalled();
+    expect(m.deleteAccountCall).not.toHaveBeenCalled();
+  });
+
+  it("refuses when the account changes during reauthentication (another tab signed in)", async () => {
+    m.reauthenticate.mockImplementation(async () => { m.current = { uid: "bogdan-uid", getIdToken: m.getIdToken }; return "ok"; });
+    await expect(deleteMyAccount("pw", "ava-uid")).resolves.toEqual({ kind: "accountChanged" });
+    expect(m.getIdToken).not.toHaveBeenCalled();
+    expect(m.deleteAccountCall).not.toHaveBeenCalled();
+    expect(readDeletionRequest()).toBeNull();
+  });
+
+  it("refuses when the account changes during the token refresh", async () => {
+    m.getIdToken.mockImplementation(async () => { m.current = { uid: "bogdan-uid", getIdToken: m.getIdToken }; return "t"; });
+    await expect(deleteMyAccount("pw", "ava-uid")).resolves.toEqual({ kind: "accountChanged" });
+    expect(m.deleteAccountCall).not.toHaveBeenCalled();
+    expect(readDeletionRequest()).toBeNull();
+  });
+
+  it("the same uid in a different user object (re-sign-in) is also a change", async () => {
+    m.reauthenticate.mockImplementation(async () => { m.current = { uid: "ava-uid", getIdToken: m.getIdToken }; return "ok"; });
+    await expect(deleteMyAccount("pw", "ava-uid")).resolves.toEqual({ kind: "accountChanged" });
+    expect(m.deleteAccountCall).not.toHaveBeenCalled();
+  });
+
+  it("a server accountChanged refusal clears the request", async () => {
+    m.deleteAccountCall.mockRejectedValue(fnErr("permission-denied", { reason: "accountChanged" }));
+    await expect(deleteMyAccount("pw", "ava-uid")).resolves.toEqual({ kind: "accountChanged" });
+    expect(readDeletionRequest()).toBeNull();
+  });
+```
+
+- [ ] **Step 2: Run them to see them fail**
+
+Run: `npm --prefix web test -- src/account src/auth/reauthenticate`
+Expected: FAIL. Types and signatures do not match, and the new cases fail.
+
+- [ ] **Step 3: Implement**
+
+`web/src/account/storage.ts`: replace the three deletion-request helpers:
+
+```ts
+/** A deletion request is bound to the account it was sent for (spec §3.8, implementation audit P1-1). */
+export interface DeletionRequest { requestId: string; uid: string | null }
+
+export function readDeletionRequest(): DeletionRequest | null {
+  const raw = get(DELETION_REQUEST_KEY);
+  if (raw === null) return null;
+  try {
+    const value = JSON.parse(raw) as { requestId?: unknown; uid?: unknown };
+    if (typeof value.requestId === "string" && typeof value.uid === "string" && value.uid.length > 0) {
+      return { requestId: value.requestId, uid: value.uid };
+    }
+  } catch {
+    // An older build saved the bare id.
+  }
+  return { requestId: raw, uid: null }; // no owner: recovery never offers a delete form
+}
+export const writeDeletionRequest = (request: { requestId: string; uid: string }) =>
+  set(DELETION_REQUEST_KEY, JSON.stringify({ requestId: request.requestId, uid: request.uid }));
+export const clearDeletionRequest = () => remove(DELETION_REQUEST_KEY);
+```
+
+`web/src/auth/reauthenticate.ts`: change the signature to `reauthenticate(password: string, user: User | null = auth.currentUser)`, import `type User` from `firebase/auth`, and delete the `const user = auth.currentUser;` line.
+
+`web/src/account/api.ts`: change the `deleteAccountCall` request type to `{ requestId: string; expectedUid: string }`.
+
+`web/src/account/recovery.ts`:
+- Add `"accountChanged"` to `CallErrorKind`.
+- In `classifyCallError`, replace the `permission-denied` line with:
+  ```ts
+  if (name === "permission-denied") {
+    const reason = ((err as { details?: { reason?: unknown } }).details ?? {}).reason;
+    return reason === "accountChanged" ? "accountChanged" : "permission";
+  }
+  ```
+- Replace `RecoveryView` and `recoveryView`:
+  ```ts
+  export type RecoveryView = "success" | "otherAccount" | "confirmationUnavailable" | "unfinishedSignedIn" | "unfinishedSignedOut" | "uncertain";
+
+  /**
+   * Spec §3.8 Recovery table (amended after the implementation audit P1-1, P2-3). Only the request's
+   * own account can ever see a delete form; a missing receipt is never read as "unfinished".
+   */
+  export function recoveryView(check: CheckResult, requestUid: string | null, currentUid: string | null): RecoveryView {
+    if (!check.ok) return "uncertain";
+    if (requestUid === null) return check.status === "complete" && currentUid === null ? "success" : "confirmationUnavailable";
+    if (currentUid !== null && currentUid !== requestUid) return "otherAccount";
+    if (check.status === "complete") return "success";
+    if (check.status === "none") return "confirmationUnavailable";
+    return currentUid === null ? "unfinishedSignedOut" : "unfinishedSignedIn";
+  }
+  ```
+
+`web/src/account/deleteFlow.ts`: add `| { kind: "accountChanged" }` to `DeleteOutcome`, then replace `deleteMyAccount`:
+
+```ts
+/**
+ * Spec §3.8 sequence, bound to one account (implementation audit P1-1). The user object captured at
+ * the start must still be auth.currentUser, with the expected uid, after reauthentication, after
+ * the token refresh and right before the call: the callable sends whatever token is current then.
+ * After the call is sent the token is never refreshed again.
+ */
+export async function deleteMyAccount(password: string, expectedUid: string): Promise<DeleteOutcome> {
+  if (typeof navigator !== "undefined" && navigator.onLine === false) return { kind: "reauth", result: "offline" };
+  const user = auth.currentUser;
+  if (!user || user.uid !== expectedUid) return { kind: "accountChanged" };
+  const unchanged = () => auth.currentUser === user && user.uid === expectedUid;
+  const reauth = await reauthenticate(password, user);
+  if (reauth !== "ok") return { kind: "reauth", result: reauth };
+  if (!unchanged()) return { kind: "accountChanged" };
+  try {
+    await user.getIdToken(true);
+  } catch {
+    return { kind: "failed" };
+  }
+  if (!unchanged()) return { kind: "accountChanged" };
+  const requestId = newRequestId();
+  writeDeletionRequest({ requestId, uid: expectedUid });
+  try {
+    await deleteAccountCall({ requestId, expectedUid });
+  } catch (err) {
+    const kind = classifyCallError(err);
+    if (kind === "lost") return { kind: "lost", requestId };
+    clearDeletionRequest();
+    return { kind };
+  }
+  await finishDeleted();
+  return { kind: "deleted" };
+}
+```
+
+The write and the call are synchronous with respect to each other: there is no `await` between the last `unchanged()` check and `deleteAccountCall`, apart from `newRequestId` and `writeDeletionRequest`, which are synchronous. Keep it that way.
+
+#### Part B: screens (same task)
+
+**Files:**
+- Modify: `web/src/auth/AuthProvider.tsx` (+test), `web/src/account/DeletePasswordForm.tsx` (+test), `web/src/account/DeletionRecoveryScreen.tsx` (+test), `web/src/account/DeleteAccountPage.tsx` (+test), `web/src/account/DeletionPendingScreen.tsx`, `web/src/auth/NotInvitedScreen.tsx`, `web/src/App.tsx`
+
+**Interfaces:**
+- Consumes: part A's `DeletionRequest`, `recoveryView(check, requestUid, currentUid)`, `deleteMyAccount(password, expectedUid)` and `DeleteOutcome.accountChanged`.
+- Produces:
+  - `AuthState`: `notMember` and `deletionPending` gain `uid: string`.
+  - `DeletePasswordForm({ submitLabel, testid, expectedUid })`, with `expectedUid` required.
+  - `DeletionRecoveryScreen({ request: DeletionRequest, onDismiss })`.
+  - New testids: `recovery-other-account`, `recovery-unavailable`, `recovery-continue`. The `delete-outcome` `data-kind` gains `accountChanged`.
+
+- [ ] **Step 4: Write the failing screen tests**
+
+`AuthProvider.test.tsx`: the `deletionPending` and `canDeleteSignIn` cases also assert `'"uid":"u1"'` (and `"u2"`) in the state JSON.
+
+`DeletePasswordForm.test.tsx`:
+- Render with `expectedUid="ava-uid"` throughout, and assert `m.deleteMyAccount` was called with `("pilot-password-1", "ava-uid")`.
+- Add the outcome `[{ kind: "accountChanged" }, "The signed-in account changed. Nothing was deleted."]` to the `it.each` table.
+- The two in-place-recovery cases mock `readDeletionRequest` to return `null`, then `{ requestId: "OTHER", uid: "ava-uid" }`. They assert the rendered `DeletionRecoveryScreen` receives `{ requestId: <lost id>, uid: "ava-uid" }`. The reload case returns `{ requestId: <lost id>, uid: "ava-uid" }`.
+
+`DeletionRecoveryScreen.test.tsx`:
+- Pass `request={{ requestId: "R", uid: "ava-uid" }}` and set `m.currentUser = { uid: "ava-uid", email: "ava@x" }` where the old tests set a current user.
+- The `unfinished`/signed-out case uses status `dataDeleted` with no current user, and its copy assertion is "Sign in to that account to finish it."
+- Add:
+
+```tsx
+  it("another account signed in: no delete form; Continue clears the key and dismisses (implementation audit P1-1)", async () => {
+    writeDeletionRequest({ requestId: "R", uid: "ava-uid" });
+    m.currentUser = { uid: "bogdan-uid", email: "bogdan@x" };
+    m.checkDeletion.mockResolvedValue({ ok: true, status: "started" });
+    const onDismiss = vi.fn();
+    render(<DeletionRecoveryScreen request={{ requestId: "R", uid: "ava-uid" }} onDismiss={onDismiss} />);
+    expect(await screen.findByTestId("recovery-other-account")).toHaveTextContent("This deletion request belongs to another account. Nothing will be deleted from this one.");
+    expect(screen.queryByTestId("finish-password")).toBeNull();
+    expect(m.finishDeleted).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByTestId("recovery-continue"));
+    expect(readDeletionRequest()).toBeNull();
+    expect(onDismiss).toHaveBeenCalled();
+    expect(m.signOut).not.toHaveBeenCalled();
+  });
+
+  it("a complete receipt with another account signed in neither signs them out nor says deleted", async () => {
+    m.currentUser = { uid: "bogdan-uid", email: "bogdan@x" };
+    m.checkDeletion.mockResolvedValue({ ok: true, status: "complete" });
+    render(<DeletionRecoveryScreen request={{ requestId: "R", uid: "ava-uid" }} onDismiss={vi.fn()} />);
+    expect(await screen.findByTestId("recovery-other-account")).toBeInTheDocument();
+    expect(m.finishDeleted).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("recovery-success")).toBeNull();
+  });
+
+  it("none: confirmation unavailable — never 'didn't finish', no delete form (implementation audit P2-3)", async () => {
+    m.currentUser = { uid: "ava-uid", email: "ava@x" };
+    m.checkDeletion.mockResolvedValue({ ok: true, status: "none" });
+    render(<DeletionRecoveryScreen request={{ requestId: "R", uid: "ava-uid" }} onDismiss={vi.fn()} />);
+    const view = await screen.findByTestId("recovery-unavailable");
+    expect(view).toHaveTextContent("We can't confirm what happened to this deletion request. The confirmation may have expired.");
+    expect(view).not.toHaveTextContent("didn't finish");
+    expect(screen.queryByTestId("finish-password")).toBeNull();
+  });
+
+  it("a request with no owner never shows a delete form", async () => {
+    m.currentUser = { uid: "ava-uid", email: "ava@x" };
+    m.checkDeletion.mockResolvedValue({ ok: true, status: "started" });
+    render(<DeletionRecoveryScreen request={{ requestId: "R", uid: null }} onDismiss={vi.fn()} />);
+    expect(await screen.findByTestId("recovery-unavailable")).toBeInTheDocument();
+    expect(screen.queryByTestId("finish-password")).toBeNull();
+  });
+```
+
+`DeleteAccountPage.test.tsx`: the `DeletePasswordForm` mock asserts it receives `expectedUid="u"` (the mocked `useMember` uid).
+
+- [ ] **Step 5: Run them to see them fail**
+
+Run: `npm --prefix web test -- src/account src/auth`
+Expected: FAIL on the new props, views and state fields.
+
+- [ ] **Step 6: Implement the screens**
+
+- `AuthProvider.tsx`: add `uid: string` to the `notMember` and `deletionPending` members of `AuthState`. In `stateForUser`, return `{ status: "deletionPending", uid: user.uid, email: user.email }` and `{ status: "notMember", uid: user.uid, email: user.email, canDeleteSignIn: userDoc === undefined }`.
+- `DeletePasswordForm.tsx`:
+  - Add the required prop `expectedUid: string` and call `deleteMyAccount(password, expectedUid)`.
+  - Add `accountChanged: "The signed-in account changed. Nothing was deleted."` to `MESSAGES`.
+  - The lost branch becomes `if (readDeletionRequest()?.requestId === outcome.requestId) resetDocument(); else setLostRequestId(outcome.requestId);`.
+  - The in-place screen renders `<DeletionRecoveryScreen request={{ requestId: lostRequestId, uid: expectedUid }} onDismiss={() => resetDocument()} />`.
+- `DeleteAccountPage.tsx`: `const { householdId, uid } = useMember();` and pass `expectedUid={uid}`.
+- `DeletionPendingScreen.tsx`: read `state` from `useAuth()`. When `state.status === "deletionPending"`, render the form with `expectedUid={state.uid}`; otherwise render nothing of the form.
+- `NotInvitedScreen.tsx`: pass `expectedUid={state.uid}` (inside the existing `canDelete` branch, where `state.status === "notMember"`).
+- `App.tsx` `Root`: `pending` is a `DeletionRequest | null`; render `<DeletionRecoveryScreen request={pending} onDismiss={() => setPending(null)} />`.
+- `DeletionRecoveryScreen.tsx`:
+  - Change the props to `{ request: DeletionRequest; onDismiss }`.
+  - In `check`, after `await auth.authStateReady()`: `const current = auth.currentUser; const next = recoveryView(result, request.uid, current?.uid ?? null);`, then set the email from `current`. Only call `finishDeleted()` when `next === "success"`.
+  - Add `const proceed = () => { clearDeletionRequest(); onDismiss(); };`.
+  - New views:
+
+```tsx
+      {view === "otherAccount" && (
+        <section data-testid="recovery-other-account">
+          <p>This deletion request belongs to another account. Nothing will be deleted from this one.</p>
+          <button type="button" data-testid="recovery-continue" onClick={proceed}>Continue as this account</button>
+          <button type="button" data-testid="recovery-signout" onClick={() => void leave()}>Sign out</button>
+        </section>
+      )}
+      {view === "confirmationUnavailable" && (
+        <section data-testid="recovery-unavailable">
+          <p>We can't confirm what happened to this deletion request. The confirmation may have expired.</p>
+          <button type="button" data-testid="recovery-continue" onClick={proceed}>Continue</button>
+          <button type="button" data-testid="recovery-signout" onClick={() => void leave()}>Sign out</button>
+        </section>
+      )}
+```
+
+  - In `unfinishedSignedIn`, render `<DeletePasswordForm submitLabel="Finish deleting" testid="finish" expectedUid={request.uid!} />`. `recoveryView` returns this view only when `request.uid` equals the signed-in UID, so the non-null assertion is sound. Comment it so.
+  - Change the `unfinishedSignedOut` copy to "Your account deletion didn't finish. Sign in to that account to finish it."
+  - Remove the uncertain view's sentence "If your account still exists, you'll be offered to finish deleting it." It promises an outcome the screen cannot guarantee. Keep "If this doesn't clear, sign in again."
+
+- [ ] **Step 7: Run everything**
+
+Run: `npm run typecheck && npm run test:unit`, then `npm run emu:e2e` (10 min timeout).
+Expected: unit tests green. In the browser suite, **scenario 4 now fails as designed.** A request that never reached the server leaves no receipt, which is now "confirmation unavailable", not "didn't finish". Task 14 updates it. Every other scenario must pass.
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add web/src
+git commit -m "fix(account): bind deletion and recovery to one account; a missing receipt is unknown" -m "Implementation audit P1-1 (client) and P2-3.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01MRsbJXkLpLQG7QzdeZmxsQ"
+```
+
+---
+
+### Task 14: Browser regression, scenario 4, README and the full gate
+
+**Files:**
+- Modify: `web/e2e/account.spec.ts`, `web/e2e/account-rest.ts`, `web/playwright.config.ts` (count comment), `README.md`
+
+**Interfaces:**
+- Produces: `seedReceipt(request, requestId, uid, status)` in `account-rest.ts`. It writes `accountDeletionReceipts/{sha256(requestId)}` with `{ status, uid, updatedAt, expireAt }`. `expireAt` is 7 days ahead; compute the hash with `node:crypto`.
+
+- [ ] **Step 1: Add the helper**
+
+```ts
+import { createHash } from "node:crypto";
+
+export async function seedReceipt(request: APIRequestContext, requestId: string, uid: string, status: "started" | "dataDeleted"): Promise<void> {
+  const id = createHash("sha256").update(requestId).digest("hex");
+  await put(request, `accountDeletionReceipts/${id}`, {
+    status: s(status),
+    uid: s(uid),
+    updatedAt: { timestampValue: new Date().toISOString() },
+    expireAt: { timestampValue: new Date(Date.now() + 7 * 86_400_000).toISOString() },
+  });
+}
+```
+
+Clean up in `restoreSeedAccounts`: also delete any `accountDeletionReceipts` documents. List them with `GET ${FS}/accountDeletionReceipts?pageSize=300` and delete each.
+
+- [ ] **Step 2: Add the cross-account regression and update scenario 4**
+
+```ts
+test("8: an interrupted request for Ava never deletes Bogdan, who is signed in (implementation audit P1-1)", async ({ page, request }) => {
+  // Ava's deletion stopped after step 2: she has left memberIds and her record exists.
+  await setMemberIds(request, ["bogdan-uid"]);
+  await seedDeletionRecord(request, "ava-uid");
+  const requestId = "A".repeat(43);
+  await seedReceipt(request, requestId, "ava-uid", "started");
+  await signIn(page, "bogdan@safebite.test");
+  await page.evaluate((id) => sessionStorage.setItem("safebite.deletionRequest", JSON.stringify({ requestId: id, uid: "ava-uid" })), requestId);
+  await page.reload();
+  await expect(page.getByTestId("recovery-other-account")).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByTestId("finish-password")).toHaveCount(0);
+  expect(await passwordAccepted(request, "bogdan@safebite.test", PASSWORD)).toBe(true);
+  expect(await passwordAccepted(request, "ava@safebite.test", PASSWORD)).toBe(true);
+  expect(await householdExists(request)).toBe(true);
+  await page.getByTestId("recovery-continue").click();
+  await expect(page.getByTestId("nav-settings")).toBeVisible({ timeout: 15_000 });
+});
+```
+
+Replace scenario 4's body after `deleteFromSettings(page)`:
+
+```ts
+  // Nothing reached the server, so there is no receipt: the screen must not claim either outcome.
+  await expect(page.getByTestId("recovery-unavailable")).toBeVisible({ timeout: 60_000 });
+  await expect(page.getByTestId("recovery-unavailable")).not.toContainText("didn't finish");
+  expect(await passwordAccepted(request, "ava@safebite.test", PASSWORD)).toBe(true);
+  await page.unroute(DELETE_URL);
+  await page.getByTestId("recovery-continue").click();
+  await deleteFromSettings(page);
+  await expect(page.getByTestId("signin-deleted-notice")).toBeVisible({ timeout: 90_000 });
+```
+
+Rename scenario 4 to `"4: a request that never reached the server is 'confirmation unavailable', and deleting again works"`.
+
+- [ ] **Step 3: README**
+
+Update the three test counts and the stress line to the measured numbers. In the "Your data (Plan 5a)" paragraph, change "An interrupted deletion can always be finished" to "An interrupted deletion can be finished by the account it belongs to". Update the `web/playwright.config.ts` scenario count.
+
+- [ ] **Step 4: The full gate**
+
+Run every command in Task 11 Step 6, including the stress run (30 min timeout), plus `npm run emu:e2e:stress`. The guardrail grep for `getIdToken(true)` must still print exactly one line, in `web/src/account/deleteFlow.ts`.
+
+Known host issues: backwards clock steps, `ERR_NETWORK_CHANGED`, socket hang-ups in seed restore, and boot-guard port stalls. Record any you hit and rerun once. A deterministic failure is never "host".
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add web/e2e/account.spec.ts web/e2e/account-rest.ts web/playwright.config.ts README.md
+git commit -m "test(account): cross-account recovery regression; scenario 4 for a missing receipt" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01MRsbJXkLpLQG7QzdeZmxsQ"
+```
+
+### Addendum spec coverage
+
+| Audit finding | Task |
+|---|---|
+| P1-1 server guard (`expectedUid`) | 12 |
+| P1-1 pinned account across reauth, token and call; UID-bound saved request | 13A |
+| P1-1 recovery refuses other accounts; every delete form names its account | 13B |
+| P1-1 browser reproduction as a permanent regression | 14 |
+| P2-2 `dataDeleted` before Auth deletion on every path; reconciliation of `started`/`dataDeleted` | 12 |
+| P2-3 `none` → confirmation unavailable | 13, 14 |
+| Minors: monotonic clock in the 300-restaurant test, README counts, logging wording (spec) | 12, 14, spec `dc30ae5` |
