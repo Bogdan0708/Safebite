@@ -220,8 +220,9 @@ npm --prefix web run icons            # re-render the PNG icon set from web/asse
 ### Guardrails
 
 - Local work targets the emulator-only project `demo-safebite`. Nothing here deploys.
-- Deploy order (spec §3.7): Firestore rules and functions first, then hosting; the deletion completion gate protects older cached clients.
-- Deploy order (spec §3.8): rules and functions first (`deleteAccount`, `checkAccountDeletion`, `exportHousehold`, and the amended discovery usage transaction), then hosting. Set the receipt TTL once: `gcloud firestore fields ttls update expireAt --collection-group=accountDeletionReceipts --enable-ttl --project <pilot>`.
+- Deploy order (spec §3.7, §3.8): Firestore rules and functions first (`deleteAccount`, `checkAccountDeletion`, `exportHousehold`, and the amended discovery usage transaction), then hosting; the deletion completion gate protects older cached clients. Set the receipt TTL once: `gcloud firestore fields ttls update expireAt --collection-group=accountDeletionReceipts --enable-ttl --project <pilot>`.
+- Never provision a Firebase Auth UID `former-member`; it is the reserved anonymisation marker (spec §3.8).
+- `checkAccountDeletion` is unauthenticated by design (a deleted account cannot sign in); it runs one request per instance with at most two instances, and belongs on the Plan 5c cost checklist.
 - Membership (`users/{uid}`, `households/{hid}`) is written only with the Admin SDK; there is no sign-up.
 - Never reuse the legacy seed data from git history; its safety claims were invented.
 - `npm --prefix web run build` (used by `firebase deploy`) refuses missing, blank, demo-, or legacy-project Firebase values; the resulting bundle also refuses to start against them.

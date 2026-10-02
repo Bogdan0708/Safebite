@@ -43,8 +43,11 @@ export const deleteAccount = onCall<unknown, Promise<{ deleted: true; lastMember
   return { deleted: true, lastMember };
 });
 
-/** No sign-in: a deleted account has none. Reveals nothing without the 256-bit request id. */
-export const checkAccountDeletion = onCall<unknown, Promise<{ status: ReceiptStatus }>>(CALLABLE_OPTIONS, async (request) => {
+/**
+ * No sign-in: a deleted account has none. Reveals nothing without the 256-bit request id.
+ * One request per instance bounds what an anonymous caller can run at once (final review F6).
+ */
+export const checkAccountDeletion = onCall<unknown, Promise<{ status: ReceiptStatus }>>({ ...CALLABLE_OPTIONS, concurrency: 1 }, async (request) => {
   const receiptId = receiptIdFor(parseRequestId(request.data));
   return { status: await checkReceipt(getFirestore(), getAuth(), receiptId, Date.now()) };
 });
