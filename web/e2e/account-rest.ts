@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import type { APIRequestContext } from "@playwright/test";
-import { setPasswordViaAdmin } from "./auth-rest";
+import { passwordAccepted, setPasswordViaAdmin, waitOutValidSince } from "./auth-rest";
 
 /**
  * Emulator-only (127.0.0.1, project demo-safebite) helpers for the account-deletion scenarios.
@@ -31,15 +31,21 @@ export async function setMemberIds(request: APIRequestContext, ids: string[]): P
 }
 
 export async function restoreSeedAccounts(request: APIRequestContext): Promise<void> {
+  let stampedAt: number | null = null;
   for (const a of SEED) {
     const res = await request.post(`${AUTH}/accounts`, {
       headers: HEADERS,
       data: { localId: a.uid, email: a.email, password: PASSWORD, displayName: a.name, emailVerified: true },
     });
-    if (!res.ok()) {
+    const respondedAt = Math.floor(Date.now() / 1000);
+    if (res.ok()) {
+      stampedAt = respondedAt;
+    } else {
       const text = await res.text();
       if (!text.includes("DUPLICATE")) throw new Error(`restore ${a.uid}: ${res.status()} ${text}`);
-      await setPasswordViaAdmin(request, a.uid, PASSWORD);
+      if (!(await passwordAccepted(request, a.email, PASSWORD))) {
+        await setPasswordViaAdmin(request, a.uid, PASSWORD); // waits out validSince itself
+      }
     }
     await put(request, `users/${a.uid}`, { householdId: s("home"), displayName: s(a.name) });
     await request.delete(`${FS}/accountDeletions/${a.uid}`, { headers: HEADERS });
@@ -50,6 +56,8 @@ export async function restoreSeedAccounts(request: APIRequestContext): Promise<v
     for (const d of body.documents ?? []) await request.delete(`http://127.0.0.1:8080/v1/${d.name}`, { headers: HEADERS });
   }
   await setMemberIds(request, SEED.map((a) => a.uid));
+  // A created account carries the same validSince stamp; see waitOutValidSince in auth-rest.ts.
+  if (stampedAt !== null) await waitOutValidSince(stampedAt);
 }
 
 export async function householdExists(request: APIRequestContext): Promise<boolean> {

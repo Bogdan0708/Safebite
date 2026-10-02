@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { passwordAccepted, setPasswordViaAdmin } from "./auth-rest";
+import { passwordAccepted, setPasswordViaAdmin, waitOutValidSince } from "./auth-rest";
 import { clearRecords, seedNote, seedRestaurant } from "./emulator-rest";
 
 const PASSWORD = "pilot-password-1";
@@ -133,6 +133,9 @@ test("a member changes their password, stays signed in, and only the new passwor
     await page.getByTestId("pw-current").fill(PASSWORD);
     await page.getByTestId("pw-submit").click();
     await expect(page.getByTestId("pw-success")).toHaveText("Password changed");
+    // The in-app password change is also a validSince stamp (see waitOutValidSince): wait it out
+    // before the next sign-in, or a host clock step can make that token expired on arrival.
+    await waitOutValidSince(Math.floor(Date.now() / 1000));
     await expect(page.getByTestId("nav-settings")).toBeVisible(); // same UID: no reset
     expect(await page.evaluate(() => (window as unknown as { __beforePwChange?: boolean }).__beforePwChange)).toBe(true);
 
