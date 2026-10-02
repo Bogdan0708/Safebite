@@ -74,6 +74,8 @@ export async function finishDeleted(requestUid: string | null): Promise<FinishRe
   // an SDK persistence poll or a storage-event reset in another tab can fire at any await, and must
   // find the record and notice already in place (or the persisted user already gone), never half.
   if (requestUid !== null) await removePersistedUserIfUid(requestUid);
+  // The removal awaited: confirm the account again before recording anything (final review 2).
+  if (!ours()) { clearDeletionRequest(); return "otherAccount"; }
   if (requestUid !== null) recordDeletedUid(requestUid);
   writeDeletedNotice({ kind: failed.length === 0 ? "ok" : "clearFailed", uid: requestUid });
   clearDeletionRequest();

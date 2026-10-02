@@ -2,11 +2,11 @@ import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 import { describe, expect, it, vi } from "vitest";
 
-const m = vi.hoisted(() => ({ getDoc: vi.fn() }));
+const m = vi.hoisted(() => ({ getDoc: vi.fn(), email: "ava@safebite.test" as string | null }));
 vi.mock("../firebase", () => ({ db: {}, auth: {} }));
 vi.mock("firebase/firestore", () => ({ doc: (_db: unknown, path: string) => ({ path }), getDoc: m.getDoc }));
 vi.mock("../records/useMember", () => ({ useMember: () => ({ uid: "u", householdId: "home", displayName: "Ava" }) }));
-vi.mock("../auth/AuthProvider", () => ({ useAuth: () => ({ state: { status: "member", email: "ava@safebite.test" } }) }));
+vi.mock("../auth/AuthProvider", () => ({ useAuth: () => ({ state: { status: "member", email: m.email } }) }));
 vi.mock("./DeletePasswordForm", () => ({ DeletePasswordForm: ({ submitLabel, expectedUid }: { submitLabel: string; expectedUid: string }) => <button data-expected-uid={expectedUid}>{submitLabel}</button> }));
 
 import { DeleteAccountPage } from "./DeleteAccountPage";
@@ -26,6 +26,15 @@ describe("DeleteAccountPage", () => {
     m.getDoc.mockResolvedValue({ exists: () => true, get: () => ["u"] });
     page();
     expect(screen.getByTestId("delete-account-email")).toHaveTextContent("Deleting the account ava@safebite.test");
+  });
+
+  it("falls back to the display name when the email is null (G4)", () => {
+    m.getDoc.mockResolvedValue({ exists: () => true, get: () => ["u"] });
+    m.email = null;
+    try {
+      page();
+      expect(screen.getByTestId("delete-account-email")).toHaveTextContent("Deleting the account Ava");
+    } finally { m.email = "ava@safebite.test"; }
   });
 
   it("as the only member: everything is deleted", async () => {

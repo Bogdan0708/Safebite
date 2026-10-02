@@ -1,5 +1,7 @@
 import { auth } from "../firebase";
 
+const IDB_TIMEOUT_MS = 1500;
+
 export type PersistedRemoval = "removed" | "notOurs" | "unavailable";
 
 const DB_NAME = "firebaseLocalStorageDb";
@@ -43,7 +45,9 @@ function removeFromLocalStorage(key: string, uid: string): PersistedRemoval {
 function removeFromIndexedDb(key: string, uid: string): Promise<PersistedRemoval> {
   return new Promise((resolve) => {
     let settled = false;
-    const done = (result: PersistedRemoval) => { if (!settled) { settled = true; resolve(result); } };
+    const done = (result: PersistedRemoval) => { if (!settled) { settled = true; clearTimeout(timer); resolve(result); } };
+    // A hung open (blocked by another tab, a stalled browser) must not hang completion.
+    const timer = setTimeout(() => done("unavailable"), IDB_TIMEOUT_MS);
     try {
       const open = indexedDB.open(DB_NAME); // no version: never creates or upgrades the SDK's database
       open.onerror = () => done("unavailable");
@@ -55,6 +59,8 @@ function removeFromIndexedDb(key: string, uid: string): Promise<PersistedRemoval
       };
       open.onsuccess = () => {
         const db = open.result;
+        // Already settled (timeout or onblocked): close and never touch the store.
+        if (settled) { try { db.close(); } catch { /* ignore */ } return; }
         try {
           if (!db.objectStoreNames.contains(STORE)) { db.close(); done("unavailable"); return; }
           const tx = db.transaction(STORE, "readwrite");

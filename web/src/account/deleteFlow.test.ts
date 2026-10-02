@@ -161,6 +161,16 @@ describe("deleteMyAccount", () => {
     expect(takeDeletedNotice()).toBeNull();
   });
 
+  it("the account switches during the persisted-user removal: otherAccount, no record, no notice (G3)", async () => {
+    m.removePersisted.mockImplementationOnce(async (uid: string) => { m.order.push(`remove:${uid}`); m.current = { uid: "bogdan-uid", getIdToken: m.getIdToken }; return "removed"; });
+    await expect(finishDeleted("ava-uid")).resolves.toBe("otherAccount");
+    expect(m.removePersisted).toHaveBeenCalledWith("ava-uid");
+    expect(m.recordDeletedUid).not.toHaveBeenCalled();
+    expect(m.resetDocument).not.toHaveBeenCalled();
+    expect(takeDeletedNotice()).toBeNull();
+    expect(readDeletionRequest()).toBeNull();
+  });
+
   it("finishDeleted(null) acts only when nobody is signed in", async () => {
     await expect(finishDeleted(null)).resolves.toBe("otherAccount");
     expect(m.signOut).not.toHaveBeenCalled();

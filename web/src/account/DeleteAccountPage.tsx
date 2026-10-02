@@ -8,7 +8,7 @@ import { DeletePasswordForm } from "./DeletePasswordForm";
 
 /** The text is advisory: the server's step 2 transaction decides who is last (spec §3.8). */
 export function DeleteAccountPage() {
-  const { householdId, uid } = useMember();
+  const { householdId, uid, displayName } = useMember();
   const { state } = useAuth();
   const [onlyMember, setOnlyMember] = useState<boolean | null>(null);
 
@@ -26,7 +26,7 @@ export function DeleteAccountPage() {
   return (
     <section>
       <h2>Delete account</h2>
-      <p data-testid="delete-account-email">Deleting the account {state.status === "member" ? state.email : ""}</p>
+      <p data-testid="delete-account-email">Deleting the account {(state.status === "member" ? state.email : null) || displayName}</p>
       {onlyMember !== null && (
         <p data-testid="delete-consequence">
           {onlyMember

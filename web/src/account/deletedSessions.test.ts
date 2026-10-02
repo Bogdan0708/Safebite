@@ -17,6 +17,20 @@ describe("deleted-session record", () => {
     forgetDeletedUid("ava-uid");
     expect(isDeletedUid("ava-uid")).toBe(false);
   });
+  it("a stale sessionStorage mirror does not put a uid back into localStorage (G1)", () => {
+    sessionStorage.setItem(DELETED_UIDS_KEY, JSON.stringify(["ava-uid"]));
+    localStorage.setItem(DELETED_UIDS_KEY, JSON.stringify([]));
+    recordDeletedUid("other");
+    expect(JSON.parse(localStorage.getItem(DELETED_UIDS_KEY)!)).toEqual(["other"]);
+    expect(JSON.parse(sessionStorage.getItem(DELETED_UIDS_KEY)!)).toEqual(["other", "ava-uid"]);
+  });
+  it("forgetting rebuilds each store from its own list (G1)", () => {
+    sessionStorage.setItem(DELETED_UIDS_KEY, JSON.stringify(["ava-uid", "s-only"]));
+    localStorage.setItem(DELETED_UIDS_KEY, JSON.stringify(["l-only", "ava-uid"]));
+    forgetDeletedUid("ava-uid");
+    expect(JSON.parse(localStorage.getItem(DELETED_UIDS_KEY)!)).toEqual(["l-only"]);
+    expect(JSON.parse(sessionStorage.getItem(DELETED_UIDS_KEY)!)).toEqual(["s-only"]);
+  });
   it("reads the union, so a tab whose localStorage is blocked still knows", () => {
     sessionStorage.setItem(DELETED_UIDS_KEY, JSON.stringify(["ava-uid"]));
     localStorage.setItem(DELETED_UIDS_KEY, JSON.stringify(["other"]));

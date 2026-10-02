@@ -21,9 +21,13 @@ function read(store: Store): string[] {
   }
 }
 
-function write(list: string[]): void {
+/** Each store is rebuilt from its OWN list, so a tab's stale mirror cannot resurrect a forgotten uid. */
+function update(change: (list: string[]) => string[]): void {
   for (const store of STORES) {
-    try { window[store].setItem(DELETED_UIDS_KEY, JSON.stringify(list)); } catch { /* blocked */ }
+    try {
+      const next = [...new Set(change(read(store)))].slice(0, MAX_DELETED_UIDS);
+      window[store].setItem(DELETED_UIDS_KEY, JSON.stringify(next));
+    } catch { /* blocked */ }
   }
 }
 
@@ -36,9 +40,9 @@ export function isDeletedUid(uid: string): boolean {
 }
 
 export function recordDeletedUid(uid: string): void {
-  write([uid, ...deletedUids().filter((x) => x !== uid)].slice(0, MAX_DELETED_UIDS));
+  update((list) => [uid, ...list.filter((x) => x !== uid)]);
 }
 
 export function forgetDeletedUid(uid: string): void {
-  write(deletedUids().filter((x) => x !== uid));
+  update((list) => list.filter((x) => x !== uid));
 }
