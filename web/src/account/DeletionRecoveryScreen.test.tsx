@@ -26,7 +26,33 @@ describe("DeletionRecoveryScreen", () => {
     render(<DeletionRecoveryScreen request={{ requestId: "R", uid: "ava-uid" }} onDismiss={vi.fn()} />);
     expect(screen.getByTestId("recovery-checking")).toBeInTheDocument();
     await waitFor(() => expect(m.finishDeleted).toHaveBeenCalledWith("ava-uid"));
-    expect(screen.getByTestId("recovery-success")).toHaveTextContent("Your account has been deleted.");
+    expect(await screen.findByTestId("recovery-success")).toHaveTextContent("Your account has been deleted.");
+  });
+
+  it("complete: shows a neutral Finishing state, not the success message, until finishDeleted resolves", async () => {
+    let finish!: (v: "finished") => void;
+    m.finishDeleted.mockReturnValue(new Promise((r) => { finish = r; }));
+    m.checkDeletion.mockResolvedValue({ ok: true, status: "complete" });
+    render(<DeletionRecoveryScreen request={{ requestId: "R", uid: "ava-uid" }} onDismiss={vi.fn()} />);
+    expect(await screen.findByTestId("recovery-finishing")).toBeInTheDocument();
+    expect(screen.queryByTestId("recovery-success")).toBeNull();
+    finish("finished");
+    expect(await screen.findByTestId("recovery-success")).toBeInTheDocument();
+    expect(screen.queryByTestId("recovery-finishing")).toBeNull();
+  });
+
+  it("complete, finishDeleted resolves otherAccount: recovery-success is never rendered", async () => {
+    m.currentUser = { uid: "ava-uid", email: "ava@x" };
+    m.checkDeletion.mockResolvedValue({ ok: true, status: "complete" });
+    m.finishDeleted.mockResolvedValue("otherAccount");
+    const seen: boolean[] = [];
+    const observer = new MutationObserver(() => seen.push(document.querySelector('[data-testid="recovery-success"]') !== null));
+    observer.observe(document.body, { childList: true, subtree: true });
+    render(<DeletionRecoveryScreen request={{ requestId: "R", uid: "ava-uid" }} onDismiss={vi.fn()} />);
+    expect(await screen.findByTestId("recovery-other-account")).toBeInTheDocument();
+    observer.disconnect();
+    expect(seen).not.toContain(true);
+    expect(screen.queryByTestId("recovery-success")).toBeNull();
   });
 
   it("unfinished and signed in: offers Finish deleting with a password", async () => {

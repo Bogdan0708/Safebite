@@ -1,5 +1,5 @@
 import { signOut } from "firebase/auth";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { auth } from "../firebase";
 import { DeletePasswordForm } from "./DeletePasswordForm";
 import { finishDeleted } from "./deleteFlow";
@@ -11,24 +11,35 @@ import { clearDeletionRequest, type DeletionRequest } from "./storage";
  * so it survives the reset reload any sign-out causes. Only the server's receipt decides.
  */
 export function DeletionRecoveryScreen({ request, onDismiss }: { request: DeletionRequest; onDismiss: () => void }) {
-  const [view, setView] = useState<RecoveryView | "checking">("checking");
+  const [view, setView] = useState<RecoveryView | "checking" | "finishing">("checking");
   const [email, setEmail] = useState<string | null>(null);
   const [confirmed, setConfirmed] = useState(false);
 
+  const generation = useRef(0);
+
   const check = useCallback(() => {
+    const mine = ++generation.current;
+    const latest = () => generation.current === mine;
     setView("checking");
     void (async () => {
       const result = await checkDeletion(request.requestId);
       await auth.authStateReady();
+      if (!latest()) return; // a newer check superseded this one
       const current = auth.currentUser;
       const next = recoveryView(result, request.uid, current?.uid ?? null);
       setEmail(current?.email ?? null);
       setConfirmed(result.ok && result.status === "complete");
+      if (next === "success") {
+        setView("finishing"); // never claim "deleted" before finishDeleted says so
+        const finished = await finishDeleted(request.uid);
+        if (latest()) setView(finished === "finished" ? "success" : "otherAccount");
+        return;
+      }
       setView(next);
-      if (next === "success" && (await finishDeleted(request.uid)) === "otherAccount") setView("otherAccount");
     })();
-  }, [request]);
+  }, [request.requestId, request.uid]);
   useEffect(check, [check]);
+  useEffect(() => () => { generation.current += 1; }, []);
 
   const proceed = () => { clearDeletionRequest(); onDismiss(); };
 
@@ -44,6 +55,7 @@ export function DeletionRecoveryScreen({ request, onDismiss }: { request: Deleti
     <main className="screen">
       <h1>Account deletion</h1>
       {view === "checking" && <p data-testid="recovery-checking">Checking whether your account was deleted…</p>}
+      {view === "finishing" && <p data-testid="recovery-finishing">Finishing…</p>}
       {view === "success" && <p data-testid="recovery-success">Your account has been deleted.</p>}
       {view === "otherAccount" && (
         <section data-testid="recovery-other-account">

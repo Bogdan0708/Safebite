@@ -1,4 +1,4 @@
-import { useEffect, useState, type SubmitEvent } from "react";
+import { useEffect, useMemo, useState, type SubmitEvent } from "react";
 import { resetDocument } from "../auth/resetDocument";
 import { deleteMyAccount, type DeleteOutcome } from "./deleteFlow";
 import { DeletionRecoveryScreen } from "./DeletionRecoveryScreen";
@@ -39,6 +39,7 @@ export function DeletePasswordForm({ submitLabel, testid, expectedUid }: { submi
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ key: string } | null>(null);
   const [lostRequestId, setLostRequestId] = useState<string | null>(null);
+  const recoveryRequest = useMemo(() => (lostRequestId === null ? null : { requestId: lostRequestId, uid: expectedUid }), [lostRequestId, expectedUid]);
   const [otherAccount, setOtherAccount] = useState(false);
 
   async function onSubmit(event: SubmitEvent<HTMLFormElement>) {
@@ -62,7 +63,7 @@ export function DeletePasswordForm({ submitLabel, testid, expectedUid }: { submi
   }
 
   if (lostRequestId !== null) {
-    return <DeletionRecoveryScreen request={{ requestId: lostRequestId, uid: expectedUid }} onDismiss={() => resetDocument()} />;
+    return <DeletionRecoveryScreen request={recoveryRequest!} onDismiss={() => resetDocument()} />;
   }
   if (otherAccount) {
     return (
