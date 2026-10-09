@@ -1,17 +1,11 @@
 import { initializeApp } from "firebase/app";
-import { connectAuthEmulator, getAuth } from "firebase/auth";
+import { connectAuthEmulator, initializeAuth, indexedDBLocalPersistence, inMemoryPersistence } from "firebase/auth";
 import { connectFirestoreEmulator, getFirestore } from "firebase/firestore";
 import { connectFunctionsEmulator, getFunctions } from "firebase/functions";
 import { assertDeployableFirebaseEnv } from "./config/firebaseEnv";
 
-// Real values are supplied by the owner for staging via environment variables.
-// The defaults below only work with the emulators (project demo-safebite).
-const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY ?? "demo-api-key",
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN ?? "localhost",
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID ?? "demo-safebite",
-  appId: import.meta.env.VITE_FIREBASE_APP_ID ?? "demo-app-id",
-};
+import { firebaseConfig } from "./config/firebaseConfig";
+import { persistentAuthAllowed } from "./account/authPersistence";
 
 // A built bundle must never start against the emulator-only demo project or placeholders.
 // Keyed on the build marker (vite.config.ts), not on import.meta.env.PROD, which a
@@ -21,7 +15,12 @@ if (__SAFEBITE_BUILD__) {
 }
 
 export const app = initializeApp(firebaseConfig);
-export const auth = getAuth(app);
+// Never include browserLocalPersistence: its shared key has no atomic compare-and-delete.
+// The bootstrap checks deletion tombstones before permitting the SDK to read IndexedDB.
+// Imports outside that bootstrap default to memory, so they cannot bypass the gate.
+export const auth = initializeAuth(app, {
+  persistence: persistentAuthAllowed() ? indexedDBLocalPersistence : inMemoryPersistence,
+});
 export const db = getFirestore(app);
 export const functions = getFunctions(app, "europe-west2");
 

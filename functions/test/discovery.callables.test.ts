@@ -1,6 +1,6 @@
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { getFirestore } from "firebase-admin/firestore";
-import { callFunction, createEmulatorUser, ensureAdminApp, signInForIdToken, warmUpFunctions } from "./emulator-helpers";
+import { callFunction, createEmulatorUser, ensureAdminApp, recursiveDeleteFresh, signInForIdToken, warmUpFunctions } from "./emulator-helpers";
 import { FIXTURE_RESULTS, MAGIC } from "../src/discovery/fixtureProvider";
 import { CONFIG_PATH } from "../src/discovery/search";
 
@@ -12,8 +12,8 @@ beforeAll(async () => {
   await warmUpFunctions("searchDestination");
   ensureAdminApp();
   const db = getFirestore();
-  await db.recursiveDelete(db.collection("users"));
-  await db.recursiveDelete(db.collection("households"));
+  await recursiveDeleteFresh(db, db.collection("users"));
+  await recursiveDeleteFresh(db, db.collection("households"));
   await db.doc("households/home").set({ name: "Home", memberIds: ["ava-uid"], createdAt: new Date() });
   await db.doc("users/ava-uid").set({ householdId: "home", displayName: "Ava" });
   await createEmulatorUser("ava-uid", "ava@safebite.test", PASSWORD);
@@ -24,8 +24,8 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   const db = getFirestore();
-  await db.recursiveDelete(db.collection("config"));
-  await db.recursiveDelete(db.collection("households/home/usage"));
+  await recursiveDeleteFresh(db, db.collection("config"));
+  await recursiveDeleteFresh(db, db.collection("households/home/usage"));
   await db.doc(CONFIG_PATH).set({ enabled: true, dailySearchCap: 5 });
 });
 

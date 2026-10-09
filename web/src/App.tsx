@@ -1,4 +1,8 @@
+import { useState } from "react";
 import { BrowserRouter } from "react-router";
+import { readDeletionRequest } from "./account/storage";
+import { DeletionRecoveryScreen } from "./account/DeletionRecoveryScreen";
+import { DeletionPendingScreen } from "./account/DeletionPendingScreen";
 import { AuthProvider, useAuth } from "./auth/AuthProvider";
 import { SignInScreen } from "./auth/SignInScreen";
 import { NotInvitedScreen } from "./auth/NotInvitedScreen";
@@ -15,13 +19,24 @@ function Gate() {
       return <main className="screen" data-testid="resetting"><p>Signing out…</p></main>;
     case "signedOut":
       return <SignInScreen />;
+    case "deletedSession":
+      return <SignInScreen deletedUid={state.uid} />;
     case "notMember":
       return <NotInvitedScreen />;
+    case "deletionPending":
+      return <DeletionPendingScreen />;
     case "error":
       return <MembershipErrorScreen />;
     case "member":
       return <AppShell />;
   }
+}
+
+/** A deletion request id in this tab means recovery comes before anything else (spec §3.8). */
+function Root() {
+  const [pending, setPending] = useState(() => readDeletionRequest());
+  if (pending) return <DeletionRecoveryScreen request={pending} onDismiss={() => setPending(null)} />;
+  return <Gate />;
 }
 
 export default function App() {
@@ -34,7 +49,7 @@ export default function App() {
       <div className="app-frame">
         <UpdateBanner />
         <AuthProvider>
-          <Gate />
+          <Root />
         </AuthProvider>
       </div>
     </BrowserRouter>

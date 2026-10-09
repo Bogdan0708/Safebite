@@ -14,6 +14,14 @@ describe("callable", () => {
     await expect(echo({ n: 1 })).resolves.toEqual({ echo: { n: 1 } });
     expect(httpsCallableMock).toHaveBeenCalledWith({ app: "fake" }, "echo");
   });
+
+  it("passes a timeout through when given, and nothing otherwise", () => {
+    httpsCallableMock.mockReturnValue(async () => ({ data: null }));
+    callable("slow", { timeout: 70_000 });
+    expect(httpsCallableMock).toHaveBeenLastCalledWith({ app: "fake" }, "slow", { timeout: 70_000 });
+    callable("plain");
+    expect(httpsCallableMock).toHaveBeenLastCalledWith({ app: "fake" }, "plain");
+  });
 });
 
 describe("abortable", () => {

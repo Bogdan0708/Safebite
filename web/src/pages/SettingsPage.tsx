@@ -1,7 +1,9 @@
+import { Link } from "react-router";
 import { useEffect, useRef, useState } from "react";
 import { abortable, callable, isAbortError } from "../api/callable";
 import { useAuth } from "../auth/AuthProvider";
 import { ChangePasswordForm } from "./ChangePasswordForm";
+import { ExportSection } from "../account/ExportSection";
 
 interface WhoAmI {
   uid: string;
@@ -41,6 +43,8 @@ export function SettingsPage() {
       )}
       {error && <p role="alert">{error}</p>}
       <ChangePasswordForm />
+      <ExportSection />
+      <p><Link to="/settings/delete-account" data-testid="delete-account-link">Delete account</Link></p>
       <button data-testid="signout" type="button" onClick={() => void signOut()}>Sign out</button>
     </section>
   );

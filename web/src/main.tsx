@@ -1,10 +1,14 @@
+import "./device/registerCleaners";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
+import { pendingClear } from "./device/cleanup";
+import { DeviceClearingScreen } from "./device/DeviceClearingScreen";
 import { startupProblems } from "./config/firebaseEnv";
 import { LoadFailedScreen } from "./LoadFailedScreen";
 import { MisconfiguredScreen } from "./MisconfiguredScreen";
 import { alreadyReloadedForPurge, purgeServiceWorkerState, registerServiceWorker } from "./pwa/serviceWorker";
 import "./styles.css";
+import { prepareAuthPersistence } from "./account/authPersistence";
 
 const root = createRoot(document.getElementById("root")!);
 
@@ -27,14 +31,21 @@ if (problems.length > 0) {
     })
     .catch(() => {});
 } else {
-  void import("./App")
-    .then(({ default: App }) => {
-      root.render(
-        <StrictMode>
-          <App />
-        </StrictMode>,
-      );
-      registerServiceWorker();
-    })
-    .catch(() => root.render(<LoadFailedScreen />));
+  const startApp = () => {
+    root.render(<main className="screen"><p role="status">Preparing sign-in…</p></main>);
+    void prepareAuthPersistence().then(() => import("./App"))
+      .then(({ default: App }) => {
+        root.render(
+          <StrictMode>
+            <App />
+          </StrictMode>,
+        );
+        registerServiceWorker();
+      })
+      .catch(() => root.render(<LoadFailedScreen />));
+  };
+  // A previous clear failed or was interrupted (spec §3.8): finish it before the app, and any
+  // stored copy, can render.
+  if (pendingClear()) root.render(<DeviceClearingScreen onCleared={startApp} />);
+  else startApp();
 }

@@ -1,5 +1,6 @@
-import { EmailAuthProvider, reauthenticateWithCredential, updatePassword } from "firebase/auth";
+import { updatePassword } from "firebase/auth";
 import { auth } from "../firebase";
+import { reauthenticate } from "./reauthenticate";
 
 /**
  * Change password (spec §3.7, amended after audit F3). The 8-character minimum is a client rule;
@@ -28,16 +29,6 @@ export function validateNewPassword(next: string, confirm: string): string | nul
 
 const code = (err: unknown) => (err as { code?: string }).code;
 
-function reauthFailure(err: unknown): ChangePasswordResult {
-  switch (code(err)) {
-    case "auth/invalid-credential":
-    case "auth/wrong-password": return "wrongCurrent";
-    case "auth/too-many-requests": return "tooManyRequests";
-    case "auth/network-request-failed": return "offline";
-    default: return "failed";
-  }
-}
-
 /**
  * Only these rejections prove the password was not changed. The SDK looks the account up after the
  * update request succeeds, so any other failure (network, rate limit, unknown) may follow a
@@ -56,11 +47,8 @@ export async function changePassword(current: string, next: string): Promise<Cha
   if (typeof navigator !== "undefined" && navigator.onLine === false) return "offline";
   const user = auth.currentUser;
   if (!user || !user.email) return "failed";
-  try {
-    await reauthenticateWithCredential(user, EmailAuthProvider.credential(user.email, current));
-  } catch (err) {
-    return reauthFailure(err); // never attempt the update after a failed reauthentication
-  }
+  const reauth = await reauthenticate(current);
+  if (reauth !== "ok") return reauth; // never attempt the update after a failed reauthentication
   try {
     await updatePassword(user, next);
   } catch (err) {

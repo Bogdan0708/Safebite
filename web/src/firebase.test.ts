@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 // The runtime guard must key on "this is a built bundle", not on NODE_ENV: a compile-only
 // bundle built with NODE_ENV=development has PROD=false and previously started against demo values.
 vi.mock("firebase/app", () => ({ initializeApp: () => ({}) }));
-vi.mock("firebase/auth", () => ({ getAuth: () => ({}), connectAuthEmulator: () => {} }));
+vi.mock("firebase/auth", () => ({ initializeAuth: () => ({}), indexedDBLocalPersistence: {}, inMemoryPersistence: {}, connectAuthEmulator: () => {} }));
 vi.mock("firebase/firestore", () => ({ getFirestore: () => ({}), connectFirestoreEmulator: () => {} }));
 vi.mock("firebase/functions", () => ({ getFunctions: () => ({}), connectFunctionsEmulator: () => {} }));
 

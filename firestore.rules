@@ -12,8 +12,10 @@ service cloud.firestore {
 
     // A member is a signed-in user listed in the household's memberIds.
     // memberIds is written only by the Admin SDK (seed script / owner), never by clients.
+    // 'former-member' is the reserved anonymisation marker (spec §3.8) and never a member.
     function isMember(hid) {
-      return signedIn() && request.auth.uid in household(hid).data.memberIds;
+      return signedIn() && request.auth.uid != 'former-member'
+        && request.auth.uid in household(hid).data.memberIds;
     }
 
     // The caller's own users/{uid} document. Rules get() is not subject to the read rules, so no
@@ -115,9 +117,21 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // Account deletion record (spec §3.8): admin-written; the owner reads it to offer
+    // "Finish deleting your account" after an interrupted deletion.
+    match /accountDeletions/{uid} {
+      allow read: if signedIn() && request.auth.uid == uid;
+      allow write: if false;
+    }
+
+    // Completion receipts: read only through the checkAccountDeletion callable.
+    match /accountDeletionReceipts/{receiptId} {
+      allow read, write: if false;
+    }
+
     match /households/{hid} {
       // Read the membership list off the document itself: no second get() per read.
-      allow read: if signedIn() && request.auth.uid in resource.data.memberIds;
+      allow read: if signedIn() && request.auth.uid != 'former-member' && request.auth.uid in resource.data.memberIds;
       allow write: if false;
 
       match /restaurants/{rid} {

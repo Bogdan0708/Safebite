@@ -1,6 +1,19 @@
 import type { APIRequestContext } from "@playwright/test";
 
 /**
+ * The Auth emulator stamps validSince = floor(wall clock) on every password write (create or
+ * accounts:update) and rejects any ID token whose iat is earlier (accounts:lookup -> TOKEN_EXPIRED,
+ * shown as "Sign-in failed"). This host's wall clock steps backwards (WSL: hv_utils vs timesyncd,
+ * ~-2 s every 30 s), so a sign-in right after a write can get an iat before the stamp. Do not remove
+ * this wait as unneeded: it holds until a step of up to ~2.5 s can no longer undercut the stamp.
+ */
+export const CLOCK_STEP_MARGIN_S = 3;
+
+export async function waitOutValidSince(stampSecond: number): Promise<void> {
+  while (Date.now() / 1000 < stampSecond + CLOCK_STEP_MARGIN_S) await new Promise((r) => setTimeout(r, 100));
+}
+
+/**
  * Admin password reset in the Auth emulator (127.0.0.1:9099, project demo-safebite), used to
  * restore the shared fixture password after a test changes it. Never talks to a real project.
  */
@@ -10,6 +23,7 @@ export async function setPasswordViaAdmin(request: APIRequestContext, uid: strin
     data: { localId: uid, password },
   });
   if (!res.ok()) throw new Error(`setPassword ${uid}: ${res.status()} ${await res.text()}`);
+  await waitOutValidSince(Math.floor(Date.now() / 1000));
 }
 
 /**

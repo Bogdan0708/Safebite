@@ -2,6 +2,10 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { onAuthStateChanged, signInWithEmailAndPassword, signOut as firebaseSignOut, type User } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
 import { auth, db } from "../firebase";
+import { forgetAuthGuard } from "../account/authCleanupGuard";
+import { DELETED_UIDS_KEY, forgetDeletedUid, isDeletedUid } from "../account/deletedSessions";
+import { discardDeletedNoticeUnlessFor } from "../account/storage";
+import { clearDeviceData } from "../device/cleanup";
 import { resolveMembership } from "./membership";
 import { resetDocument } from "./resetDocument";
 
@@ -9,7 +13,9 @@ export type AuthState =
   | { status: "loading" }
   | { status: "resetting" }
   | { status: "signedOut" }
-  | { status: "notMember"; email: string | null }
+  | { status: "notMember"; uid: string; email: string | null; canDeleteSignIn: boolean }
+  | { status: "deletionPending"; uid: string; email: string | null }
+  | { status: "deletedSession"; uid: string; email: string | null }
   | { status: "member"; uid: string; email: string | null; householdId: string; displayName: string }
   | { status: "error"; email: string | null; message: string };
 
@@ -38,6 +44,7 @@ async function readDoc(path: string): Promise<Record<string, unknown> | undefine
 }
 
 async function stateForUser(user: User): Promise<AuthState> {
+  if (isDeletedUid(user.uid)) return { status: "deletedSession", uid: user.uid, email: user.email };
   const userDoc = await readDoc(`users/${user.uid}`);
   const householdId = userDoc?.householdId;
   const householdDoc = typeof householdId === "string" ? await readDoc(`households/${householdId}`) : undefined;
@@ -45,7 +52,19 @@ async function stateForUser(user: User): Promise<AuthState> {
   if (membership.kind === "member") {
     return { status: "member", uid: user.uid, email: user.email, householdId: membership.householdId, displayName: membership.displayName };
   }
-  return { status: "notMember", email: user.email };
+  // An interrupted account deletion (spec §3.8): the owner may read their own record.
+  const record = await readDoc(`accountDeletions/${user.uid}`);
+  if (record !== undefined) return { status: "deletionPending", uid: user.uid, email: user.email };
+  return { status: "notMember", uid: user.uid, email: user.email, canDeleteSignIn: userDoc === undefined };
+}
+
+function uidsIn(raw: string | null): string[] {
+  try {
+    const value: unknown = raw ? JSON.parse(raw) : [];
+    return Array.isArray(value) ? value.filter((x): x is string => typeof x === "string") : [];
+  } catch {
+    return [];
+  }
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -56,9 +75,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const resolveForUser = useCallback((user: User) => {
     const mine = ++generationRef.current;
     setState({ status: "loading" });
+    // A notice names one account: resolving any other account discards it, error path included.
+    if (!isDeletedUid(user.uid)) discardDeletedNoticeUnlessFor(user.uid);
     void stateForUser(user)
       .then((next) => {
-        if (mine === generationRef.current) setState(next);
+        if (mine !== generationRef.current) return;
+        setState(next);
       })
       .catch(() => {
         if (mine === generationRef.current) {
@@ -76,7 +98,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (previous !== null && (user === null || user.uid !== previous)) {
         generationRef.current += 1;
         setState({ status: "resetting" });
-        resetDocument();
+        // Device data goes first (spec §3.8). The reset proceeds whatever the result: a failure
+        // leaves the pendingClear marker set, and the next start finishes the job before rendering.
+        void clearDeviceData().finally(() => resetDocument());
         return;
       }
       if (!user) {
@@ -87,12 +111,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       lastUidRef.current = user.uid;
       resolveForUser(user);
     });
-    return unsubscribe;
+    const onStorage = (event: StorageEvent) => {
+      if (event.key !== DELETED_UIDS_KEY) return;
+      const uid = lastUidRef.current;
+      // Reset only when this write newly added the current uid, not on any unrelated record write.
+      if (uid === null || !uidsIn(event.newValue).includes(uid) || uidsIn(event.oldValue).includes(uid)) return;
+      if (!isDeletedUid(uid)) return;
+      generationRef.current += 1;
+      setState({ status: "resetting" });
+      void clearDeviceData().finally(() => resetDocument());
+    };
+    window.addEventListener("storage", onStorage);
+    return () => {
+      window.removeEventListener("storage", onStorage);
+      unsubscribe();
+    };
   }, [resolveForUser]);
 
   const signIn = useCallback(async (email: string, password: string) => {
-    await signInWithEmailAndPassword(auth, email, password);
-  }, []);
+    const { user } = await signInWithEmailAndPassword(auth, email, password);
+    forgetAuthGuard(user.uid);
+    // A successful sign-in proves the account exists (e.g. re-created by an admin): forget it, then
+    // re-resolve in case the listener already resolved deletedSession for it.
+    if (isDeletedUid(user.uid)) {
+      forgetDeletedUid(user.uid);
+      if (lastUidRef.current === user.uid) resolveForUser(user);
+    }
+  }, [resolveForUser]);
 
   const signOut = useCallback(async () => {
     // The listener resets this document (and every other tab) when the user becomes null.

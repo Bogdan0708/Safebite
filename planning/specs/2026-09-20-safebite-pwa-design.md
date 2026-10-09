@@ -270,7 +270,7 @@ branch/worktree, reviewed, then merged before the next begins.
 | **2. Restaurant records and evidence** | **PWA app shell first** (`vite-plugin-pwa` manifest, real icon set replacing the Vite logo, `apple-touch-icon`, `apple-mobile-web-app-capable`, `theme-color`, standalone display — a plan gap found in the Plan 1 final review); then `restaurants` + `claims` model, rules with accreditation validation and version checks, private editing form, evidence display with checked/expired states, "call ahead" prompts, unit + rules + e2e tests | Plan 1 — 2a, 2a-h and 2b executed 2026-09-21 (see §3.5 and `planning/plans/2026-09-21-safebite-pwa-02b-records.md`) |
 | **3. Discovery through functions** | `searchDestination`, `searchNearby`, `placeDetails` callables with secret key, kill switch, caps, attribution; discover UI with all failure states; search cancellation; external directions links; "add to our records" from a result (stores place ID only) | Plan 2 — design in §3.6 (2026-09-22) |
 | **4. Shared collection and notes** | `collection` + `notes` model and rules, save/unsave/visited, authored notes, optimistic concurrency with reload prompt, account-switch cache clearing, e2e | Plan 2 (Plan 3 optional) — design in §3.7 (2026-09-24) |
-| **5. Privacy, offline, operations** | Opt-in offline download to IndexedDB, clear-on-signout, export callable, account-deletion callable, settings page, privacy/terms content, staging config files, cost-control checklist, real-iPhone acceptance script | Plans 1–4, O3–O6 |
+| **5. Privacy, offline, operations** | Opt-in offline download to IndexedDB, clear-on-signout, export callable, account-deletion callable, settings page, privacy/terms content, staging config files, cost-control checklist, real-iPhone acceptance script | Plans 1–4, O3–O6 — split 2026-10-01 into 5a (data rights), 5b (offline reading) and 5c (operations and release); outline and 5a design in §3.8 |
 
 Plans 2–5 are written after Plan 1 is executed and reviewed, so they can name
 the real interfaces that landed rather than predicted ones.
@@ -1131,3 +1131,578 @@ rollbacks and later releases.
 Named trip lists; per-member visits or a visit log; email password reset; offline download,
 export and account deletion (Plan 5, which must include `collection` documents and notes, and
 delete the caller's notes on account deletion); list-level quick actions.
+
+### 3.8 Plan 5 outline and Plan 5a design — data rights (brainstormed 2026-10-01)
+
+#### Plan 5 split (owner ruling, 2026-10-01)
+
+Plan 5 is four mostly independent deliverables, so it runs as three plans in order. Each has its
+own design section, audit and implementation plan.
+
+| Plan | Delivers | Hands on to the next plan |
+|---|---|---|
+| **5a — data rights** | `deleteAccount` and `exportHousehold` callables, deletion recovery screens, the `clearDeviceData()` registry | 5b registers its IndexedDB store with the registry; 5b's policy for a remote deletion while a device is offline builds on 5a's deletion record |
+| **5b — offline reading** | IndexedDB download; offline start-up when membership was resolved before (today `AuthProvider` resolves membership by server reads, so a written IndexedDB copy alone does not make the app usable after reopening in airplane mode); account isolation; download timestamps; interrupted refreshes; clearing across open tabs; Settings **Clear device data**; an explicit limitation and reconnect policy for remote deletion while offline | 5c documents the actual retention and offline behaviour |
+| **5c — operations and release** | Legal pages (wording describes the retention and offline behaviour 5a and 5b establish), staging configuration, cost-control checklist, the square-icon decision, the `/__/auth/handler` check, the real-iPhone acceptance script (drafted early, run against the finished staging app) | — |
+
+The key 5b acceptance test is: download, fully close the app, enable airplane mode, reopen, and
+read saved restaurants, evidence and notes. Separately, signing out removes the downloaded copy
+and switching accounts cannot expose it.
+
+Owner rulings taken during the 5a brainstorm:
+
+1. **A departing member's restaurants and evidence stay with the household, anonymised.** Their
+   notes are deleted. Names and UIDs on claims, collection documents and `createdBy` are replaced
+   by a fixed marker. (Rejected: deleting their evidence, which silently removes safety
+   information the other member relies on; leaving names in place, which fails "delete own
+   account and contributions".)
+2. **Deletion requires recent authentication, checked by the server.** The UI always asks for the
+   password and reauthenticates first. The callable refuses unless the ID token's `auth_time` is
+   at most 5 minutes old. This proves the account authenticated within the last 5 minutes (a
+   fresh sign-in also satisfies it), not that the password was entered for this operation. An
+   unlocked phone with an older session is not enough, and a modified client cannot skip the
+   check. (Amended after the design review, finding "security wording".)
+3. **One idempotent callable with a server-side deletion record** (rather than a
+   Firestore-triggered background job, which conflicts with §2.6's "the UI reports success only
+   after the callable returns", or client-driven steps, which cannot remove `memberIds` or delete
+   an Auth record).
+
+This section supersedes §2.6's export and account-deletion bullets wherever they differ (the
+export carries author names, not UIDs).
+
+**Design review, 2026-10-01** (`planning/audits/2026-10-01-plan-5a-design-review.md`): three P1
+and two P2 findings plus five contract tightenings, all verified against the code and amended
+below. In summary:
+
+| Finding | Amendment |
+|---|---|
+| P1-1 Auth failure does not prove deletion | Completion receipts (see Data model, Recovery) replace inference from Auth errors; anything unproven is reported as uncertain |
+| P1-2 Missing household ≠ tree deleted | Step completion is recorded on the deletion record only after the whole step succeeded; 3b re-runs `recursiveDelete` until it resolves |
+| P1-3 Discovery can recreate `usage` | Membership is re-checked inside the usage transaction (`functions/src/discovery/search.ts`); in scope for 5a |
+| P2-4 Concurrency | Step 1 is one transaction that re-validates membership; every anonymising write re-reads and re-checks its document in a transaction |
+| P2-5 Share needs a fresh gesture | Two taps: **Prepare export**, then **Share or save export** |
+| Tightenings | Export membership check in the read-only transaction and creator/updater names; cleanup failures and timeouts; recent-auth wording; reserved marker; examples and tests |
+
+**Implementation audit, 2026-10-02** (`planning/audits/2026-10-02-plan-5a-implementation-audit.md`):
+one P1 and two P2 findings against the built branch at `4bde68e`, all verified and amended below.
+
+| Finding | Amendment |
+|---|---|
+| P1-1 Recovery deletes whichever account is signed in | The saved request is bound to its UID; recovery refuses a different account; `deleteMyAccount` pins the account across reauthentication and the call; the server refuses an `expectedUid` that differs from the token; completion (sign-out and the deleted notice) acts only for the request's account (auditor re-review, 2026-10-02) |
+| P2-2 Some completed deletions leave a receipt at `started` | Every path records `dataDeleted` before Auth deletion; `checkAccountDeletion` reconciles `started` and `dataDeleted` receipts from server state |
+| P2-3 An expired or missing receipt reads as "didn't finish" | `none` maps to "confirmation unavailable", never to "unfinished" |
+| Final review P2: a queued sign-in can be signed out by completion | Completion never calls `signOut`; a device-wide deleted-session record keeps the deleted account out of the app (Delete account page, step 4) |
+
+#### Data model
+
+`accountDeletions/{uid}` — admin-written only.
+
+| Field | Meaning |
+|---|---|
+| `householdId` | Copied from `users/{uid}` inside the step 1 transaction |
+| `lastMember` | Set once, by the step 2 transaction, and never changed |
+| `startedAt` | Server timestamp |
+| `step2At`, `step3At`, `step4At` | Server timestamps, each written only after that whole step succeeded |
+
+`accountDeletionReceipts/{receiptId}` — admin-written only, never readable by clients.
+
+| Field | Meaning |
+|---|---|
+| (document id) | `sha256(requestId)` in hex. `requestId` is 32 random bytes (base64url) generated by the client for each call and sent with `expectedUid` (the call's data is `{ requestId, expectedUid }`) |
+| `status` | `"started"` → `"dataDeleted"` (after step 5) → `"complete"` (after step 6) |
+| `uid` | Present while `status` is not `complete`, so `checkAccountDeletion` can reconcile the receipt from server state (below); removed in the same write that sets `complete` |
+| `updatedAt` | Server timestamp |
+| `expireAt` | `updatedAt + 7 days`; a Firestore TTL policy on this field deletes the receipt |
+
+A receipt never carries a household ID or name, and carries the UID only until it is complete. Only the holder of `requestId` can find it.
+
+Rules: `accountDeletions/{uid}` — `allow read: if signedIn() && request.auth.uid == uid; allow
+write: if false;`. `accountDeletionReceipts` — no client access (default deny). No other rule
+changes.
+
+**Marker.** Anonymisation writes `authorUid`/`updatedBy`/`createdBy` = `"former-member"` and
+`authorName`/`updatedByName` = `"Former member"`. Firebase UIDs are arbitrary strings of up to 128
+characters (the emulator seed already uses `ava-uid`), so the marker is **reserved** rather than
+impossible: `requireMember` refuses the UID `former-member`, the emulator seed and the owner's
+provisioning script refuse to create it, and a rules guard (`request.auth.uid != 'former-member'`
+inside `isMember`) closes the client side.
+
+#### `deleteAccount` callable (`functions/src/account/`)
+
+`region: "europe-west2"`, `maxInstances: 2`, `timeoutSeconds: 60`, set on the callable itself
+(the `onCall` snapshot rule from §3.6). Request data: `{ requestId, expectedUid }`. `requestId` is
+validated as 43 base64url characters and `expectedUid` as a non-empty string of at most 128
+characters; anything else is `invalid-argument`. *Amended after the implementation audit (P1-1):*
+when `expectedUid !== request.auth.uid` the call is refused with `permission-denied` and
+`details: { reason: "accountChanged" }`, before any receipt or data is touched. Authority still comes
+only from the verified token; `expectedUid` can only cause a refusal, never grant anything.
+
+**Entry check.** `request.auth` must be present, else `unauthenticated`. `request.auth.token.auth_time`
+must be within 5 minutes of the server clock, else `failed-precondition` with
+`details: { reason: "recentLogin" }`. The receipt for this `requestId` is created with
+`status: "started"` (create-if-missing). The step runner then decides the starting point inside
+the step 1 transaction, never from reads taken earlier.
+
+**Steps.** The runner takes injected dependencies (`db`, `auth`, `deleteTree`, `now`, and a test-only
+hook before each step) so tests can fail or pause any step. On every call it starts at the first
+step whose completion is not recorded, and repeats that step in full.
+
+| Step | Action | Completion recorded by |
+|---|---|---|
+| 1 | **One transaction** reads `accountDeletions/{uid}`, `users/{uid}` and `households/{hid}`. Record exists → resume. Else, the caller is a member (UID in `memberIds`) → create the record with `householdId`. Else, no `users/{uid}` → jump to step 6 (only the Auth record can be left, see below). Else → `permission-denied` | The record exists |
+| 2 | Transaction on `households/{hid}` and the record: remove the UID from `memberIds` if present; on the first completion set `lastMember` (true when `memberIds` ends up empty) and `step2At` | `step2At` |
+| 3a | `lastMember == false`. For each restaurant in the household, in pages: **in one transaction per page**, re-read every claim `where authorUid == uid`, the `collection/{rid}` document and the restaurant; anonymise only the documents whose field still equals the UID at commit time; delete notes `where authorUid == uid` (re-read in the same transaction). A transaction retry re-reads, so a concurrent edit by the other member keeps their own attribution. After the last page succeeds, set `step3At` | `step3At` |
+| 3b | `lastMember == true`: `deleteTree(households/{hid})` (`recursiveDelete`), run **every time** until it resolves without error, even when the household document is already missing; then set `step3At` | `step3At` |
+| 4 | Delete `users/{uid}`; set `step4At` | `step4At` |
+| 5 | Delete `accountDeletions/{uid}`; set the receipt to `"dataDeleted"` | The record is gone and the receipt says `dataDeleted` |
+| 6 | On the Auth-only path (no record, no `users/{uid}`), first set the receipt to `"dataDeleted"`: that state proves steps 4 and 5 already ran, or that the account was never provisioned (amended after the implementation audit, P2-2). Then `auth.deleteUser(uid)` (`auth/user-not-found` counts as done); set the receipt to `"complete"` | Receipt `complete` |
+
+Returns `{ deleted: true, lastMember }` only after step 6 recorded completion.
+
+**Why this order.** Step 2 is the first data step: the rules deny every read and write by a UID
+outside `memberIds`, so from that moment no tab or device of the departing member can create
+evidence or notes carrying their name while step 3 runs. A write that committed before step 2 is
+caught by step 3. The Auth record is deleted last.
+
+**Starting states.** Step 1's transaction accepts exactly three:
+
+| State | Meaning |
+|---|---|
+| A member and no record | New deletion |
+| A record exists | Resume at the first unrecorded step |
+| No `users/{uid}` and no record | Only the Auth record can be left: step 4 deletes `users/{uid}` only after step 2 removed the UID from `memberIds`. The other way to reach this state is an Auth account that was never provisioned, which can only delete itself |
+
+A signed-in account that still has a `users` document but is not in its household's `memberIds`
+and has no record (an admin removed it) is refused.
+
+**Two calls from the same UID.** Because step 1 re-validates membership inside its transaction, a
+call that passed the entry check while another call was finishing cannot recreate the record: by
+the time it commits, the UID is no longer a member (or `users/{uid}` is gone), so it either resumes
+an existing record or falls through to the step 6 path, where `user-not-found` counts as done.
+
+**Two members deleting at once.** Serialised by the step 2 transaction. Exactly one records
+`lastMember: true` and runs 3b. The other's 3a page transactions may find documents already
+deleted by the tree deletion; a missing document counts as done.
+
+**Anonymisation never bumps `version` or `updatedAt`**, so the remaining member never sees a
+"someone else changed this" conflict caused by a departure. Claims are immutable to clients, and
+the restaurant rules keep `createdBy` unchanged on client updates, so those markers survive later
+edits. A later collection write by the remaining member replaces the marker with their own name, as
+for any update.
+
+**Accepted limitation.** Free text a member wrote into evidence (`detail`, `source.label`) stays as
+written. Only names and UIDs are replaced.
+
+**Logging.** Outcome, `lastMember` and duration on success (document counts were dropped for 5a,
+ruling in the execution ledger); never names, note text, email addresses or `requestId`.
+
+#### `checkAccountDeletion` callable (`functions/src/account/`)
+
+Same options. **No sign-in required** (a deleted account has none). Request: `{ requestId }`,
+validated as above. Returns `{ status: "none" | "started" | "dataDeleted" | "complete" }` for
+`sha256(requestId)`. *Amended after the implementation audit (P2-2):* for a `started` or
+`dataDeleted` receipt it reconciles from server state. It completes the receipt (sets `complete`,
+removes `uid`) and returns `complete` only when all three hold:
+
+- `auth.getUser(uid)` answers `auth/user-not-found`;
+- `users/{uid}` is absent;
+- `accountDeletions/{uid}` is absent.
+
+Step 4 deletes `users/{uid}` only after the data steps recorded completion, and step 5 deletes the
+record after that, so the three together prove the household data was handled. Auth absence alone
+proves nothing. This also completes an older request whose deletion a newer request finished.
+Otherwise the receipt's own status is returned. It never returns the UID. It reveals nothing
+without the 256-bit `requestId`. `maxInstances: 2` and `concurrency: 1` bound abuse; this is not a
+spend cap (5c checklist).
+
+*Amended while writing the implementation plan (2026-10-01):* the client cannot detect a
+deleted Auth record. `@firebase/auth` 1.13.6 maps the server's `USER_NOT_FOUND` on token
+refresh to `auth/user-token-expired`, the same code as a revoked session, and then signs the
+user out (`_logoutIfInvalidated`). The Auth emulator answers `INVALID_REFRESH_TOKEN` instead. So
+only the server decides completion.
+
+#### Discovery usage writes (amended after review P1-3)
+
+`runSearch` (`functions/src/discovery/search.ts`) checks membership through `requireMember`
+before its usage transaction. A request can pass that check, pause, and then recreate
+`households/{hid}/usage/{day}` after a last-member tree deletion. The usage transaction therefore
+also `tx.get`s `households/{hid}` and refuses with `permission-denied` unless the household exists
+and its `memberIds` contains the caller. The provider is never called after a refusal, and nothing
+is written. Because step 2 and step 3b both act on the household document or its tree, the usage
+transaction either commits first (and its document is removed by 3b) or sees the caller gone. No
+other server code writes under `households/`.
+
+#### `exportHousehold` callable (`functions/src/account/`)
+
+Same options as `deleteAccount`; no request data. **The membership check runs inside the same Admin
+read-only transaction as every data read**, so the file is a consistent snapshot of a household the
+caller belonged to at that instant. Returns:
+
+```json
+{
+  "format": "safebite-export", "formatVersion": 1,
+  "exportedAt": "2026-10-01T16:20:00Z", "exportedBy": "Bogdan",
+  "household": { "name": "Home" },
+  "restaurants": [{
+    "name": "…", "address": "…", "phone": "…", "website": "…", "googlePlaceId": "…",
+    "createdByName": "Former member", "createdAt": "…", "updatedAt": "…",
+    "shortlisted": true, "visited": true, "visitedOn": "2026-05-03",
+    "listUpdatedByName": "Bogdan", "listUpdatedAt": "…",
+    "evidence": [{ "kind": "separateFryer", "value": "yes", "detail": "…",
+                   "source": { "type": "restaurantStatement", "label": "…", "url": "…" },
+                   "checkedAt": "2026-04-01", "expiresAt": null, "authorName": "Former member", "createdAt": "…" }],
+    "notes": [{ "text": "…", "authorName": "Ava", "createdAt": "…", "updatedAt": "…" }]
+  }]
+}
+```
+
+- **Names.** `createdByName` is resolved server-side from the current members' `users` documents
+  (members cannot read each other's, but the Admin SDK can). The marker, or a UID that is no longer
+  a member, becomes "Former member". `listUpdatedByName`/`listUpdatedAt` come from the collection
+  document (`updatedByName`/`updatedAt`) and are omitted when there is none. Notes are always by a
+  current member, since a departing member's notes are deleted.
+- Calendar dates (`checkedAt`, `expiresAt`, `visitedOn`) are `YYYY-MM-DD`; instants are ISO UTC.
+  Optional fields absent on the record are omitted, except `expiresAt`, which is `null` when absent.
+- A restaurant without a collection document exports `shortlisted: false, visited: false`.
+- Excluded: UIDs, email addresses, `version`, `deleting`, `cleanupDone`, `updatedBy`, restaurants
+  marked `deleting`, `usage` documents, `config`, `users` documents. Nothing from Google is
+  exported except the stored `googlePlaceId`.
+- Serialised size above 8 MB → `resource-exhausted` (the callable response limit is 10 MB), so a
+  truncated file is impossible. The threshold is a constant the tests lower.
+- Logging: document counts and duration only.
+
+#### Client
+
+**Device cleanup registry** (`web/src/device/cleanup.ts`):
+
+```ts
+export interface DeviceCleaner { name: string; clear(): Promise<void> }
+export function registerDeviceCleaner(cleaner: DeviceCleaner): void;
+/** Runs every registered cleaner with a 5 s timeout each; never throws; names failures and timeouts. */
+export function clearDeviceData(): Promise<{ failed: string[] }>;
+```
+
+- **Pending-clear marker.** Before running the cleaners, `clearDeviceData()` sets
+  `localStorage["safebite.pendingClear"] = "1"` and removes it only when `failed` is empty. At
+  start-up, before any account is resolved or any stored data is read, `main.tsx` checks the marker.
+  If it is set, the app shows a blocking "Clearing data from this device…" screen and runs
+  `clearDeviceData()` again. On failure: "Some data on this device couldn't be cleared." with **Try
+  again**, and nothing else renders. This is the contract 5b's stores depend on: no stored copy is
+  readable while the marker is set. A store must also tag its contents with the owning UID and
+  refuse to serve another UID's data (5b), so a failed clear can never expose one account's copy
+  to another.
+- **Where it runs.** `AuthProvider`'s listener awaits `clearDeviceData()` before `resetDocument()`
+  on every account change (sign-out from any tab, switch of user, the SDK reporting a deleted
+  account as signed out). The reset proceeds whatever the result; the marker makes the next start
+  finish the job.
+- **Deletion success with failed clearing** is reported separately from the server result: "Your
+  account has been deleted. Some data on this device couldn't be cleared." with **Try again**. The
+  server deletion is never described as failed because local clearing failed.
+- Nothing persists on the device before 5b (Firestore persistence is off and the reload discards
+  the memory cache), so 5a ships the registry, the marker, its call sites and tests with fake
+  cleaners (failing, hanging). 5b registers the IndexedDB cleaner and adds the Settings button. The
+  service worker's app-shell cache holds no household data and is not cleared.
+
+**Delete account page** (`/settings/delete-account`, linked from Settings):
+
+- Text states the consequence: normally "Your sign-in and your notes are deleted. Restaurants and
+  evidence you added stay with the household, shown as 'Former member'." When the caller is the
+  only member: "Everything in the household is deleted." The page reads `memberIds` length from
+  the household document the member can already read. The text is advisory: the other member may
+  leave in the meantime, and the server's step 2 transaction decides. It links to **Export first**.
+- Current-password field and **Delete my account**, disabled offline.
+- Sequence (amended after the implementation audit, P1-1: every step is bound to one account).
+  The caller passes the UID of the account the screen is acting for (`expectedUid`). The flow
+  captures `auth.currentUser` once, refuses with "account changed" if its UID differs, and re-checks
+  that `auth.currentUser` is still that same user object, with that UID, after step 1, after step 2
+  and immediately before step 3:
+  1. Reauthenticate with the existing helper logic from `changePassword.ts`
+     (`reauthenticateWithCredential`). Its failures map to the existing messages (wrong password,
+     too many attempts, offline). A failed reauthentication sends nothing.
+  2. `getIdToken(true)`, so the callable sees the new `auth_time`.
+  3. Generate `requestId` and durably write a local cleanup intent under
+     `safebite.authCleanup.<encoded UID>:<requestId>` before any destructive server call. Refuse
+     to send the deletion if shared storage cannot save/read back this guard. Each request has
+     its own key, so a refusal in one tab cannot remove another tab's intent. This is not proof
+     of deletion and never produces a deleted notice. A definite refusal removes only that
+     request's guard; an uncertain response retains it. Then store
+     `{ requestId, uid: expectedUid }` (JSON) in `sessionStorage` under
+     `safebite.deletionRequest` before the call, so a reload of this tab can still check it, and only
+     for that account. Call `deleteAccount({ requestId, expectedUid })` with a 70-second client timeout, behind a
+     non-dismissable "Deleting your account… keep this page open" screen.
+  4. Success: `finishDeleted(requestUid)`. *Amended after the auditor's re-review and again after
+     the final review (2026-10-02, `planning/audits/2026-10-02-plan-5a-final-review.md`):* completion
+     **never signs anyone out**. Firebase `signOut` only queues a "no user" update and signs out
+     whoever is current when the queue reaches it. Another tab's sign-in already waiting in that
+     queue would be applied first and then removed, and no SDK call signs out one named account.
+     A deleted account needs no sign-out: its Auth record is gone and the rules deny it everything.
+     It needs to be recognised and kept out of the app, as follows.
+     - **Checks.** `finishDeleted` checks that the signed-in account is none or `requestUid` before
+       `clearDeviceData()`, after it, and after persisted-session removal. After the first check,
+       it records the confirmed deleted UID before any await, protecting sibling-tab startup.
+     - **All checks pass.** It sets the per-tab notice flag `{ kind, uid: requestUid }`, clears the
+       request and reloads the tab, subject to the cleanup guard described below.
+     - **Another account is current at any check** (another tab signed in during the call or the
+       cleanup). It clears the request and writes no notice. A deleted-UID record already written
+       before an awaited cleanup stays recorded for that UID. It shows **Other account,
+       deletion confirmed**: "The account this request was for has been deleted. You're now signed in
+       as a different account, which was not changed." with **Continue**. It never says "Nothing was
+       deleted" once the server confirmed the deletion. If another account was current at the
+       first check, it does not start device cleanup, because that account owns the device copy;
+       5b's per-UID cleanup removes the
+       deleted UID's copy.
+
+     **Deleted-session record.** `localStorage["safebite.deletedUids"]` is a JSON array of UIDs this
+     device has seen deleted (at most 10, newest kept), mirrored into `sessionStorage` for a tab whose
+     localStorage is blocked. Readers take the union of both.
+     - **`AuthProvider`.** When the current user's UID is in the record, the provider resolves a new
+       state, `deletedSession`, before reading any membership document. The gate renders the sign-in
+       screen with "Your account has been deleted." (or the failed-clearing variant).
+     - **Signing in replaces the session.** Signing in calls `signInWithEmailAndPassword`, which
+       replaces the current account, so no other account can be removed. A successful sign-in removes
+       that UID from the record, which covers an account an admin re-created.
+     - **Other tabs.** A `storage` event on the record's key resets any tab whose current UID is now
+       recorded. This replaces the cross-tab reset that the sign-out used to cause.
+     - **The notice belongs to an account.** It shows only in the `deletedSession` state, for the
+       recorded UID, or on a signed-out sign-in screen in a tab whose notice flag names a recorded UID.
+       The flag is discarded as soon as the provider resolves any other account.
+     - **Auth persistence and the startup gate** (2026-10-08, correction of the two P2 findings at
+       `c673c5e`). The app explicitly initializes Auth with IndexedDB persistence only, or memory.
+       It never reads, migrates or removes Firebase's old localStorage/sessionStorage Auth keys:
+       a localStorage read followed by remove is not atomic across tabs. Legacy keys are left
+       inert, including another tab's replacement login. Users with only a legacy saved session
+       sign in again; an existing older release may still use its legacy key until it closes.
+     - **Before importing Firebase**, bootstrap reads durable cleanup intents, confirmed deleted
+       UIDs, and any older per-tab recovery request. It checks the entire UID set in one database
+       open and one readwrite transaction, deleting the saved user only if its UID is in that set.
+       A different UID is preserved. The open budget is 5 seconds total, independent of history. Only successful
+       cleanup or a nonmatching/absent record permits persistent Auth. An unavailable open or
+       unexpected layout selects **memory-only Auth** for that document, without reading the old
+       persisted user. Missing IndexedDB or inaccessible shared guard storage also selects memory.
+       The sign-in screen explains that sign-in will not survive reload. A later navigation tries
+       cleanup again; it cannot lose the durable guard when the old document is destroyed.
+     - **Completion** publishes the confirmed deleted UID before awaiting cleanup, so another tab's
+       storage-event reload also encounters the gate. It clears device data, removes only the
+       request UID's IndexedDB session, rechecks the current account, writes its scoped notice,
+       clears the request and reloads. An unavailable removal produces the device-cleanup warning,
+       not a claim that local cleanup succeeded. If an older recovery request cannot save a guard
+       and cannot remove persistence, it stays on a retry screen instead of resetting.
+     - **Open timeout.** The 5-second bound covers open only. A late open still compares/deletes
+       the named UID; a started transaction settles through its own events. Safe startup does not
+       depend on that callback surviving navigation. The layout remains pinned to `@firebase/auth`
+       1.13.6: DB `firebaseLocalStorageDb`, store `firebaseLocalStorage`, key
+       `firebase:authUser:<apiKey>:[DEFAULT]`. No `signOut` call is made during completion.
+     - **Guard lifecycle** (amended after the 2026-10-09 re-audit). After successful batch cleanup,
+       bootstrap retires captured request and `:confirmed` keys for UIDs whose deletion was
+       confirmed. It preserves uncertain intents and request keys added while cleanup awaited.
+       A timeout/error retains every guard. The existing deleted-UID notice list remains capped
+       at 10; even that history is checked in the same single open. Confirmation is recorded in
+       cleanup metadata even when another account is now current, without writing a deleted notice
+       for that account. A successful explicit sign-in also forgets its UID's guards and notice
+       record. After an uncertain deletion, a reload in **any same-origin tab** can remove that
+       UID's shared saved session and sign it out in every tab observing shared persistence, even
+       if the server received nothing. The receipt alone decides whether deletion happened.
+     - **Residual SDK behaviour.** An already-running tab holding the deleted user can clear shared
+       persistence on its own SDK poll or invalid-token response. The previously accepted short
+       SDK polling window remains; these changes remove the additional startup network lookup
+       race caused by a known deletion and timed-out cleanup. This is not a claim to replace
+       Firebase's internal cross-tab synchronization.
+- `recentLogin` from the server → "For security, enter your password again." `accountChanged`
+  (client or server) → "The signed-in account changed. Nothing was deleted." `permission-denied`
+  → "This account can't be deleted here."
+
+**Recovery after a lost response** (amended after review P1-1, and again while writing the
+plan). On a timeout, `unavailable`, `internal`, `deadline-exceeded` or a network failure, the
+client never infers anything from Auth errors and never probes the token: a refresh after
+deletion would sign the tab out mid-recovery. The `requestId` is already in `sessionStorage`
+(`safebite.deletionRequest`). Whenever that key is present, `App`'s gate renders
+`DeletionRecoveryScreen` ahead of every auth state, so recovery survives the reset reload that
+any sign-out causes. The screen calls `checkAccountDeletion({ requestId })`. One pure,
+unit-tested function maps the result, the request's saved UID and the signed-in UID (read after
+`auth.authStateReady()`) to a screen. *Amended after the implementation audit (P1-1, P2-3).*
+
+| Receipt (after server reconciliation) | Signed-in account | Screen |
+|---|---|---|
+| the check call fails | any | **Uncertain:** "We couldn't confirm whether your account was deleted." **Check again** repeats only the check, without a password; **Sign out** |
+| `complete` | none, or the request's account | The success path, through `finishDeleted(requestUid)` (no sign-out; the deleted-session record): if a different account becomes current during the cleanup, the screen switches to **Other account** with the confirmed line instead |
+| any | a **different** account | **Other account:** "This deletion request belongs to another account. Nothing will be deleted from this one." **Sign out** and **Continue as this account** (both clear the key). No delete form. With a `complete` receipt it adds "That account's deletion is confirmed." and never signs the current account out |
+| `none` | none, or the request's account | **Confirmation unavailable:** "We can't confirm what happened to this deletion request. The confirmation may have expired." **Sign out** and **Continue** (both clear the key). It never says the deletion did not finish and never promises that signing in finishes it |
+| `started` or `dataDeleted` | the request's account | "Your account deletion didn't finish." **Finish deleting** (password; bound to the request's UID; a new `requestId`) and **Sign out** |
+| `started` or `dataDeleted` | none | "Your account deletion didn't finish. Sign in to that account to finish it." Clears the key and shows the sign-in form; after sign-in, **Finish deleting your account** or **Delete this sign-in** (below), both bound to the signed-in account, takes over |
+
+A saved value that is not a valid `{ requestId, uid }` (for example, the bare ID an older build
+saved) is treated as having no owner: only **Uncertain**, **Confirmation unavailable** or the
+success path can show, never a delete form.
+
+**Sign out** on this screen clears the key. Expired credentials and a disabled account are never
+read as success.
+
+**Signing in mid-deletion.** When `AuthProvider` resolves `notMember`, it also reads
+`accountDeletions/{uid}`:
+
+- The record exists → new state `deletionPending` → a **Finish deleting your account** screen
+  with a password field, the same sequence as above, and **Sign out**.
+- No record and no `users` document → the not-invited screen gains **Delete this sign-in**
+  (password, same sequence; the call takes the step 6 path). Self sign-up is disabled, so in
+  practice only a crash between steps 5 and 6 produces this state.
+- The read fails with anything but `permission-denied` → the existing error state.
+
+**Other tabs and devices of the departing member.** From step 2 their listeners report the
+existing denied state. The deleting tab's local sign-out resets every same-origin tab. Another
+device keeps a valid ID token for up to an hour with every read denied, until its refresh fails
+and the SDK signs it out, which resets it. 5b defines what a downloaded copy on such a device does.
+
+**Export** (Settings → **Export household data**, online only; amended after review P2-5):
+
+1. **Prepare export** calls `exportHousehold` and builds a `File` named
+   `safebite-export-YYYY-MM-DD.json` (`application/json`), held in component state only.
+2. When it is ready, the page shows **Share or save export**. That fresh tap calls
+   `navigator.share({ files: [file] })` when `navigator.canShare?.({ files: [file] })` is true
+   (iPhone offers Save to Files, Mail, AirDrop). `canShare` is a capability check only; activation
+   comes from this tap. An `AbortError` (sheet cancelled) is silent. A `NotAllowedError`, or no
+   file-share support, falls back to an `<a download>` with an object URL, revoked afterwards. A
+   **Download instead** link is always shown next to the button.
+
+States: preparing, ready, offline, failed. The page says plainly that the file contains both
+members' notes and leaves the app once shared. The file is dropped when the page unmounts. Whether
+the share sheet works in Home Screen mode is checked on a real iPhone in 5c.
+
+#### Empirical stops (prove before any task builds on them; record the result in the plan)
+
+1. After `reauthenticateWithCredential` and `getIdToken(true)`, the callable sees a fresh
+   `auth_time` (emulator). *Probed 2026-10-01:* a second password sign-in advances `auth_time`.
+   The Auth emulator also changes `auth_time` on a plain refresh, which production does not, so
+   the stale-token refusal is proven only by the handler unit test.
+2. *Answered 2026-10-01 from the SDK source and the emulator:* after `deleteUser`, production
+   refresh fails with `USER_NOT_FOUND`, which `@firebase/auth` 1.13.6 reports as
+   `auth/user-token-expired`; the emulator answers `INVALID_REFRESH_TOKEN`. No client rule may
+   depend on these codes (see Recovery). The pilot is re-checked in 5c.
+3. *Answered 2026-10-01 from the SDK source:* on `user-token-expired` or `user-disabled` the SDK
+   signs the user out, so another tab's `onAuthStateChanged` fires `null` and resets it in
+   production. The emulator's code does not trigger this, so browser tests rely only on the
+   deleting tab's own sign-out.
+4. `recursiveDelete` on a household whose document is already missing still removes the remaining
+   descendants (emulator). *Probed 2026-10-01: yes (0 documents left).* The rejection case is
+   covered by an injected `deleteTree` in the runner tests.
+5. `firebase-admin` 14 supports read-only transactions (`{ readOnly: true }`) against the emulator.
+   *Probed 2026-10-01 with 14.4.0: reads work; a write inside one is refused.*
+6. The Firestore TTL policy on `accountDeletionReceipts.expireAt` can be set with `gcloud` on the
+   pilot (recorded for the deploy; the emulator does not run TTL).
+
+#### Tests
+
+- **Functions + rules (emulator):**
+  - Non-last member deletes:
+    - claims, collection documents and `createdBy` carry the marker;
+    - their notes are gone and the other member's notes are intact;
+    - `memberIds` is updated;
+    - `users/{uid}`, the record and the Auth user are gone, and the receipt is `complete`;
+    - nothing else changed: versions, `updatedAt` and the other member's claims are byte-equal.
+  - Last member deletes: the whole tree is gone, `usage` included.
+  - Stale `auth_time` → `recentLogin` (handler unit test with a fabricated token), plus one fresh
+    sign-in emulator pass. The UID `former-member` is refused by `requireMember` and the rules.
+  - A `users` document without membership → `permission-denied`.
+  - Rules: `accountDeletions` readable only by its owner and never writable by a client;
+    `accountDeletionReceipts` not readable or writable by any client.
+  - `checkAccountDeletion`: works without sign-in; an unknown `requestId` returns `none`; a
+    malformed one is `invalid-argument`; a `dataDeleted` receipt whose Auth user is gone is
+    completed (`uid` removed) and returns `complete`, and one whose Auth user exists returns
+    `dataDeleted`; the UID never appears in a response.
+- **Failure injection and interleaving (findings P1-1 to P2-4):** the runner's injected hooks
+  drive each case.
+  - A crash before each of steps 2–6: the receipt and record show the right state, the next call
+    converges to a clean run's end state, and no call reports `deleted: true` early.
+  - `deleteTree` rejects after removing the household document: the record keeps no `step3At`, the
+    Auth user still exists, and the retry removes the remaining descendants.
+  - Discovery against last-member deletion: a search that passed `requireMember` is paused, the
+    deletion completes, and the search resumes. It is refused, no `usage` document exists, and the
+    provider was never called. The mirror case (the search commits first) leaves no `usage` either.
+  - Two calls from the same UID: call B paused after the entry check, call A completes, B resumes.
+    No record is recreated, B returns success through the step 6 path, and both receipts end
+    `complete`.
+  - Collection race: the anonymiser has read Ava's collection document. Bogdan updates it
+    (`updatedBy` = Bogdan), then the anonymiser's transaction retries. Bogdan's attribution is
+    intact.
+  - Two members deleting at once: both finish, and the tree is deleted once.
+- **Export:** the shape and the exclusions. The test checks that no identity **field** (`uid`,
+  `authorUid`, `updatedBy`, `createdBy`, `email`, `version`, `deleting`, `cleanupDone`) appears
+  anywhere in the output. Free text is not scanned. Also: names resolved for current and former
+  members; a non-member refused, with the check inside the transaction (a member removed between
+  calls is refused); the size limit, tested by lowering the constant.
+- **Web unit:**
+  - the recovery mapping, covering every row; no row reads an Auth error code;
+  - every state of the delete-account page;
+  - `AuthProvider` `deletionPending`;
+  - the registry: failing and hanging cleaners are reported, it never throws, the marker stays set
+    on failure, and start-up blocks while the marker is set;
+  - export: prepare then share as two taps, `NotAllowedError` falls back to download, cancel is
+    silent.
+- **Browser (Playwright, emulators, retries 0):**
+  1. Ava deletes her account. Bogdan sees "Former member" on her evidence and her notes are gone.
+     Ava's sign-in then fails.
+  2. The last member deletes, and the household is gone.
+  3. Response lost after the server finished: `page.route` forwards the call and aborts the
+     response. The receipt check shows success.
+  4. Request never reached the server: the route aborts before forwarding. "Didn't finish"
+     appears, and **Finish deleting** completes the deletion.
+  5. A seeded deletion record shows **Finish deleting your account** at sign-in.
+  6. Deleting in one tab resets a second tab.
+  7. Export: **Prepare export**, then **Share or save export** takes the download path (Chromium
+     has no file share), and the JSON parses with the expected content.
+- **Regressions from the implementation audit (permanent):**
+  - Browser (final review): with the deletion tab's Auth queue held, Bogdan's sign-in from a second
+    tab is queued before the completed response is delivered. Afterwards Bogdan is still the
+    signed-in account in both tabs, no deleted notice is shown, Ava's sign-in fails, and Bogdan and
+    the household survive. A control with the same queued switch and no deletion keeps Bogdan.
+    The probe is kept at `planning/audits/plan-5a-review-probes/signout.spec.cjs`.
+  - Web unit (final review): `finishDeleted` never calls `signOut`. `AuthProvider` maps a recorded
+    UID to `deletedSession` without membership reads. A `storage` event resets only a tab whose
+    current UID is recorded. A successful sign-in removes its UID from the record. The notice flag
+    is discarded when another account resolves.
+  - Browser: Ava's interrupted request is saved in a tab, Bogdan signs in, and recovery shows
+    **Other account** with no delete form. Bogdan and the household survive, and Ava's sign-in
+    still works.
+  - Web unit: `deleteMyAccount` refuses when `auth.currentUser` changes during reauthentication or
+    the token refresh, and nothing is sent. Completion: when another account becomes current during the callable or
+    during device cleanup, for direct completion and for receipt recovery, that account is never
+    signed out, no deleted notice is written, and **Other account, deletion confirmed** shows. The recovery mapping covers every row above, including
+    `none` → confirmation unavailable and a bare legacy ID.
+  - Functions: an `expectedUid` mismatch is refused before any receipt or data change. A crash after
+    `deleteUser` and before `complete` is injected on the member path and on the Auth-only path, and
+    each receipt reconciles to `complete`. An older `started` receipt whose deletion a newer request
+    finished reconciles to `complete`. A `started` receipt whose Auth user is gone but whose
+    `users/{uid}` still exists stays `started`.
+- **Gate:** typecheck; web unit; functions + rules; browser; boot-guard, preview and upgrade;
+  guardrail greps.
+
+#### Decisions taken without owner input (override if wrong)
+
+| Decision | Reason |
+|----------|--------|
+| The delete page links to Export first | Deletion is irreversible; the export is one tap away |
+| The last member's deletion removes the household | §2.6; nothing would be readable by anyone afterwards |
+| 5-minute `auth_time` window; 70 s client timeout | Long enough to type a password and finish; the timeout exceeds the function's 60 s |
+| Marker `former-member` / "Former member", reserved | Readable in the UI and the export; refused as a UID everywhere |
+| Anonymisation does not bump `version` or `updatedAt` | A departure must not raise edit conflicts for the remaining member |
+| No UIDs or emails in the export | Names identify authorship; identifiers are internal |
+| Receipts keyed by a hashed client nonce, kept 7 days | Proves completion after the Auth record is gone without storing who deleted |
+| 5-second timeout per device cleaner | A hung store must not trap the reset; the marker finishes the job at next start |
+| **Delete this sign-in** on the not-invited screen | The only way out of the step 5–6 crash window; sign-up is disabled, so no stranger reaches it |
+| An admin-removed member (with a `users` doc) cannot self-delete | Not a state the app creates; refusing is safer than guessing |
+
+#### Deploy note
+
+Rules (the `accountDeletions` read, the reserved-marker guard) and functions (`deleteAccount`,
+`checkAccountDeletion`, `exportHousehold`, and the amended discovery usage transaction) first,
+then hosting. Set the TTL policy on `accountDeletionReceipts.expireAt` in the same deploy
+(empirical stop 6). No new indexes: the per-restaurant `authorUid` and `updatedBy` equality
+queries use automatic single-field indexes. The pilot has served hosting since 2026-10-01 (Plan 4
+bundle), so older clients exist. They need no compatibility gate: from step 2 an old client of the
+departing member is denied everything, and an old client signing in mid-deletion shows the
+not-invited screen (a new client offers **Finish deleting**).
+
+#### Not in this plan
+
+Offline download and the **Clear device data** button (5b); legal pages, cost checklist, icons and
+iPhone acceptance (5c); an admin removing another member; Cloud Logging retention (documented in
+5c).
