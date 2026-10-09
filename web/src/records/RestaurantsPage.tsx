@@ -10,6 +10,7 @@ import { ReadStateNotice } from "./ReadStateNotice";
 import type { CollectionState, Restaurant } from "./types";
 import { useMember } from "./useMember";
 import { useWatch } from "./useWatch";
+import { Icon } from "../ui/Icon";
 
 export function RestaurantsPage() {
   const { householdId } = useMember();
@@ -49,34 +50,37 @@ export function RestaurantsPage() {
   }, [rs]);
 
   return (
-    <section>
-      <h2>Saved</h2>
-      <p>Our restaurant records.</p>
-      <ReadStateNotice state={combined} onRetry={retry} />
-      <p className="actions">
+    <section className="page">
+      <div className="page-heading">
+        <div>
+          <p className="eyebrow"><Icon name="heart" />Collected together</p>
+          <h2 className="page-title">Saved<span className="brand-dot" aria-hidden="true">.</span></h2>
+          <p className="page-intro">Our restaurant records.</p>
+        </div>
         <Link
           to="/restaurants/new"
           data-testid="add-restaurant"
           aria-disabled={offline ? "true" : undefined}
           onClick={(e) => { if (offline) e.preventDefault(); }}
-          className={offline ? "disabled-link" : undefined}
+          className={offline ? "secondary disabled-link" : "secondary"}
         >
-          Add restaurant
+          <Icon name="plus" />Add restaurant
         </Link>
-      </p>
+      </div>
+      <ReadStateNotice state={combined} onRetry={retry} />
       <p className="filter" role="group" aria-label="Show">
-        <button type="button" data-testid="filter-shortlist" aria-pressed={filter === "shortlist"} onClick={() => setFilter("shortlist")}>Shortlist</button>
-        <button type="button" data-testid="filter-all" aria-pressed={filter === "all"} onClick={() => setFilter("all")}>All records</button>
+        <button type="button" className="filter-pill" data-testid="filter-shortlist" aria-pressed={filter === "shortlist"} onClick={() => setFilter("shortlist")}>Shortlist</button>
+        <button type="button" className="filter-pill" data-testid="filter-all" aria-pressed={filter === "all"} onClick={() => setFilter("all")}>All records</button>
       </p>
-      {combined.status === "ready" && all.length === 0 && <p data-testid="restaurants-empty">No restaurants yet. Add the first one.</p>}
+      {combined.status === "ready" && all.length === 0 && <p className="empty-state" data-testid="restaurants-empty">No restaurants yet. Add the first one.</p>}
       {combined.status === "ready" && all.length > 0 && rows.length === 0 && (
-        <p data-testid="shortlist-empty">Nothing on the shortlist. Open a record and tap Add to shortlist.</p>
+        <p className="empty-state" data-testid="shortlist-empty">Nothing on the shortlist. Open a record and tap Add to shortlist.</p>
       )}
       {rows.length > 0 && (
-        <ul className="list" data-testid="restaurant-list">
+        <ul className="list collection-grid" data-testid="restaurant-list">
           {rows.map(({ restaurant: r, state }) =>
             r.deleting ? (
-              <li key={r.id} className="card" data-testid="restaurant-deleting" data-rid={r.id}>
+              <li key={r.id} className="card place-card deleting" data-testid="restaurant-deleting" data-rid={r.id}>
                 <strong>{r.name}</strong> — Deleting…
                 <div className="actions">
                   <span>{progress[r.id]}</span>
@@ -84,17 +88,20 @@ export function RestaurantsPage() {
                 </div>
               </li>
             ) : (
-              <li key={r.id} className="card" data-testid="restaurant-row" data-rid={r.id}>
-                <Link to={`/restaurants/${r.id}`}>
-                  <strong>{r.name}</strong>
-                  <br />
-                  <span>{r.address}</span>
-                  {state && (state.shortlisted || state.visitedOn) && (
-                    <span className="labels">
-                      {state.shortlisted && <span className="label" data-testid="label-shortlisted">Shortlisted</span>}
-                      {state.visited && state.visitedOn && <span className="label" data-testid="label-visited">Visited {formatCalendarDate(state.visitedOn)}</span>}
-                    </span>
-                  )}
+              <li key={r.id} className="card place-card" data-testid="restaurant-row" data-rid={r.id}>
+                <Link className="place-link" to={`/restaurants/${r.id}`}>
+                  <span className="monogram" aria-hidden="true">{r.name.trim().charAt(0).toUpperCase()}</span>
+                  <span className="place-info">
+                    <strong className="place-title">{r.name}</strong>
+                    <span className="place-sub">{r.address}</span>
+                    {state && (state.shortlisted || state.visitedOn) && (
+                      <span className="labels">
+                        {state.shortlisted && <span className="label" data-testid="label-shortlisted">Shortlisted</span>}
+                        {state.visited && state.visitedOn && <span className="label" data-testid="label-visited">Visited {formatCalendarDate(state.visitedOn)}</span>}
+                      </span>
+                    )}
+                  </span>
+                  <Icon name="chevron" className="chevron" />
                 </Link>
               </li>
             ),

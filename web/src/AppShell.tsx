@@ -6,12 +6,14 @@ import { RestaurantDetailPage } from "./records/RestaurantDetailPage";
 import { RestaurantFormPage } from "./records/RestaurantFormPage";
 import { RestaurantsPage } from "./records/RestaurantsPage";
 import { SettingsPage } from "./pages/SettingsPage";
+import { BrandMark, Icon } from "./ui/Icon";
 
 export function AppShell() {
   return (
     <div className="shell">
       <header className="shell-header">
-        <h1>SafeBite</h1>
+        <h1 className="brand"><BrandMark />SafeBite<span className="brand-dot" aria-hidden="true">.</span></h1>
+        <span className="private-label">Just for us</span>
       </header>
       <main className="shell-main">
         <Routes>
@@ -29,9 +31,9 @@ export function AppShell() {
         </Routes>
       </main>
       <nav className="shell-nav" aria-label="Main">
-        <NavLink data-testid="nav-discover" to="/discover">Discover</NavLink>
-        <NavLink data-testid="nav-saved" to="/restaurants">Saved</NavLink>
-        <NavLink data-testid="nav-settings" to="/settings">Settings</NavLink>
+        <NavLink data-testid="nav-discover" to="/discover"><Icon name="compass" /><span>Discover</span></NavLink>
+        <NavLink data-testid="nav-saved" to="/restaurants"><Icon name="bookmark" /><span>Saved</span></NavLink>
+        <NavLink data-testid="nav-settings" to="/settings"><Icon name="sliders" /><span>Settings</span></NavLink>
       </nav>
     </div>
   );

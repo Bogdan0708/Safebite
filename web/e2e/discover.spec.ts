@@ -74,13 +74,14 @@ test("destination and named-venue intent reach the callable only on submit", asy
     }
   });
   await openDiscover(page);
-  await expect(page.getByTestId("discover-mode")).toHaveValue("destination");
+  await expect(page.getByTestId("discover-mode")).toHaveAttribute("data-value", "destination");
   expect(calls).toEqual([]);
   await search(page, "Lisbon");
   await expect(page.getByTestId("discover-result")).toHaveCount(10);
   expect(calls).toEqual([{ data: { query: "Lisbon", mode: "destination" } }]);
 
-  await page.getByTestId("discover-mode").selectOption("venue");
+  await page.getByTestId("discover-mode-venue").click();
+  await expect(page.getByTestId("discover-mode")).toHaveAttribute("data-value", "venue");
   await page.getByTestId("discover-query").fill("Fixture Café");
   expect(calls).toHaveLength(1);
   const response = page.waitForResponse((res) => res.request().method() === "POST" && res.url().endsWith("/searchDestination"));

@@ -29,7 +29,7 @@ function noteMessage(kind: WriteOutcome["kind"], adding: boolean): string {
 /** Personal notes (spec §3.7). Never evidence: no kinds, no dates that feed evidence status. */
 export function NotesSection({ householdId, rid, author, state, disabled, onRetry }: Props) {
   return (
-    <section className="notes" data-testid="notes-section">
+    <section className="notes notes-card" data-testid="notes-section">
       <h3>Our notes</h3>
       <p className="hint">Personal notes. They are not evidence and don't change any checked date.</p>
       {!isData(state) && <ReadStateNotice state={state} onRetry={onRetry} />}

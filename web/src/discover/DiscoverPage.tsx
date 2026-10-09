@@ -8,6 +8,8 @@ import type { DiscoveryResult, SearchErrorReason, SearchMode } from "./api";
 import { requestPosition } from "./geolocation";
 import { directionsUrl } from "./links";
 import { useDiscoverySearch, type SearchState } from "./search";
+import { Icon } from "../ui/Icon";
+import { TownArt } from "../ui/TownArt";
 
 export const REASON_TEXT: Record<SearchErrorReason, string> = {
   off: "Search is switched off at the moment.",
@@ -44,15 +46,15 @@ function StateLine({ state }: { state: SearchState }) {
 
 function ResultRow({ result, existingId, onAdd }: { result: DiscoveryResult; existingId: string | undefined; onAdd: (r: DiscoveryResult) => void }) {
   return (
-    <li className="card" data-testid="discover-result" data-place-id={result.placeId}>
-      <a data-testid="result-name" href={result.googleMapsUri} target="_blank" rel="noopener noreferrer"><strong>{result.name}</strong></a>
-      {result.address && <p data-testid="result-address">{result.address}</p>}
-      <div className="actions">
-        <a data-testid="result-directions" href={directionsUrl(result.name, result.placeId)} target="_blank" rel="noopener noreferrer">Directions</a>
+    <li className="card place-card" data-testid="discover-result" data-place-id={result.placeId}>
+      <a className="place-title" data-testid="result-name" href={result.googleMapsUri} target="_blank" rel="noopener noreferrer"><strong>{result.name}</strong></a>
+      {result.address && <p className="place-sub" data-testid="result-address"><Icon name="pin" />{result.address}</p>}
+      <div className="actions card-bottom">
+        <a className="text-link" data-testid="result-directions" href={directionsUrl(result.name, result.placeId)} target="_blank" rel="noopener noreferrer"><Icon name="location" />Directions</a>
         {existingId ? (
-          <Link data-testid="result-in-records" to={`/restaurants/${existingId}`}>In our records</Link>
+          <Link className="text-link" data-testid="result-in-records" to={`/restaurants/${existingId}`}><Icon name="check" />In our records</Link>
         ) : (
-          <button type="button" data-testid="result-add" onClick={() => onAdd(result)}>Add to our records</button>
+          <button type="button" className="secondary small" data-testid="result-add" onClick={() => onAdd(result)}><Icon name="plus" />Add to our records</button>
         )}
       </div>
     </li>
@@ -108,30 +110,39 @@ export function DiscoverPage() {
   }
 
   return (
-    <section>
-      <h2>Discover</h2>
-      <form className="form" data-testid="discover-form" onSubmit={onSubmit} noValidate>
-        <label>
-          Search for
-          <select data-testid="discover-mode" value={mode} onChange={(e) => setMode(e.target.value === "venue" ? "venue" : "destination")}>
-            <option value="destination">Town or area</option>
-            <option value="venue">Restaurant or venue name</option>
-          </select>
-        </label>
-        <label>
-          {mode === "destination" ? "Town or area" : "Restaurant or venue name"}
-          <input data-testid="discover-query" value={query} maxLength={120} placeholder={mode === "destination" ? "e.g. Lisbon or Soho" : "e.g. Riverside Café, Lisbon"} onChange={(e) => setQuery(e.target.value)} />
-        </label>
-        <div className="actions">
-          <button type="submit" data-testid="discover-submit">Search</button>
-          <button type="button" data-testid="discover-nearby" disabled={locating} onClick={() => void onNearMe()}>Near me</button>
-          {locating && <span data-testid="discover-locating">Finding your location…</span>}
+    <section className="page discover-page">
+      <div className="hero">
+        <div className="hero-copy">
+          <p className="eyebrow"><Icon name="compass" />Private gluten-free research</p>
+          <p className="hero-title">A little more<br />peace of mind.</p>
+          <p className="subtitle">Find somewhere lovely. Know what to ask. Make it a memory.</p>
         </div>
-      </form>
+        <TownArt />
+      </div>
+      <section className="search-panel" aria-labelledby="discover-title">
+        <h2 id="discover-title">Discover</h2>
+        <form className="form" data-testid="discover-form" onSubmit={onSubmit} noValidate>
+          <div className="segmented" role="group" aria-label="Search for" data-testid="discover-mode" data-value={mode}>
+            <button type="button" data-testid="discover-mode-destination" aria-pressed={mode === "destination"} onClick={() => setMode("destination")}>Town or area</button>
+            <button type="button" data-testid="discover-mode-venue" aria-pressed={mode === "venue"} onClick={() => setMode("venue")}>Restaurant or venue</button>
+          </div>
+          <label className="search-box">
+            <Icon name="search" />
+            <span className="sr-only">{mode === "destination" ? "Town or area" : "Restaurant or venue name"}</span>
+            <input data-testid="discover-query" value={query} maxLength={120} placeholder={mode === "destination" ? "e.g. Lisbon or Soho" : "e.g. Riverside Café, Lisbon"} onChange={(e) => setQuery(e.target.value)} />
+          </label>
+          <div className="actions search-actions">
+            <button type="submit" className="primary" data-testid="discover-submit">Search<Icon name="arrow" /></button>
+            <button type="button" className="secondary" data-testid="discover-nearby" disabled={locating} onClick={() => void onNearMe()}><Icon name="location" />Near me</button>
+          </div>
+          {locating && <span className="hint" data-testid="discover-locating">Finding your location…</span>}
+        </form>
+        <p className="fine-print">A listing doesn&rsquo;t tell us whether a place is suitable for coeliacs. Check the evidence and call ahead.</p>
+      </section>
       <StateLine state={state} />
       {state.status === "results" && (
-        <>
-          <ul className="list" data-testid="discover-results">
+        <div className="search-results">
+          <ul className="list results-grid" data-testid="discover-results">
             {state.results.map((r) => <ResultRow key={r.placeId} result={r} existingId={existing.get(r.placeId)} onAdd={onAdd} />)}
           </ul>
           <p className="attribution" data-testid="google-attribution">
@@ -140,7 +151,7 @@ export function DiscoverPage() {
           <p className="hint" data-testid="ranking-note">
             Results are shown in the order Google Maps returns them; SafeBite leaves out closed places and places outside its restaurant, café, bakery, bar and takeaway categories. Being listed here says nothing about gluten-free safety — check the evidence and call ahead.
           </p>
-        </>
+        </div>
       )}
     </section>
   );

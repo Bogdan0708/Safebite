@@ -16,6 +16,7 @@ import { CLAIM_KIND_LABELS, CLAIM_VALUE_LABELS, SOURCE_TYPE_LABELS, type Calenda
 import { useMember } from "./useMember";
 import { useToday } from "./useToday";
 import { useWatch } from "./useWatch";
+import { Icon } from "../ui/Icon";
 
 const STATE_TEXT: Record<KindEvidence["state"], string> = {
   unknown: "Unknown — no evidence recorded yet.",
@@ -88,58 +89,69 @@ export function RestaurantDetailPage() {
   }
 
   return (
-    <section>
+    <section className="page detail-page">
+      <div className="detail-topbar">
+        <Link className="back-link" to="/restaurants"><Icon name="chevron" className="flip" />Saved</Link>
+        <Link className="text-link" data-testid="edit-restaurant" to={`/restaurants/${restaurant.id}/edit`}><Icon name="edit" />Edit</Link>
+      </div>
       {offline && <ReadStateNotice state={{ status: "offline", value: null }} onRetry={restaurantWatch.retry} />}
-      <h2 data-testid="restaurant-name">{restaurant.name}</h2>
-      <p data-testid="restaurant-address">{restaurant.address}</p>
-      <p className="actions">
-        {restaurant.phone && <a data-testid="restaurant-phone" href={`tel:${restaurant.phone.replace(/\s+/g, "")}`}>Call {restaurant.phone}</a>}
-        {restaurant.website && <a data-testid="restaurant-website" href={restaurant.website} target="_blank" rel="noreferrer">Website</a>}
+      <div className="detail-heading">
+        <h2 className="detail-title" data-testid="restaurant-name">{restaurant.name}</h2>
+        <p className="address"><Icon name="pin" /><span data-testid="restaurant-address">{restaurant.address}</span></p>
+      </div>
+      <p className="actions detail-actions">
+        {restaurant.phone && <a className="primary" data-testid="restaurant-phone" href={`tel:${restaurant.phone.replace(/\s+/g, "")}`}><Icon name="phone" />Call {restaurant.phone}</a>}
+        {restaurant.website && <a className="secondary" data-testid="restaurant-website" href={restaurant.website} target="_blank" rel="noreferrer"><Icon name="globe" />Website</a>}
         {restaurant.googlePlaceId && (
-          <a data-testid="restaurant-maps" href={placeUrl(restaurant.name, restaurant.googlePlaceId)} target="_blank" rel="noopener noreferrer">Open in Google Maps</a>
+          <a className="secondary" data-testid="restaurant-maps" href={placeUrl(restaurant.name, restaurant.googlePlaceId)} target="_blank" rel="noopener noreferrer"><Icon name="location" />Open in Google Maps</a>
         )}
-        <Link data-testid="edit-restaurant" to={`/restaurants/${restaurant.id}/edit`}>Edit</Link>
       </p>
       <StatusBlock householdId={householdId} rid={restaurant.id} author={{ uid, displayName }} state={ss} disabled={offline} onRetry={stateWatch.retry} />
 
-      <h3>Evidence</h3>
-      <p>
-        <Link
-          to={`/restaurants/${restaurant.id}/evidence/new`}
-          data-testid="add-evidence"
-          aria-disabled={offline ? "true" : undefined}
-          className={offline ? "disabled-link" : undefined}
-          onClick={(e) => { if (offline) e.preventDefault(); }}
-        >
-          Add evidence
-        </Link>
-      </p>
-      {outcome && <p role="alert" data-testid="claim-outcome" data-kind={outcome}>{outcomeMessage(outcome, "This evidence", "delete")}</p>}
-      {!claimsReady && <ReadStateNotice state={cs} onRetry={claimsWatch.retry} />}
-      {claimsReady && (
-        <div className="evidence">
-          {summary.map((entry) => (
-            <div key={entry.kind} className="evidence-kind" data-testid={`evidence-${entry.kind}`} data-state={entry.state}>
-              <h4>{CLAIM_KIND_LABELS[entry.kind]}</h4>
-              <p>{STATE_TEXT[entry.state]}</p>
-              {entry.state === "conflicting" && entry.tied.map((c) => <ClaimCard key={c.id} claim={c} today={today} disabled={offline} onDelete={(id) => void onDeleteClaim(id)} />)}
-              {(entry.state === "current" || entry.state === "needsRechecking") && (
-                <ClaimCard key={entry.latest.id} claim={entry.latest} today={today} disabled={offline} onDelete={(id) => void onDeleteClaim(id)} />
-              )}
-              {entry.state !== "unknown" && entry.history.length > 0 && (
-                <details>
-                  <summary>Older evidence ({entry.history.length})</summary>
-                  {entry.history.map((c) => <ClaimCard key={c.id} claim={c} today={today} disabled={offline} onDelete={(id) => void onDeleteClaim(id)} />)}
-                </details>
-              )}
-            </div>
-          ))}
+      <section className="evidence-panel" aria-labelledby="evidence-title">
+        <div className="section-heading">
+          <h3 id="evidence-title">Evidence</h3>
+          <Link
+            to={`/restaurants/${restaurant.id}/evidence/new`}
+            data-testid="add-evidence"
+            aria-disabled={offline ? "true" : undefined}
+            className={offline ? "text-link disabled-link" : "text-link"}
+            onClick={(e) => { if (offline) e.preventDefault(); }}
+          >
+            <Icon name="plus" />Add evidence
+          </Link>
         </div>
-      )}
+        <p className="evidence-intro">Each fact keeps its own source and checked date. None of it establishes that a place is safe for coeliacs.</p>
+        {outcome && <p role="alert" data-testid="claim-outcome" data-kind={outcome}>{outcomeMessage(outcome, "This evidence", "delete")}</p>}
+        {!claimsReady && <ReadStateNotice state={cs} onRetry={claimsWatch.retry} />}
+        {claimsReady && (
+          <div className="evidence">
+            {summary.map((entry) => (
+              <div key={entry.kind} className="evidence-kind" data-testid={`evidence-${entry.kind}`} data-state={entry.state}>
+                <div className="evidence-summary">
+                  <h4>{CLAIM_KIND_LABELS[entry.kind]}</h4>
+                  <p className="evidence-answer">{STATE_TEXT[entry.state]}</p>
+                </div>
+                {entry.state === "conflicting" && entry.tied.map((c) => <ClaimCard key={c.id} claim={c} today={today} disabled={offline} onDelete={(id) => void onDeleteClaim(id)} />)}
+                {(entry.state === "current" || entry.state === "needsRechecking") && (
+                  <ClaimCard key={entry.latest.id} claim={entry.latest} today={today} disabled={offline} onDelete={(id) => void onDeleteClaim(id)} />
+                )}
+                {entry.state !== "unknown" && entry.history.length > 0 && (
+                  <details>
+                    <summary>Older evidence ({entry.history.length})</summary>
+                    {entry.history.map((c) => <ClaimCard key={c.id} claim={c} today={today} disabled={offline} onDelete={(id) => void onDeleteClaim(id)} />)}
+                  </details>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
 
       <NotesSection householdId={householdId} rid={restaurant.id} author={{ uid, displayName }} state={notesWatch.state} disabled={offline} onRetry={notesWatch.retry} />
 
-      <section className="notice" data-testid="call-ahead">
+      <section className="call-card" data-testid="call-ahead">
+        <Icon name="phone" />
         <h3>Call ahead and ask</h3>
         <p>Evidence goes out of date. Before you go, ring and ask:</p>
         {CALL_AHEAD_GROUPS.map((group) => (

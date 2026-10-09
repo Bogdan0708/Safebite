@@ -104,8 +104,8 @@ const pwaOptions: Parameters<typeof VitePWA>[0] = {
     start_url: "/",
     scope: "/",
     display: "standalone",
-    background_color: "#ffffff",
-    theme_color: "#1f7a4d",
+    background_color: "#f7f8f5",
+    theme_color: "#f7f8f5",
     icons: [
       { src: "pwa-192.png", sizes: "192x192", type: "image/png" },
       { src: "pwa-512.png", sizes: "512x512", type: "image/png" },
