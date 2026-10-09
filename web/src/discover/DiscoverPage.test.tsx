@@ -107,17 +107,18 @@ describe("DiscoverPage", () => {
   it("sends the selected search intent only on submit, preserving the typed query when switching", async () => {
     m.searchDestination.mockResolvedValue(ok());
     renderPage();
-    const mode = screen.getByRole("combobox", { name: "Search for" });
-    expect(mode).toHaveValue("destination");
+    expect(screen.getByRole("group", { name: "Search for" })).toHaveAttribute("data-value", "destination");
+    expect(screen.getByRole("button", { name: "Town or area" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("textbox", { name: "Town or area" })).toHaveAttribute("placeholder", "e.g. Lisbon or Soho");
     await userEvent.type(screen.getByTestId("discover-query"), "Riverside Café");
-    await userEvent.selectOptions(mode, "venue");
+    await userEvent.click(screen.getByRole("button", { name: "Restaurant or venue" }));
+    expect(screen.getByRole("group", { name: "Search for" })).toHaveAttribute("data-value", "venue");
     expect(screen.getByRole("textbox", { name: "Restaurant or venue name" })).toHaveValue("Riverside Café");
     expect(m.searchDestination).not.toHaveBeenCalled();
     expect(m.requestPosition).not.toHaveBeenCalled();
     await userEvent.click(screen.getByTestId("discover-submit"));
     expect(m.searchDestination).toHaveBeenLastCalledWith({ query: "Riverside Café", mode: "venue" });
-    await userEvent.selectOptions(mode, "destination");
+    await userEvent.click(screen.getByRole("button", { name: "Town or area" }));
     expect(m.searchDestination).toHaveBeenCalledTimes(1);
     await search("Lisbon");
     expect(m.searchDestination).toHaveBeenLastCalledWith({ query: "Lisbon", mode: "destination" });
@@ -195,7 +196,7 @@ describe("location belongs to its initiating search intent", () => {
     m.searchNearby.mockResolvedValue(ok([result(2)]));
     renderPage();
     await userEvent.click(screen.getByTestId("discover-nearby"));
-    await userEvent.selectOptions(screen.getByRole("combobox", { name: "Search for" }), "venue");
+    await userEvent.click(screen.getByRole("button", { name: "Restaurant or venue" }));
     await search("Riverside Café");
     expect(m.searchDestination).toHaveBeenCalledWith({ query: "Riverside Café", mode: "venue" });
     await waitFor(() => expect(screen.getByTestId("discover-result")).toHaveAttribute("data-place-id", "p1"));

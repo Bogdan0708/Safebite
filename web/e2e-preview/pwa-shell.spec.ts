@@ -29,7 +29,7 @@ test("the manifest describes a standalone app with the full icon set", async ({ 
   expect(manifest.name).toBe("SafeBite");
   expect(manifest.display).toBe("standalone");
   expect(manifest.start_url).toBe("/");
-  expect(manifest.theme_color).toBe("#1f7a4d");
+  expect(manifest.theme_color).toBe("#f7f8f5");
   expect(manifest.icons.map((i) => [i.sizes, i.purpose ?? "any"])).toEqual([
     ["192x192", "any"],
     ["512x512", "any"],
@@ -40,7 +40,8 @@ test("the manifest describes a standalone app with the full icon set", async ({ 
     expect(png.ok(), icon.src).toBe(true);
     expect(png.headers()["content-type"]).toContain("image/png");
   }
-  await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute("content", "#1f7a4d");
+  await expect(page.locator('meta[name="theme-color"][media="(prefers-color-scheme: light)"]')).toHaveAttribute("content", "#f7f8f5");
+  await expect(page.locator('meta[name="theme-color"][media="(prefers-color-scheme: dark)"]')).toHaveAttribute("content", "#121c19");
   await expect(page.locator('meta[name="apple-mobile-web-app-capable"]')).toHaveAttribute("content", "yes");
   await expect(page.locator('link[rel="apple-touch-icon"]')).toHaveAttribute("href", "/apple-touch-icon-180.png");
 });

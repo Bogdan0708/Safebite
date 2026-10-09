@@ -33,8 +33,8 @@ export function SettingsPage() {
   }, []);
 
   return (
-    <section>
-      <h2>Settings</h2>
+    <section className="page settings-page">
+      <h2 className="page-title">Settings<span className="brand-dot" aria-hidden="true">.</span></h2>
       {state.status === "member" && <p>Signed in as {state.email}</p>}
       {confirmed && (
         <p data-testid="whoami">

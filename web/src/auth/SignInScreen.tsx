@@ -3,6 +3,7 @@ import { deletedNoticeOnce } from "../account/deletedNotice";
 import { isDeletedUid } from "../account/deletedSessions";
 import { persistentAuthAllowed } from "../account/authPersistence";
 import { useAuth } from "./AuthProvider";
+import { BrandMark } from "../ui/Icon";
 
 function messageFor(code: string | undefined): string {
   switch (code) {
@@ -44,8 +45,8 @@ export function SignInScreen({ deletedUid }: { deletedUid?: string } = {}) {
   }
 
   return (
-    <main className="screen">
-      <h1>SafeBite</h1>
+    <main className="screen signin-screen">
+      <h1 className="brand"><BrandMark />SafeBite<span className="brand-dot" aria-hidden="true">.</span></h1>
       {notice && (
         <p role="status" data-testid="signin-deleted-notice">
           {notice.kind === "ok" ? "Your account has been deleted." : "Your account has been deleted. Some data on this device couldn't be cleared."}
@@ -62,7 +63,7 @@ export function SignInScreen({ deletedUid }: { deletedUid?: string } = {}) {
           Password
           <input data-testid="signin-password" type="password" autoComplete="current-password" required value={password} onChange={(e) => setPassword(e.target.value)} />
         </label>
-        <button data-testid="signin-submit" type="submit" disabled={busy}>
+        <button className="primary" data-testid="signin-submit" type="submit" disabled={busy}>
           {busy ? "Signing in…" : "Sign in"}
         </button>
         {error && <p role="alert" data-testid="signin-error">{error}</p>}
