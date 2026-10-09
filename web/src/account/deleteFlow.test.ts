@@ -37,7 +37,7 @@ beforeEach(() => {
   m.signOut.mockImplementation(async () => { m.order.push("signOut"); });
   m.resetDocument.mockImplementation(() => { m.order.push("reset"); });
 });
-afterEach(() => { vi.clearAllMocks(); sessionStorage.clear(); });
+afterEach(() => { vi.clearAllMocks(); sessionStorage.clear(); localStorage.clear(); });
 
 describe("deleteMyAccount", () => {
   it("offline: nothing is sent, not even reauthentication (Review Focus 5)", async () => {
@@ -54,9 +54,9 @@ describe("deleteMyAccount", () => {
     expect(readDeletionRequest()).toBeNull();
   });
 
-  it("success: reauth → fresh token → call → clear device → remove persisted user → record → reset, never signOut; the token is never refreshed after the call", async () => {
+  it("success: reauth → fresh token → call → record → clear device → remove persisted user → reset, never signOut; the token is never refreshed after the call", async () => {
     await expect(deleteMyAccount("pw", "ava-uid")).resolves.toEqual({ kind: "deleted" });
-    expect(m.order).toEqual(["reauth", "token", "call", "clear", "remove:ava-uid", "record:ava-uid", "reset"]);
+    expect(m.order).toEqual(["reauth", "token", "call", "record:ava-uid", "clear", "remove:ava-uid", "reset"]);
     expect(m.signOut).not.toHaveBeenCalled();
     expect(m.getIdToken).toHaveBeenCalledWith(true);
     expect(m.reauthenticate).toHaveBeenCalledWith("pw", m.current);
@@ -65,9 +65,33 @@ describe("deleteMyAccount", () => {
     expect(readDeletionRequest()).toBeNull();
   });
 
+  it("an unavailable removal keeps the durable guard and reports incomplete device cleanup before reset", async () => {
+    m.removePersisted.mockResolvedValueOnce("unavailable");
+    await expect(deleteMyAccount("pw", "ava-uid")).resolves.toEqual({ kind: "deleted" });
+    expect(m.order.indexOf("record:ava-uid")).toBeLessThan(m.order.indexOf("clear"));
+    expect(takeDeletedNotice()).toEqual({ kind: "clearFailed", uid: "ava-uid" });
+    expect(m.resetDocument).toHaveBeenCalled();
+  });
+
+  it("refuses to send deletion if its shared startup guard cannot be saved", async () => {
+    const write = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new Error("quota"); });
+    await expect(deleteMyAccount("pw", "ava-uid")).resolves.toEqual({ kind: "failed" });
+    expect(m.deleteAccountCall).not.toHaveBeenCalled();
+    write.mockRestore();
+  });
+
+  it("older confirmed recovery cannot reset when both guard storage and removal are unavailable", async () => {
+    const write = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new Error("quota"); });
+    m.removePersisted.mockResolvedValueOnce("unavailable");
+    await expect(finishDeleted("ava-uid")).resolves.toBe("cleanupPending");
+    expect(m.resetDocument).not.toHaveBeenCalled();
+    expect(takeDeletedNotice()).toBeNull();
+    write.mockRestore();
+  });
+
   it("the request id is stored before the call is sent", async () => {
     let seen: unknown = null;
-    m.deleteAccountCall.mockImplementation(async () => { seen = readDeletionRequest(); return { deleted: true, lastMember: false }; });
+    m.deleteAccountCall.mockImplementation(async () => { expect(localStorage.getItem("safebite.authCleanup.ava-uid:" + "R".repeat(43))).toBe("1"); seen = readDeletionRequest(); return { deleted: true, lastMember: false }; });
     await expect(deleteMyAccount("pw", "ava-uid")).resolves.toEqual({ kind: "deleted" });
     expect(seen).toEqual({ requestId: "R".repeat(43), uid: "ava-uid" });
   });
@@ -148,6 +172,7 @@ describe("deleteMyAccount", () => {
     expect(m.clearDeviceData).not.toHaveBeenCalled();
     expect(m.resetDocument).not.toHaveBeenCalled();
     expect(m.recordDeletedUid).not.toHaveBeenCalled();
+    expect(localStorage.getItem("safebite.authCleanup.ava-uid:confirmed")).toBe("1");
     expect(takeDeletedNotice()).toBeNull();
     expect(readDeletionRequest()).toBeNull();
   });
@@ -157,15 +182,15 @@ describe("deleteMyAccount", () => {
     await expect(deleteMyAccount("pw", "ava-uid")).resolves.toEqual({ kind: "deletedOtherAccount" });
     expect(m.clearDeviceData).toHaveBeenCalled();
     expect(m.signOut).not.toHaveBeenCalled();
-    expect(m.recordDeletedUid).not.toHaveBeenCalled();
+    expect(m.recordDeletedUid).toHaveBeenCalledWith("ava-uid");
     expect(takeDeletedNotice()).toBeNull();
   });
 
-  it("the account switches during the persisted-user removal: otherAccount, no record, no notice (G3)", async () => {
+  it("the account switches during removal: its login and notice are untouched; the deleted UID stays guarded", async () => {
     m.removePersisted.mockImplementationOnce(async (uid: string) => { m.order.push(`remove:${uid}`); m.current = { uid: "bogdan-uid", getIdToken: m.getIdToken }; return "removed"; });
     await expect(finishDeleted("ava-uid")).resolves.toBe("otherAccount");
     expect(m.removePersisted).toHaveBeenCalledWith("ava-uid");
-    expect(m.recordDeletedUid).not.toHaveBeenCalled();
+    expect(m.recordDeletedUid).toHaveBeenCalledWith("ava-uid");
     expect(m.resetDocument).not.toHaveBeenCalled();
     expect(takeDeletedNotice()).toBeNull();
     expect(readDeletionRequest()).toBeNull();

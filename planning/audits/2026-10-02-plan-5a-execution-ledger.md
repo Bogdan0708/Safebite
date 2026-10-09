@@ -224,3 +224,54 @@ Final3: ROOT CAUSE of stress sign-in failures (high confidence): WSL clock steps
 Final3: Ruling: apply the investigator's harness-only fix (skip password write when already accepted; wait until wall clock ≥ stamp second + 3 after any create/password write, in account-rest.ts and auth-rest.ts), then stress twice — test-only, no product change — cost if wrong: ~2 min longer stress
 Final3: harness fix a1122b6 (+auth.spec password-change wait, same mechanism from the product's own password stamp); e2e 53/53, stress 159/159 ×2 through 18 clock jumps; note: subagent ran a stray pkill (own runs only)
 Final3 re-review (opus): all addressed, no new Critical/Important; minor (deferred): restoreSeedAccounts stampedAt should take the max across creates; app-internal accounts:lookup after updatePassword faces the same emulator clock race (emulator-only)
+
+
+## Persistence corrections after independent re-audit — 2026-10-08
+
+Base `c673c5e`; working-tree changes on `worktree-pwa-05a-data-rights`. User authorized fixing
+both reproduced P2 issues. This entry supersedes the earlier rulings that a late callback alone
+made a timed-out open safe, and that localStorage offered equivalent compare-and-delete semantics.
+
+- Durable per-request cleanup intents precede the destructive call. Startup scrubs matching
+  IndexedDB sessions before importing Firebase, or selects memory-only Auth when cleanup is
+  unavailable. Confirmed completion records the UID before awaiting cleanup; it does not claim
+  local cleanup succeeded after an unavailable removal.
+- Auth explicitly uses IndexedDB or memory; legacy localStorage Auth keys are neither read,
+  migrated nor removed. Replacement logins in older tabs are preserved. Legacy-only users
+  sign in again; memory sessions do not survive reload.
+- Competing requests cannot remove one another's intent. Guard enumeration snapshots key names
+  so another tab removing a preceding key cannot make startup skip a surviving guard.
+- Added four permanent real-SDK browser regressions. The final frozen-source stress gate passed
+  171/171 (57 scenarios x 3, retries 0), including every new regression 3/3. Web unit 523/523;
+  Functions/rules 441/441; typecheck, compile/synthetic builds, boot guard 1/1, preview 4/4 and
+  upgrade 7/7 passed. A mixed-source development run and a deliberately stopped preliminary
+  run are retained separately and are not final gate evidence.
+
+Details, tradeoffs and evidence: [persistence correction report](2026-10-08-plan-5a-persistence-fixes.md).
+No merge, push or deployment; no live-pilot account operation. Changes remain uncommitted for
+review. Existing SDK polling residual, provisioning order, and Plan 5b device-store decisions
+remain separate boundaries; real iPhone/Safari acceptance is still required before release.
+
+
+## Marker lifecycle follow-up and local commit — 2026-10-09
+
+The independent re-audit found no blocking defect in the two P2 fixes (fresh typecheck,
+523 unit tests and 57 browser scenarios; prior stress hashes matched), but identified a medium
+startup-cost issue. The user authorized fixing or tracking it and committing locally in this
+worktree. It is fixed: one database open/readwrite transaction checks all guarded UIDs, and
+successful cleanup retires captured request/confirmed markers for confirmed-deleted UIDs.
+Uncertain intents, guards after unavailable cleanup and concurrent new request keys remain.
+The bounded deleted-UID record remains. Unexpected persisted layouts fail closed.
+
+Fresh gate: typecheck clean; web unit 529/529; Functions/rules 441/441; browser 58/58; five
+persistence regressions repeated 3 times, 15/15 with retries disabled; compile/synthetic builds,
+boot guard 1/1, preview 4/4 and upgrade 7/7 passed. The final staged-file review also removed one
+trailing blank line from the new config module; rebuilt runtime assets were unchanged.
+The prior 171/171 run is historical, not a claim about this changed source.
+
+Review #2's all-tabs sign-out consequence is documented. Review #3 (retry-screen behavior),
+#4 (same-UID re-sign-in timing), #5 (browser harness coupling), and #6 (development hot reload and
+Plan 5b cleaner preservation test) are tracked in the [correction report](2026-10-08-plan-5a-persistence-fixes.md).
+The reviewed P2 corrections and this follow-up are committed together locally. No merge, push,
+deployment or live-pilot account operation; the root checkout's existing untracked files were
+left alone. Evidence: `/tmp/safebite-marker-followup-20261009/`.

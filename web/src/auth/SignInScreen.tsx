@@ -1,6 +1,7 @@
 import { useState, type SubmitEvent } from "react";
 import { deletedNoticeOnce } from "../account/deletedNotice";
 import { isDeletedUid } from "../account/deletedSessions";
+import { persistentAuthAllowed } from "../account/authPersistence";
 import { useAuth } from "./AuthProvider";
 
 function messageFor(code: string | undefined): string {
@@ -51,6 +52,7 @@ export function SignInScreen({ deletedUid }: { deletedUid?: string } = {}) {
         </p>
       )}
       <p>Private gluten-free restaurant research. Sign in with your invited account.</p>
+      {!persistentAuthAllowed() && <p data-testid="signin-memory-only">Sign-in won't be saved on this device. You'll need to sign in again after reloading.</p>}
       <form data-testid="signin-form" onSubmit={onSubmit}>
         <label>
           Email

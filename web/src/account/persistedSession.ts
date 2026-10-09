@@ -1,4 +1,4 @@
-import { auth } from "../firebase";
+import { firebaseConfig } from "../config/firebaseConfig";
 import { CLEANER_TIMEOUT_MS } from "../device/cleanup";
 
 // Liveness backstop on the OPEN only; shares the cleaner budget (web/src/device/cleanup.ts).
@@ -18,33 +18,22 @@ const STORE = "firebaseLocalStorage";
  * browser: database firebaseLocalStorageDb, store firebaseLocalStorage (keyPath fbase_key), record
  * { fbase_key, value: { uid, ... } }. Never throws.
  */
-export async function removePersistedUserIfUid(uid: string): Promise<PersistedRemoval> {
+export function removePersistedUserIfUid(uid: string): Promise<PersistedRemoval> {
+  return removePersistedUsersIfUids(new Set([uid]));
+}
+
+/** One open and one transaction regardless of how many historical UIDs are guarded. */
+export async function removePersistedUsersIfUids(uids: ReadonlySet<string>): Promise<PersistedRemoval> {
+  if (uids.size === 0) return "notOurs";
   try {
-    const key = `firebase:authUser:${auth.app.options.apiKey}:[DEFAULT]`;
-    const local = removeFromLocalStorage(key, uid);
-    const idb = await removeFromIndexedDb(key, uid);
-    if (idb === "removed" || local === "removed") return "removed";
-    if (idb === "notOurs" || local === "notOurs") return "notOurs";
-    return "unavailable";
+    const key = `firebase:authUser:${firebaseConfig.apiKey}:[DEFAULT]`;
+    return await removeFromIndexedDb(key, uids);
   } catch {
     return "unavailable";
   }
 }
 
-function removeFromLocalStorage(key: string, uid: string): PersistedRemoval {
-  try {
-    const raw = localStorage.getItem(key);
-    if (raw === null) return "unavailable";
-    const stored = JSON.parse(raw) as { uid?: unknown } | null;
-    if (stored?.uid !== uid) return "notOurs";
-    localStorage.removeItem(key);
-    return "removed";
-  } catch {
-    return "unavailable";
-  }
-}
-
-function removeFromIndexedDb(key: string, uid: string): Promise<PersistedRemoval> {
+function removeFromIndexedDb(key: string, uids: ReadonlySet<string>): Promise<PersistedRemoval> {
   return new Promise((resolve) => {
     let settled = false;
     const done = (result: PersistedRemoval) => { if (!settled) { settled = true; clearTimeout(timer); resolve(result); } };
@@ -62,7 +51,7 @@ function removeFromIndexedDb(key: string, uid: string): Promise<PersistedRemoval
       open.onupgradeneeded = () => {
         // The database did not exist: abort so that opening leaves nothing behind.
         open.transaction?.abort();
-        done("unavailable");
+        done("notOurs");
       };
       open.onsuccess = () => {
         clearTimeout(timer);
@@ -78,7 +67,9 @@ function removeFromIndexedDb(key: string, uid: string): Promise<PersistedRemoval
           const get = store.get(key);
           get.onsuccess = () => {
             const record = get.result as { value?: { uid?: unknown } } | undefined;
-            if (record?.value?.uid === uid) {
+            if (record !== undefined && typeof record?.value?.uid !== "string") {
+              outcome = "unavailable"; // cannot prove whose session this unexpected layout holds
+            } else if (typeof record?.value?.uid === "string" && uids.has(record.value.uid)) {
               store.delete(key);
               outcome = "removed";
             }

@@ -1420,7 +1420,13 @@ export function clearDeviceData(): Promise<{ failed: string[] }>;
      (`reauthenticateWithCredential`). Its failures map to the existing messages (wrong password,
      too many attempts, offline). A failed reauthentication sends nothing.
   2. `getIdToken(true)`, so the callable sees the new `auth_time`.
-  3. Generate `requestId` and store `{ requestId, uid: expectedUid }` (JSON) in `sessionStorage` under
+  3. Generate `requestId` and durably write a local cleanup intent under
+     `safebite.authCleanup.<encoded UID>:<requestId>` before any destructive server call. Refuse
+     to send the deletion if shared storage cannot save/read back this guard. Each request has
+     its own key, so a refusal in one tab cannot remove another tab's intent. This is not proof
+     of deletion and never produces a deleted notice. A definite refusal removes only that
+     request's guard; an uncertain response retains it. Then store
+     `{ requestId, uid: expectedUid }` (JSON) in `sessionStorage` under
      `safebite.deletionRequest` before the call, so a reload of this tab can still check it, and only
      for that account. Call `deleteAccount({ requestId, expectedUid })` with a 70-second client timeout, behind a
      non-dismissable "Deleting your account… keep this page open" screen.
@@ -1432,15 +1438,18 @@ export function clearDeviceData(): Promise<{ failed: string[] }>;
      A deleted account needs no sign-out: its Auth record is gone and the rules deny it everything.
      It needs to be recognised and kept out of the app, as follows.
      - **Checks.** `finishDeleted` checks that the signed-in account is none or `requestUid` before
-       `clearDeviceData()`, and again after it.
-     - **Both checks pass.** It records `requestUid` as deleted on this device (below), sets the
-       per-tab notice flag `{ kind, uid: requestUid }`, clears the request and reloads the tab.
-     - **Another account is current at either check** (another tab signed in during the call or the
-       cleanup). It clears the request and writes no record and no notice. It shows **Other account,
+       `clearDeviceData()`, after it, and after persisted-session removal. After the first check,
+       it records the confirmed deleted UID before any await, protecting sibling-tab startup.
+     - **All checks pass.** It sets the per-tab notice flag `{ kind, uid: requestUid }`, clears the
+       request and reloads the tab, subject to the cleanup guard described below.
+     - **Another account is current at any check** (another tab signed in during the call or the
+       cleanup). It clears the request and writes no notice. A deleted-UID record already written
+       before an awaited cleanup stays recorded for that UID. It shows **Other account,
        deletion confirmed**: "The account this request was for has been deleted. You're now signed in
        as a different account, which was not changed." with **Continue**. It never says "Nothing was
-       deleted" once the server confirmed the deletion. It does not clear device data in this case,
-       because the current account's session owns the device copy; 5b's per-UID cleanup removes the
+       deleted" once the server confirmed the deletion. If another account was current at the
+       first check, it does not start device cleanup, because that account owns the device copy;
+       5b's per-UID cleanup removes the
        deleted UID's copy.
 
      **Deleted-session record.** `localStorage["safebite.deletedUids"]` is a JSON array of UIDs this
@@ -1457,27 +1466,47 @@ export function clearDeviceData(): Promise<{ failed: string[] }>;
      - **The notice belongs to an account.** It shows only in the `deletedSession` state, for the
        recorded UID, or on a signed-out sign-in screen in a tab whose notice flag names a recorded UID.
        The flag is discarded as soon as the provider resolves any other account.
-     - **Persisted session removed by compare-and-delete** (amended after the Task 15 review,
-       2026-10-02). Left persisted, a deleted session makes the SDK's start-up lookup fail, and the
-       SDK then removes the shared persistence key whoever it holds. A second-tab sign-in made during
-       that round trip would be removed. So completion, after both account checks pass and *before*
-       recording the UID, deletes the persisted Firebase user **only if its UID is `requestUid`**.
-       For IndexedDB persistence the read and the delete happen in one readwrite transaction, which
-       serialises with any other tab's write. A persisted user in localStorage is checked and
-       removed the same way. Opening the database has a 5 s liveness backstop; a removal that has
-       started is never abandoned, and a late open still performs the uid-checked delete. Then the record, the notice, clearing the request and the reload run
-       synchronously, with no `await` in between. On any unexpected layout it does nothing; the record
-       still guards the UI. A residual window remains inside the SDK. Any tab still holding the
-       deleted session, including the deletion tab before it unloads, sees the removal on its
-       persistence poll and clears the key without a check. That is two local IndexedDB operations
-       instead of a network round trip, the same window as any stock Firebase cross-tab sign-out.
-       That is library behaviour, recorded in the execution ledger. The layout is checked against
-       `@firebase/auth` 1.13.6 (DB `firebaseLocalStorageDb`, store `firebaseLocalStorage`, key
-       `firebase:authUser:<apiKey>:[DEFAULT]`).
-     - **Remaining behaviour.** The Firebase SDK may itself sign out a deleted session when its token
-       refresh fails; the app's code never calls `signOut` during completion. If both storages are
-       blocked, the deleted session falls back to the not-invited screen: nothing is exposed and no
-       outcome is claimed.
+     - **Auth persistence and the startup gate** (2026-10-08, correction of the two P2 findings at
+       `c673c5e`). The app explicitly initializes Auth with IndexedDB persistence only, or memory.
+       It never reads, migrates or removes Firebase's old localStorage/sessionStorage Auth keys:
+       a localStorage read followed by remove is not atomic across tabs. Legacy keys are left
+       inert, including another tab's replacement login. Users with only a legacy saved session
+       sign in again; an existing older release may still use its legacy key until it closes.
+     - **Before importing Firebase**, bootstrap reads durable cleanup intents, confirmed deleted
+       UIDs, and any older per-tab recovery request. It checks the entire UID set in one database
+       open and one readwrite transaction, deleting the saved user only if its UID is in that set.
+       A different UID is preserved. The open budget is 5 seconds total, independent of history. Only successful
+       cleanup or a nonmatching/absent record permits persistent Auth. An unavailable open or
+       unexpected layout selects **memory-only Auth** for that document, without reading the old
+       persisted user. Missing IndexedDB or inaccessible shared guard storage also selects memory.
+       The sign-in screen explains that sign-in will not survive reload. A later navigation tries
+       cleanup again; it cannot lose the durable guard when the old document is destroyed.
+     - **Completion** publishes the confirmed deleted UID before awaiting cleanup, so another tab's
+       storage-event reload also encounters the gate. It clears device data, removes only the
+       request UID's IndexedDB session, rechecks the current account, writes its scoped notice,
+       clears the request and reloads. An unavailable removal produces the device-cleanup warning,
+       not a claim that local cleanup succeeded. If an older recovery request cannot save a guard
+       and cannot remove persistence, it stays on a retry screen instead of resetting.
+     - **Open timeout.** The 5-second bound covers open only. A late open still compares/deletes
+       the named UID; a started transaction settles through its own events. Safe startup does not
+       depend on that callback surviving navigation. The layout remains pinned to `@firebase/auth`
+       1.13.6: DB `firebaseLocalStorageDb`, store `firebaseLocalStorage`, key
+       `firebase:authUser:<apiKey>:[DEFAULT]`. No `signOut` call is made during completion.
+     - **Guard lifecycle** (amended after the 2026-10-09 re-audit). After successful batch cleanup,
+       bootstrap retires captured request and `:confirmed` keys for UIDs whose deletion was
+       confirmed. It preserves uncertain intents and request keys added while cleanup awaited.
+       A timeout/error retains every guard. The existing deleted-UID notice list remains capped
+       at 10; even that history is checked in the same single open. Confirmation is recorded in
+       cleanup metadata even when another account is now current, without writing a deleted notice
+       for that account. A successful explicit sign-in also forgets its UID's guards and notice
+       record. After an uncertain deletion, a reload in **any same-origin tab** can remove that
+       UID's shared saved session and sign it out in every tab observing shared persistence, even
+       if the server received nothing. The receipt alone decides whether deletion happened.
+     - **Residual SDK behaviour.** An already-running tab holding the deleted user can clear shared
+       persistence on its own SDK poll or invalid-token response. The previously accepted short
+       SDK polling window remains; these changes remove the additional startup network lookup
+       race caused by a known deletion and timed-out cleanup. This is not a claim to replace
+       Firebase's internal cross-tab synchronization.
 - `recentLogin` from the server → "For security, enter your password again." `accountChanged`
   (client or server) → "The signed-in account changed. Nothing was deleted." `permission-denied`
   → "This account can't be deleted here."

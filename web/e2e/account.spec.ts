@@ -92,6 +92,8 @@ test("4: a request that never reached the server is 'confirmation unavailable', 
   expect(await passwordAccepted(request, "ava@safebite.test", PASSWORD)).toBe(true);
   await page.unroute(DELETE_URL);
   await page.getByTestId("recovery-continue").click();
+  // The durable intent makes an uncertain restart discard this account's saved session.
+  await signIn(page, "ava@safebite.test");
   await deleteFromSettings(page);
   await expect(page.getByTestId("signin-deleted-notice")).toBeVisible({ timeout: 90_000 });
 });

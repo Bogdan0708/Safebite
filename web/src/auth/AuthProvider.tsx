@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { onAuthStateChanged, signInWithEmailAndPassword, signOut as firebaseSignOut, type User } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
 import { auth, db } from "../firebase";
+import { forgetAuthGuard } from "../account/authCleanupGuard";
 import { DELETED_UIDS_KEY, forgetDeletedUid, isDeletedUid } from "../account/deletedSessions";
 import { discardDeletedNoticeUnlessFor } from "../account/storage";
 import { clearDeviceData } from "../device/cleanup";
@@ -129,6 +130,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signIn = useCallback(async (email: string, password: string) => {
     const { user } = await signInWithEmailAndPassword(auth, email, password);
+    forgetAuthGuard(user.uid);
     // A successful sign-in proves the account exists (e.g. re-created by an admin): forget it, then
     // re-resolve in case the listener already resolved deletedSession for it.
     if (isDeletedUid(user.uid)) {

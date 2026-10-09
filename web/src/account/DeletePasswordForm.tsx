@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type SubmitEvent } from "react";
 import { resetDocument } from "../auth/resetDocument";
-import { deleteMyAccount, type DeleteOutcome } from "./deleteFlow";
+import { deleteMyAccount, finishDeleted, type DeleteOutcome } from "./deleteFlow";
 import { DeletionRecoveryScreen } from "./DeletionRecoveryScreen";
 import { readDeletionRequest } from "./storage";
 
@@ -40,6 +40,7 @@ export function DeletePasswordForm({ submitLabel, testid, expectedUid }: { submi
   const [message, setMessage] = useState<{ key: string } | null>(null);
   const [lostRequestId, setLostRequestId] = useState<string | null>(null);
   const recoveryRequest = useMemo(() => (lostRequestId === null ? null : { requestId: lostRequestId, uid: expectedUid }), [lostRequestId, expectedUid]);
+  const [cleanupPending, setCleanupPending] = useState(false);
   const [otherAccount, setOtherAccount] = useState(false);
 
   async function onSubmit(event: SubmitEvent<HTMLFormElement>) {
@@ -48,6 +49,7 @@ export function DeletePasswordForm({ submitLabel, testid, expectedUid }: { submi
     setMessage(null);
     setBusy(true);
     const outcome = await deleteMyAccount(password, expectedUid);
+    if (outcome.kind === "cleanupPending") { setCleanupPending(true); return; }
     if (outcome.kind === "deleted") return; // finishDeleted is resetting the tab
     if (outcome.kind === "deletedOtherAccount") { setOtherAccount(true); return; }
     if (outcome.kind === "lost") {
@@ -62,6 +64,14 @@ export function DeletePasswordForm({ submitLabel, testid, expectedUid }: { submi
     setMessage({ key: messageKey(outcome) });
   }
 
+  if (cleanupPending) {
+    return <section role="status">
+      <p>The account deletion is confirmed. We couldn't finish clearing its saved sign-in on this device.</p>
+      <button type="button" onClick={() => void finishDeleted(expectedUid).then((result) => {
+        if (result === "otherAccount") { setCleanupPending(false); setOtherAccount(true); }
+      })}>Try again</button>
+    </section>;
+  }
   if (lostRequestId !== null) {
     return <DeletionRecoveryScreen request={recoveryRequest!} onDismiss={() => resetDocument()} />;
   }

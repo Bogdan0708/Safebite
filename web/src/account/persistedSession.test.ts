@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("../firebase", () => ({ auth: { app: { options: { apiKey: "KEY" } } } }));
+vi.mock("../config/firebaseConfig", () => ({ firebaseConfig: { apiKey: "KEY" } }));
 
-import { removePersistedUserIfUid } from "./persistedSession";
+import { removePersistedUserIfUid, removePersistedUsersIfUids } from "./persistedSession";
 
 const KEY = "firebase:authUser:KEY:[DEFAULT]";
 
@@ -19,6 +19,38 @@ describe("removePersistedUserIfUid", () => {
     const runGet = () => { getReq.result = record; getReq.onsuccess(); };
     return { db, tx, store, runGet };
   }
+
+  it.each([
+    [{ value: { uid: "marked-99" } }, "removed"],
+    [{ value: { uid: "replacement" } }, "notOurs"],
+    [undefined, "notOurs"],
+    [{ value: { unexpected: "layout" } }, "unavailable"],
+  ])("one open/transaction checks all guarded UIDs and settles after commit: %j", async (record, outcome) => {
+    const req: Record<string, any> = {};
+    const open = vi.fn(() => req);
+    vi.stubGlobal("indexedDB", { open });
+    let settled = false;
+    const result = removePersistedUsersIfUids(new Set(Array.from({ length: 100 }, (_, i) => `marked-${i}`)));
+    void result.then(() => { settled = true; });
+    const f = fakeDb(record);
+    req.result = f.db;
+    req.onsuccess(); f.runGet();
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    expect(open).toHaveBeenCalledTimes(1);
+    expect(f.db.transaction).toHaveBeenCalledExactlyOnceWith("firebaseLocalStorage", "readwrite");
+    expect(f.store.get).toHaveBeenCalledExactlyOnceWith(KEY);
+    expect(f.store.delete).toHaveBeenCalledTimes(outcome === "removed" ? 1 : 0);
+    f.tx.oncomplete();
+    await expect(result).resolves.toBe(outcome);
+  });
+
+  it("an empty batch does not open the database", async () => {
+    const open = vi.fn();
+    vi.stubGlobal("indexedDB", { open });
+    await expect(removePersistedUsersIfUids(new Set())).resolves.toBe("notOurs");
+    expect(open).not.toHaveBeenCalled();
+  });
 
   it("an IndexedDB open that never fires resolves unavailable at 5000 ms, not before (G2)", async () => {
     vi.useFakeTimers();
@@ -102,13 +134,17 @@ describe("removePersistedUserIfUid", () => {
     expect(mine.store.delete).toHaveBeenCalledWith(KEY);
   });
 
-  it("without IndexedDB, localStorage removes only a matching uid", async () => {
+  it("never reads or removes the legacy localStorage Auth key, including a replacement login", async () => {
     vi.stubGlobal("indexedDB", undefined);
-    localStorage.setItem(KEY, JSON.stringify({ uid: "other" }));
-    await expect(removePersistedUserIfUid("ava-uid")).resolves.toBe("notOurs");
-    expect(localStorage.getItem(KEY)).not.toBeNull();
     localStorage.setItem(KEY, JSON.stringify({ uid: "ava-uid" }));
-    await expect(removePersistedUserIfUid("ava-uid")).resolves.toBe("removed");
-    expect(localStorage.getItem(KEY)).toBeNull();
+    const read = vi.spyOn(Storage.prototype, "getItem");
+    const remove = vi.spyOn(Storage.prototype, "removeItem");
+    const result = removePersistedUserIfUid("ava-uid");
+    localStorage.setItem(KEY, JSON.stringify({ uid: "replacement" }));
+    await expect(result).resolves.toBe("unavailable");
+    expect(read).not.toHaveBeenCalled();
+    expect(remove).not.toHaveBeenCalled();
+    expect(localStorage.getItem(KEY)).toBe(JSON.stringify({ uid: "replacement" }));
+    vi.restoreAllMocks();
   });
 });

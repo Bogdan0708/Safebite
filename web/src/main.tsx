@@ -8,6 +8,7 @@ import { LoadFailedScreen } from "./LoadFailedScreen";
 import { MisconfiguredScreen } from "./MisconfiguredScreen";
 import { alreadyReloadedForPurge, purgeServiceWorkerState, registerServiceWorker } from "./pwa/serviceWorker";
 import "./styles.css";
+import { prepareAuthPersistence } from "./account/authPersistence";
 
 const root = createRoot(document.getElementById("root")!);
 
@@ -31,7 +32,8 @@ if (problems.length > 0) {
     .catch(() => {});
 } else {
   const startApp = () => {
-    void import("./App")
+    root.render(<main className="screen"><p role="status">Preparing sign-in…</p></main>);
+    void prepareAuthPersistence().then(() => import("./App"))
       .then(({ default: App }) => {
         root.render(
           <StrictMode>

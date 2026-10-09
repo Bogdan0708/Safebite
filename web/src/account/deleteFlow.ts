@@ -3,6 +3,7 @@ import { resetDocument } from "../auth/resetDocument";
 import { clearDeviceData } from "../device/cleanup";
 import { auth } from "../firebase";
 import { deleteAccountCall, newRequestId } from "./api";
+import { guardAuthSession, forgetAuthGuard } from "./authCleanupGuard";
 import { recordDeletedUid } from "./deletedSessions";
 import { removePersistedUserIfUid } from "./persistedSession";
 import { classifyCallError } from "./recovery";
@@ -10,6 +11,7 @@ import { clearDeletionRequest, writeDeletedNotice, writeDeletionRequest } from "
 
 export type DeleteOutcome =
   | { kind: "deleted" }
+  | { kind: "cleanupPending" }
   | { kind: "reauth"; result: Exclude<ReauthResult, "ok"> }
   | { kind: "recentLogin" }
   | { kind: "permission" }
@@ -38,20 +40,25 @@ export async function deleteMyAccount(password: string, expectedUid: string): Pr
     return { kind: "failed" };
   }
   if (!unchanged()) return { kind: "accountChanged" };
+  // A durable guard must precede the destructive request, including a lost response or tab close.
+  // If shared storage refuses it, do not delete the server account.
   const requestId = newRequestId();
+  if (!guardAuthSession(expectedUid, requestId)) return { kind: "failed" };
   writeDeletionRequest({ requestId, uid: expectedUid });
   try {
     await deleteAccountCall({ requestId, expectedUid });
   } catch (err) {
     const kind = classifyCallError(err);
     if (kind === "lost") return { kind: "lost", requestId };
+    forgetAuthGuard(expectedUid, requestId);
     clearDeletionRequest();
     return { kind };
   }
-  return (await finishDeleted(expectedUid)) === "finished" ? { kind: "deleted" } : { kind: "deletedOtherAccount" };
+  const result = await finishDeleted(expectedUid);
+  return { kind: result === "finished" ? "deleted" : result === "cleanupPending" ? "cleanupPending" : "deletedOtherAccount" };
 }
 
-export type FinishResult = "finished" | "otherAccount";
+export type FinishResult = "finished" | "otherAccount" | "cleanupPending";
 
 /**
  * The server confirmed deletion of requestUid's account. Completion acts only for that account
@@ -65,18 +72,23 @@ export async function finishDeleted(requestUid: string | null): Promise<FinishRe
     const current = auth.currentUser?.uid ?? null;
     return current === null || current === requestUid;
   };
+  // Confirmation belongs to the deleted UID even if another account is now current. Keep
+  // that fact in cleanup metadata so its old request guards can be retired on a safe startup.
+  const guarded = requestUid === null || guardAuthSession(requestUid);
   if (!ours()) { clearDeletionRequest(); return "otherAccount"; }
-  const { failed } = await clearDeviceData(); // device data goes either way
-  if (!ours()) { clearDeletionRequest(); return "otherAccount"; }
-  // Strict order. First remove the deleted account's persisted user (compare-and-delete): the SDK's
-  // next start-up reload of it would remove the shared persisted-user key whatever it then holds.
-  // Then record, write the notice and clear the request with no await between them and the reset:
-  // an SDK persistence poll or a storage-event reset in another tab can fire at any await, and must
-  // find the record and notice already in place (or the persisted user already gone), never half.
-  if (requestUid !== null) await removePersistedUserIfUid(requestUid);
-  // The removal awaited: confirm the account again before recording anything (final review 2).
-  if (!ours()) { clearDeletionRequest(); return "otherAccount"; }
+  // Publish the confirmed UID BEFORE any await or navigation. Other tabs may reset as soon
+  // as they observe it; their bootstrap must scrub this UID before starting persistent Auth.
   if (requestUid !== null) recordDeletedUid(requestUid);
+  const { failed } = await clearDeviceData();
+  if (!ours()) { clearDeletionRequest(); return "otherAccount"; }
+  const removal = requestUid === null ? "notOurs" : await removePersistedUserIfUid(requestUid);
+  if (!ours()) { clearDeletionRequest(); return "otherAccount"; }
+  // A failed open is not successful cleanup. The durable tombstone survives this reset;
+  // bootstrap retries the scrub, or selects memory-only Auth without reading the stale user.
+  if (removal === "unavailable") {
+    if (!guarded) return "cleanupPending"; // recovery from an older request with blocked storage
+    failed.push("authSession");
+  }
   writeDeletedNotice({ kind: failed.length === 0 ? "ok" : "clearFailed", uid: requestUid });
   clearDeletionRequest();
   // Never signOut here (final review P2): signOut queues a "no user" update that can remove another

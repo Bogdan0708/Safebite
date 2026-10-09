@@ -11,7 +11,7 @@ import { clearDeletionRequest, type DeletionRequest } from "./storage";
  * so it survives the reset reload any sign-out causes. Only the server's receipt decides.
  */
 export function DeletionRecoveryScreen({ request, onDismiss }: { request: DeletionRequest; onDismiss: () => void }) {
-  const [view, setView] = useState<RecoveryView | "checking" | "finishing">("checking");
+  const [view, setView] = useState<RecoveryView | "checking" | "finishing" | "cleanupPending">("checking");
   const [email, setEmail] = useState<string | null>(null);
   const [confirmed, setConfirmed] = useState(false);
 
@@ -32,7 +32,7 @@ export function DeletionRecoveryScreen({ request, onDismiss }: { request: Deleti
       if (next === "success") {
         setView("finishing"); // never claim "deleted" before finishDeleted says so
         const finished = await finishDeleted(request.uid);
-        if (latest()) setView(finished === "finished" ? "success" : "otherAccount");
+        if (latest()) setView(finished === "finished" ? "success" : finished === "cleanupPending" ? "cleanupPending" : "otherAccount");
         return;
       }
       setView(next);
@@ -56,6 +56,12 @@ export function DeletionRecoveryScreen({ request, onDismiss }: { request: Deleti
       <h1>Account deletion</h1>
       {view === "checking" && <p data-testid="recovery-checking">Checking whether your account was deleted…</p>}
       {view === "finishing" && <p data-testid="recovery-finishing">Finishing…</p>}
+      {view === "cleanupPending" && (
+        <section role="status">
+          <p>The account deletion is confirmed. We couldn't finish clearing its saved sign-in on this device.</p>
+          <button type="button" onClick={check}>Try again</button>
+        </section>
+      )}
       {view === "success" && <p data-testid="recovery-success">Your account has been deleted.</p>}
       {view === "otherAccount" && (
         <section data-testid="recovery-other-account">
