@@ -21,7 +21,7 @@ Typecheck clean.
 | 2 expired-token restore | holds | stored user restored offline with an expired token, kept 10 s, refreshes on reconnection; `offlineMember` buildable |
 | 3 iPhone storage | owner-run after deploy | — |
 | 4 cross-tab serialisation | holds (Chromium, `e2e/offline-store.spec.ts`): a replacement queued behind another tab's held clear transaction returns `cleared`, meta stays null | epoch check inside the replacing transaction is sufficient |
-| 5 refresh read cost | `STOP5 {"queries":202,"documents":800,"emptyQueries":51} estimatedBilledReads=1053 perHourAt4=4212` (100 restaurants × 5 claims, 4 notes on half; emulator estimate) | queries = 1 + 2 per restaurant + 1, as designed (no collection-group rule); 5c checks real pilot usage |
+| 5 refresh read cost | `STOP5 {"queries":202,"documents":800,"emptyQueries":51} estimatedBilledReads=1053 perHourAt4=4212` (100 restaurants × 5 claims, 4 notes on half; emulator estimate) | queries = 1 + 2 per restaurant + 1, as designed (no collection-group rule). **Exceeds the free tier:** 2 devices × 8 visible h × 4,212 ≈ 67,400 reads/day, above the 50,000-read daily free tier in spec §3.9 "Cost", so the 5c interval review is triggered by measurement, not assumption. The probe seeded no collection documents; a real shortlist adds up to N reads per refresh, so this is a floor |
 
 ## Ledger
 

@@ -39,3 +39,10 @@ Estimate only: the emulator does not bill. `estimatedBilledReads` = documents + 
 one rules `get()` per query. One full refresh of this household is ~1050 reads; four per hour while visible is ~4200.
 Plan 5c checks the pilot's real usage. The Auth module is imported with the `?v=` URL `/src/firebase.ts` uses (the
 Task 1 finding, applied by controller ruling), not the bare deps path in the brief.
+
+**Free-tier finding (review of Task 8).** The measured cost exceeds the free tier. At ~4,212 reads per hour per visible device, two
+devices visible for eight hours make 2 × 8 × 4,212 ≈ **67,400 reads a day** from the 15-minute timer alone. That is above
+the 50,000-read daily free tier named in spec §3.9 "Cost". The interval review planned for 5c (first lever: 30 minutes,
+which halves timer traffic) is therefore triggered by this measurement, not by assumption. The figure is also a floor
+for this household size: the probe seeded **no collection documents**, and a real shortlist/visited list adds up to N
+more reads per refresh (up to 100 here).

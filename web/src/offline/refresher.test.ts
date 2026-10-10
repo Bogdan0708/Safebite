@@ -60,15 +60,26 @@ describe("refresher", () => {
   });
 
   it("a restaurant deleted on the server disappears at the next full refresh (Review Focus 1)", async () => {
-    const d = deps();
+    const first = copyOf("a", "b");
+    first.claims.b = [{ id: "cb", kind: "gfMenu", value: "yes", detail: "", source: { type: "restaurantStatement", label: "Phone" }, checkedAt: "2026-09-01", authorUid: "ava-uid", authorName: "Ava", createdAt: new Date(0) }];
+    first.notes.b = [{ id: "nb", text: "b", authorUid: "ava-uid", authorName: "Ava", createdAt: new Date(0), updatedAt: new Date(0), version: 1 }];
+    first.collection.b = { shortlisted: true, visited: false, updatedBy: "ava-uid", updatedByName: "Ava", updatedAt: new Date(0), version: 1 };
+    const d = deps({ readHousehold: vi.fn(async () => ({ data: first, stats: STATS })) });
     const r = createRefresher(d);
     await r.requestFull(TARGET);
+    const before = await readCopy(ID);
+    if (before.kind !== "copy") throw new Error("no copy");
+    expect(before.data.claims.b!.map((c) => c.id)).toEqual(["cb"]);
+    expect(before.data.notes.b!.map((n) => n.id)).toEqual(["nb"]);
+    expect(before.data.collection.b!.shortlisted).toBe(true);
     vi.mocked(d.readHousehold).mockResolvedValueOnce({ data: copyOf("a"), stats: STATS });
     await r.requestFull(TARGET);
     expect(await ids()).toEqual(["a"]);
     const got = await readCopy(ID);
     if (got.kind !== "copy") throw new Error("no copy");
     expect(got.data.claims.b).toBeUndefined();
+    expect(got.data.notes.b).toBeUndefined();
+    expect(got.data.collection.b).toBeUndefined();
   });
 
   it("an offline or failed read writes nothing and keeps the previous copy and downloadedAt", async () => {
