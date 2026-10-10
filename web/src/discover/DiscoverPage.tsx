@@ -8,7 +8,7 @@ import type { DiscoveryResult, SearchErrorReason, SearchMode } from "./api";
 import { requestPosition } from "./geolocation";
 import { directionsUrl } from "./links";
 import { useDiscoverySearch, type SearchState } from "./search";
-import { useWriteAccess } from "../offline/writeAccess";
+import { useConnectivity, useWriteAccess } from "../offline/writeAccess";
 import { Icon } from "../ui/Icon";
 import { TownArt } from "../ui/TownArt";
 
@@ -65,6 +65,7 @@ function ResultRow({ result, existingId, writable, onAdd }: { result: DiscoveryR
 export function DiscoverPage() {
   const { householdId } = useMember();
   const writable = useWriteAccess();
+  const connected = useConnectivity();
   const navigate = useNavigate();
   const { state, submitDestination, submitNearby, fail } = useDiscoverySearch();
   const [query, setQuery] = useState("");
@@ -86,6 +87,7 @@ export function DiscoverPage() {
 
   function onSubmit(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (!connected) return; // "Search needs a connection." replaces the actions; Enter must not search either
     intent.current += 1;
     setLocating(false);
     const trimmed = query.trim();
@@ -133,10 +135,14 @@ export function DiscoverPage() {
             <span className="sr-only">{mode === "destination" ? "Town or area" : "Restaurant or venue name"}</span>
             <input data-testid="discover-query" value={query} maxLength={120} placeholder={mode === "destination" ? "e.g. Lisbon or Soho" : "e.g. Riverside Café, Lisbon"} onChange={(e) => setQuery(e.target.value)} />
           </label>
-          <div className="actions search-actions">
-            <button type="submit" className="primary" data-testid="discover-submit">Search<Icon name="arrow" /></button>
-            <button type="button" className="secondary" data-testid="discover-nearby" disabled={locating} onClick={() => void onNearMe()}><Icon name="location" />Near me</button>
-          </div>
+          {connected ? (
+            <div className="actions search-actions">
+              <button type="submit" className="primary" data-testid="discover-submit">Search<Icon name="arrow" /></button>
+              <button type="button" className="secondary" data-testid="discover-nearby" disabled={locating} onClick={() => void onNearMe()}><Icon name="location" />Near me</button>
+            </div>
+          ) : (
+            <p className="hint" data-testid="discover-offline">Search needs a connection.</p>
+          )}
           {locating && <span className="hint" data-testid="discover-locating">Finding your location…</span>}
         </form>
         <p className="fine-print">A listing doesn&rsquo;t tell us whether a place is suitable for coeliacs. Check the evidence and call ahead.</p>

@@ -24,6 +24,12 @@ vi.mock("../auth/AuthProvider", () => ({
   useAuth: () => ({ state: { status: "member", uid: "ava-uid", email: "ava@safebite.test", householdId: "home", displayName: "Ava" }, signOut: vi.fn() }),
 }));
 
+const conn = vi.hoisted(() => ({ connected: true }));
+vi.mock("../offline/writeAccess", () => ({
+  useWriteAccess: () => { return conn.connected; },
+  useConnectivity: () => { return conn.connected; },
+}));
+
 import { DiscoverPage, REASON_TEXT } from "./DiscoverPage";
 
 const result = (n: number) => ({ placeId: `p${n}`, name: `Place ${n}`, address: `${n} Street`, googleMapsUri: `https://maps.google.com/?cid=${n}` });
@@ -51,6 +57,7 @@ function renderPage() {
 }
 
 beforeEach(() => {
+  conn.connected = true;
   m.watchRestaurants.mockImplementation((_h: string, cb: (s: Snapshot<Restaurant[]>) => void) => {
     emitRestaurants = cb;
     cb({ status: "ready", value: [] });
@@ -227,5 +234,22 @@ describe("location belongs to its initiating search intent", () => {
     await act(async () => rejectPosition({ kind: "error", reason: "locationDenied" }));
     expect(screen.getByTestId("discover-result")).toHaveAttribute("data-place-id", "p1");
     expect(screen.queryByTestId("discover-state")).not.toBeInTheDocument();
+  });
+});
+
+describe("offline (spec §3.9)", () => {
+  it("shows 'Search needs a connection.' in place of the search actions", () => {
+    conn.connected = false;
+    renderPage();
+    expect(screen.getByTestId("discover-offline")).toHaveTextContent("Search needs a connection.");
+    expect(screen.queryByTestId("discover-submit")).toBeNull();
+    expect(screen.queryByTestId("discover-nearby")).toBeNull();
+  });
+
+  it("pressing Enter in the search box offline does not search", async () => {
+    conn.connected = false;
+    renderPage();
+    await userEvent.type(screen.getByTestId("discover-query"), "Lisbon{Enter}");
+    expect(m.searchDestination).not.toHaveBeenCalled();
   });
 });

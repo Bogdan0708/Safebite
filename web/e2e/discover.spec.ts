@@ -211,10 +211,16 @@ test("10. Add to our records carries only the place id; the member types name an
 test("11. searching while offline is refused without a request; a seeded record's Maps link needs no network", async ({ page, context, request }) => {
   await seedRestaurant(request, "r-linked", { name: "Linked Place", googlePlaceId: "fixture-07" });
   await openDiscover(page);
+  const searchRequests: string[] = [];
+  page.on("request", (r) => { if (r.method() === "POST" && /\/search(Destination|Nearby)$/.test(r.url())) searchRequests.push(r.url()); });
   await context.setOffline(true);
-  await search(page, "Lisbon");
-  await expect(stateOf(page)).toHaveAttribute("data-reason", "offline");
+  // Spec §3.9: "Search needs a connection." replaces the search actions while offline.
+  await expect(page.getByTestId("discover-offline")).toHaveText("Search needs a connection.");
+  await expect(page.getByTestId("discover-submit")).toHaveCount(0);
+  await page.getByTestId("discover-query").fill("Lisbon");
+  await page.getByTestId("discover-query").press("Enter");
   await expect(page.getByTestId("discover-result")).toHaveCount(0);
+  expect(searchRequests).toHaveLength(0);
   await context.setOffline(false);
   await page.goto("/restaurants/r-linked");
   await expect(page.getByTestId("restaurant-maps")).toHaveAttribute("href", "https://www.google.com/maps/search/?api=1&query=Linked%20Place&query_place_id=fixture-07");
