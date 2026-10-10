@@ -32,7 +32,7 @@ vi.mock("firebase/auth", () => ({
 }));
 vi.mock("firebase/firestore", () => ({
   doc: (_db: unknown, path: string) => ({ path }),
-  getDoc: (ref: { path: string }) => getDocMock(ref.path),
+  getDocFromServer: (ref: { path: string }) => getDocMock(ref.path),
 }));
 
 import { AuthProvider, useAuth } from "./AuthProvider";
@@ -43,7 +43,7 @@ function Probe() {
 }
 
 function snap(data: Record<string, unknown> | undefined) {
-  return { exists: () => data !== undefined, data: () => data };
+  return { exists: () => data !== undefined, data: () => data, metadata: { fromCache: false } };
 }
 
 /** A getDoc result the test resolves by hand, to order overlapping membership lookups. */

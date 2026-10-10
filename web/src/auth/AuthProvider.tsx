@@ -1,12 +1,11 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { onAuthStateChanged, signInWithEmailAndPassword, signOut as firebaseSignOut, type User } from "firebase/auth";
-import { doc, getDoc } from "firebase/firestore";
-import { auth, db } from "../firebase";
+import { auth } from "../firebase";
 import { forgetAuthGuard } from "../account/authCleanupGuard";
 import { DELETED_UIDS_KEY, forgetDeletedUid, isDeletedUid } from "../account/deletedSessions";
 import { discardDeletedNoticeUnlessFor } from "../account/storage";
 import { clearDeviceData } from "../device/cleanup";
-import { resolveMembership } from "./membership";
+import { readMembershipFromServer } from "./membershipCheck";
 import { resetDocument } from "./resetDocument";
 
 export type AuthState =
@@ -28,34 +27,20 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-async function readDoc(path: string): Promise<Record<string, unknown> | undefined> {
-  try {
-    const snapshot = await getDoc(doc(db, path));
-    return snapshot.exists() ? (snapshot.data() as Record<string, unknown>) : undefined;
-  } catch (err) {
-    if ((err as { code?: string }).code === "permission-denied") {
-      // The rules deny this read precisely when the caller is not a member; treat that as "no document".
-      return undefined;
-    }
-    // Any other failure (offline, outage, etc.) is not evidence of non-membership; let it propagate
-    // so the caller can distinguish "not a member" from "couldn't find out".
-    throw err;
-  }
-}
-
 async function stateForUser(user: User): Promise<AuthState> {
   if (isDeletedUid(user.uid)) return { status: "deletedSession", uid: user.uid, email: user.email };
-  const userDoc = await readDoc(`users/${user.uid}`);
-  const householdId = userDoc?.householdId;
-  const householdDoc = typeof householdId === "string" ? await readDoc(`households/${householdId}`) : undefined;
-  const membership = resolveMembership(user.uid, userDoc, householdDoc);
-  if (membership.kind === "member") {
-    return { status: "member", uid: user.uid, email: user.email, householdId: membership.householdId, displayName: membership.displayName };
+  const answer = await readMembershipFromServer(user.uid);
+  switch (answer.kind) {
+    case "member":
+      return { status: "member", uid: user.uid, email: user.email, householdId: answer.householdId, displayName: answer.displayName };
+    case "deletionPending":
+      return { status: "deletionPending", uid: user.uid, email: user.email };
+    case "notMember":
+      return { status: "notMember", uid: user.uid, email: user.email, canDeleteSignIn: answer.canDeleteSignIn };
+    case "noAnswer":
+      // Task 6 opens the offline copy here; until then "no answer" is today's error screen.
+      throw new Error("no answer");
   }
-  // An interrupted account deletion (spec §3.8): the owner may read their own record.
-  const record = await readDoc(`accountDeletions/${user.uid}`);
-  if (record !== undefined) return { status: "deletionPending", uid: user.uid, email: user.email };
-  return { status: "notMember", uid: user.uid, email: user.email, canDeleteSignIn: userDoc === undefined };
 }
 
 function uidsIn(raw: string | null): string[] {
