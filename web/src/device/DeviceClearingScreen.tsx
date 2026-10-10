@@ -1,15 +1,29 @@
 import { useCallback, useEffect, useState } from "react";
-import { clearDeviceData } from "./cleanup";
+import { clearDeviceData, pendingClear, pendingClearKeys, retirePendingClearKeys } from "./cleanup";
 
-/** Shown at start-up while the pendingClear marker is set; renders nothing of the app. */
+/** Rounds before giving up when other tabs keep starting clears (each round re-captures). */
+const MAX_ROUNDS = 3;
+
+/**
+ * Shown at start-up while any pending-clear key is set; renders nothing of the app. Each round
+ * captures the keys present before it runs and, on success, retires only those (spec §3.9,
+ * review R2-3). A key written meanwhile by another tab's run survives and is covered by the next
+ * round, so the gate is re-checked before the app opens.
+ */
 export function DeviceClearingScreen({ onCleared }: { onCleared: () => void }) {
   const [failed, setFailed] = useState(false);
   const run = useCallback(() => {
     setFailed(false);
-    void clearDeviceData().then(({ failed: names }) => {
-      if (names.length === 0) onCleared();
-      else setFailed(true);
-    });
+    void (async () => {
+      for (let round = 0; round < MAX_ROUNDS; round += 1) {
+        const captured = pendingClearKeys();
+        const { failed: names } = await clearDeviceData();
+        if (names.length > 0) { setFailed(true); return; }
+        retirePendingClearKeys(captured);
+        if (!pendingClear()) { onCleared(); return; }
+      }
+      setFailed(true);
+    })();
   }, [onCleared]);
   useEffect(run, [run]);
   return (

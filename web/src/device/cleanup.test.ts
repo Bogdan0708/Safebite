@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { CLEANER_TIMEOUT_MS, PENDING_CLEAR_KEY, _resetDeviceCleanersForTests, clearDeviceData, pendingClear, registerDeviceCleaner } from "./cleanup";
+import { CLEANER_TIMEOUT_MS, PENDING_CLEAR_KEY, PENDING_CLEAR_PREFIX, _resetDeviceCleanersForTests, clearDeviceData, pendingClear, pendingClearKeys, registerDeviceCleaner, retirePendingClearKeys } from "./cleanup";
 
 beforeEach(() => {
   _resetDeviceCleanersForTests();
@@ -60,5 +60,48 @@ describe("clearDeviceData", () => {
     await expect(clearDeviceData()).resolves.toEqual({ failed: [] });
     expect(c).toHaveBeenCalled();
     expect(pendingClear()).toBe(false);
+  });
+});
+
+describe("per-run pending-clear keys (spec §3.9, review P3-8)", () => {
+  it("each run writes its own key and removes only that key on success", async () => {
+    let seen: string[] = [];
+    registerDeviceCleaner({ name: "spy", clear: async () => { seen = pendingClearKeys(); } });
+    await expect(clearDeviceData()).resolves.toEqual({ failed: [] });
+    expect(seen).toHaveLength(1);
+    expect(seen[0]!.startsWith(PENDING_CLEAR_PREFIX)).toBe(true);
+    expect(pendingClearKeys()).toEqual([]);
+  });
+
+  it("two concurrent runs: the failing run's key survives the other run's success", async () => {
+    let calls = 0;
+    registerDeviceCleaner({ name: "flaky", clear: async () => { calls += 1; if (calls === 1) throw new Error("first run fails"); } });
+    const [a, b] = await Promise.all([clearDeviceData(), clearDeviceData()]);
+    expect(a).toEqual({ failed: ["flaky"] });
+    expect(b).toEqual({ failed: [] });
+    expect(pendingClear()).toBe(true);
+    expect(pendingClearKeys()).toHaveLength(1);
+  });
+
+  it("honours and retires the legacy marker", () => {
+    localStorage.setItem(PENDING_CLEAR_KEY, "1");
+    expect(pendingClear()).toBe(true);
+    retirePendingClearKeys(pendingClearKeys());
+    expect(pendingClear()).toBe(false);
+  });
+
+  it("retiring a captured set leaves keys written afterwards", () => {
+    localStorage.setItem(`${PENDING_CLEAR_PREFIX}old`, "1");
+    const captured = pendingClearKeys();
+    localStorage.setItem(`${PENDING_CLEAR_PREFIX}new`, "1");
+    retirePendingClearKeys(captured);
+    expect(pendingClearKeys()).toEqual([`${PENDING_CLEAR_PREFIX}new`]);
+  });
+
+  it("blocked storage never throws: no keys, nothing pending", () => {
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new Error("blocked"); });
+    vi.spyOn(Storage.prototype, "removeItem").mockImplementation(() => { throw new Error("blocked"); });
+    expect(() => retirePendingClearKeys(["x"])).not.toThrow();
+    return expect(clearDeviceData()).resolves.toEqual({ failed: [] });
   });
 });

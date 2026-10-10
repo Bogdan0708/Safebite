@@ -11,11 +11,12 @@ import { SignInScreen } from "./SignInScreen";
 const OK = "Your account has been deleted.";
 const FAILED = "Your account has been deleted. Some data on this device couldn't be cleared.";
 
-beforeEach(() => { m.flag = null; m.deleted = []; });
+beforeEach(() => { m.flag = null; m.deleted = []; localStorage.clear(); });
 
 describe("SignInScreen deleted notice", () => {
   it("deletedSession with a matching flag shows the flag's kind", () => {
     m.flag = { kind: "clearFailed", uid: "ava" };
+    localStorage.setItem("safebite.pendingClear.run", "1");
     render(<SignInScreen deletedUid="ava" />);
     expect(screen.getByTestId("signin-deleted-notice")).toHaveTextContent(FAILED);
   });
@@ -40,5 +41,21 @@ describe("SignInScreen deleted notice", () => {
     m.flag = { kind: "ok", uid: "ava" };
     render(<SignInScreen />);
     expect(screen.queryByTestId("signin-deleted-notice")).toBeNull();
+  });
+});
+
+describe("stale clearFailed notice (5a ledger)", () => {
+  it("shows the plain deleted notice once no pending-clear key remains", () => {
+    m.flag = { kind: "clearFailed", uid: "ava" };
+    render(<SignInScreen deletedUid="ava" />);
+    expect(screen.getByTestId("signin-deleted-notice")).toHaveTextContent(OK);
+    expect(screen.getByTestId("signin-deleted-notice")).not.toHaveTextContent("couldn't be cleared");
+  });
+
+  it("keeps the failure wording while a key is pending (legacy marker included)", () => {
+    m.flag = { kind: "clearFailed", uid: "ava" };
+    localStorage.setItem("safebite.pendingClear", "1");
+    render(<SignInScreen deletedUid="ava" />);
+    expect(screen.getByTestId("signin-deleted-notice")).toHaveTextContent(FAILED);
   });
 });
