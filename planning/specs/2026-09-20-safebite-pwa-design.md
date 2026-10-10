@@ -199,6 +199,7 @@ storage. Only `googlePlaceId` persists.
 - Offline: Firestore SDK persistence stays **off**. An explicit "Download for
   offline" action copies saved restaurants, claims and notes into IndexedDB
   with a download timestamp. Cleared on sign-out and on account deletion.
+  (Superseded by §3.9: a per-account opt-in, then automatic refresh.)
 - Export: callable returns JSON of the household's restaurants, claims,
   collection and notes with `authorUid`/`displayName`.
 - Account deletion: callable deletes the caller's notes, membership, user doc,
@@ -1706,3 +1707,250 @@ not-invited screen (a new client offers **Finish deleting**).
 Offline download and the **Clear device data** button (5b); legal pages, cost checklist, icons and
 iPhone acceptance (5c); an admin removing another member; Cloud Logging retention (documented in
 5c).
+
+### 3.9 Plan 5b design — offline reading (brainstormed 2026-10-10)
+
+Scope is the 5b row of the Plan 5 split (§3.8). This section supersedes §2.6's offline bullet
+wherever they differ: the copy is kept up to date automatically after a per-account opt-in,
+rather than by a manual "Download for offline" action each time.
+
+**Goal, not guarantee.** The aim is that a readable, recent copy is already on the device when
+the connection drops unexpectedly. A web app cannot guarantee it: a refresh can fail and the
+browser can evict storage. The design therefore makes readiness and failure visible, asks for
+persistent storage where supported, and is accepted only by a real-iPhone test (see Tests).
+
+#### Owner rulings (2026-10-10)
+
+1. **Use cases:** travelling abroad, no signal in or near a restaurant, planning on a flight, and
+   a fallback when the network is down. The copy must exist before it is needed.
+2. **Opt in once per account on each device, then automatic.** A Settings switch, off by
+   default. Once on, the copy refreshes by itself while the app is open and online. Another
+   account on the same device starts with the switch off.
+3. **Read-only offline.** Adding and editing stay disabled with the existing offline notice;
+   every write remains a server transaction (§3.5).
+4. **Age is always shown; amber after 7 days.**
+5. **Revocation:** the copy stays readable offline (the device cannot know). The first server
+   answer confirming loss of access wipes it. A copy without a server-confirmed membership check
+   for 30 days stops opening until the device reconnects.
+
+Rejected: a manual download button only (stale or missing when signal drops unexpectedly);
+always-on copies (data lands on any device anyone signs in on); queued offline notes or full
+offline editing (needs a write queue and conflict handling for every write path; roughly doubles
+5b). Firestore's own persistent cache is a poor fit rather than impossible to isolate: it is
+keyed to the project, persists between sessions (Firebase documents this), and is cleared only by
+terminating Firestore, so per-account isolation and cleanup-wins-over-refresh would have to be
+rebuilt around it. A service worker remains the app-shell cache only; it is not the household-data
+store (Firestore traffic is not plain cacheable requests).
+
+**Review of the first outline, 2026-10-10** (owner-supplied): all points adopted — visible
+readiness, more refresh triggers with coalescing, download age kept separate from evidence age,
+cleanup must win over refresh across tabs, a strict definition of a server check, opt-in scoped
+to the account, and "goal, not guarantee" wording with persistent storage and real-device
+acceptance.
+
+#### What the copy holds
+
+Everything the signed-in member can already read online, for their household: all restaurants
+(not just the shortlist), every claim including history, every collection document (shortlist
+and visited state), and both members' notes (the rules already allow members to read each
+other's notes). Nothing else: no Discover results, no usage, no account records. The call-ahead
+questions are built into the bundle and need no copy.
+
+#### Data model (IndexedDB `safebite-offline`, version 1)
+
+| Store | Key | Contents |
+|---|---|---|
+| `meta` | `"copy"` | `{ uid, householdId, displayName, epoch, downloadedAt, membershipCheckedAt, complete: true }` |
+| `restaurants` | `id` | restaurant fields as `toRestaurant` produces them |
+| `claims` | `[rid, id]` | claim fields as `toClaim` produces them |
+| `collection` | `rid` | collection fields |
+| `notes` | `[rid, id]` | note fields |
+| `optIn` | `uid` | `{ uid, enabled: true }` |
+| `control` | `"epoch"` | `{ epoch: number }` — survives clears; only ever increases |
+
+- One copy per device, tagged with **both** `uid` and `householdId`. Every read takes the
+  expected `uid` and `householdId` and returns nothing on any mismatch.
+- Timestamps are stored as milliseconds; calendar dates (`checkedAt`, `expiresAt`, `visitedOn`)
+  are stored exactly as the records module represents them, so evidence status is computed by the
+  existing `evidenceStatus(claim, today)` with **today's** date, never the download date.
+- `downloadedAt` (last complete download) and `membershipCheckedAt` (last server-confirmed
+  membership) are separate fields and are renewed by different events (below).
+
+#### Units
+
+1. **`web/src/offline/store.ts`** — the device copy. `readCopy(uid, hid)`,
+   `replaceCopy(uid, hid, epochAtStart, data, now)` (one readwrite transaction over all stores;
+   see Refresh), `recordMembershipCheck(uid, hid, now)`, `clearCopy()` (bumps `control.epoch`,
+   deletes `meta` and every record store; leaves `optIn` alone), `getOptIn(uid)`,
+   `setOptIn(uid, enabled)`. Registers a device cleaner named `offlineCopy` with the §3.8
+   registry; the cleaner calls `clearCopy()` and deletes all `optIn` rows. It never touches any
+   other database or localStorage key.
+2. **`web/src/offline/refresher.ts`** — keeps the copy current. Single flight with a "run once
+   more" flag; never two refreshes at once in a document.
+3. **`web/src/auth/AuthProvider.tsx`** — gains `offlineMember` and the startup rules below.
+4. **Read source** — the watchers in `records/repository.ts`, `records/collection.ts` and
+   `records/notes.ts` gain a copy-backed variant selected while the state is `offlineMember`. It
+   emits the existing `offline` read state with the copy's value, so the current offline banner,
+   disabled controls and `ReadStateNotice` apply unchanged. A restaurant absent from the copy
+   emits the existing "not loaded on this device" error.
+
+#### Startup and the `offlineMember` state
+
+Unchanged up to the membership read: pending-clear check, 5a's stored-sign-in cleanup, Firebase
+restoring the saved sign-in, then the deleted-session check. `stateForUser` then reads
+membership **from the server** (persistence is off, so `getDoc` cannot answer from a disk
+cache). The outcome is classified:
+
+| Membership read | Copy | Result |
+|---|---|---|
+| Server answer: member | any | `member` (as today). `recordMembershipCheck` for this `uid`/`householdId`. If opted in, start a refresh. |
+| Server answer: not a member, deletion pending, or `permission-denied` | any | Wipe the copy through `clearDeviceData()`, then today's screen |
+| No answer: offline, `unavailable`, `deadline-exceeded`, or the startup timeout | `meta` matches `uid`, opted in, `complete`, `0 ≤ now − membershipCheckedAt ≤ 30 days` | `offlineMember { uid, email, householdId, displayName, downloadedAt }` |
+| No answer | missing, other account or household, opted out, incomplete, or outside 30 days | Today's error screen; when only the 30-day limit failed: "This offline copy needs a connection to confirm your access." |
+
+- **What renews the 30 days:** only a membership answer that came from the server, or a refresh
+  whose server reads all succeeded (they prove membership too). A cached answer, `navigator.onLine`
+  or merely reaching the network does not.
+- **Startup timeout:** when `navigator.onLine === false`, classify as "no answer" at once;
+  otherwise give the membership read up to 6 s (empirical stop 1 confirms or adjusts this).
+- **Clock:** a `membershipCheckedAt` in the future counts as outside the window, so setting the
+  clock back cannot extend it.
+- **`displayName`** for `offlineMember` comes from `meta.displayName`, written from the `member`
+  state at the last refresh.
+- **Leaving `offlineMember`:** on the `online` event and every 15 minutes while visible, the
+  membership read is retried. A server "member" answer switches to `member` in place (no reload;
+  watchers re-subscribe live) and starts a refresh. A confirmed loss of access wipes the copy and
+  resets the document exactly as an account change does today. "No answer" keeps the state.
+
+#### Refresh
+
+Runs only in `member` with the account's opt-in on.
+
+1. Capture `uid`, `householdId` and `control.epoch`.
+2. Read from the server: the restaurants query, then for each restaurant its claims and notes,
+   and the collection query. Any `permission-denied` is a confirmed loss of access (wipe and
+   reset, as above). Any other failure ends the refresh with nothing written.
+3. One readwrite transaction over all stores: re-read `control.epoch`, `optIn[uid]` and `meta`.
+   Abort without writing if the epoch changed, the opt-in is off, or `meta` names another account
+   or household. Otherwise replace every record store, and write `meta` with the member's
+   `displayName`, `downloadedAt = membershipCheckedAt = now` and `complete: true`.
+4. **Triggers:** entering `member`; turning the switch on; the `online` event; returning to the
+   page (`visibilitychange`) when the copy is older than 15 minutes; every 15 minutes while
+   visible; after any successful write (record, claim, collection, note); **Refresh now**. A
+   trigger during a running refresh sets "run once more"; at most one extra run follows.
+
+**Cleanup wins.** Sign-out, account switch, opting out, **Clear device data** and confirmed loss
+of access all run `clearCopy()`, which bumps `control.epoch` in its own transaction. IndexedDB
+serialises overlapping readwrite transactions, including across tabs, so a refresh that captured
+the old epoch aborts at step 3 and cannot write the copy back. `control` is never deleted, so the
+epoch only increases.
+
+**Persistent storage.** When the switch is first turned on, call `navigator.storage.persist()`
+where it exists. A refusal shows "Your browser may remove this copy if the device runs low on
+space." The answer is not stored as a guarantee.
+
+#### Screens and wording
+
+**Settings → Offline copy** (per account on this device):
+
+- Switch **Keep a copy on this device**. Off: "Not stored on this device."
+- Turning it on starts the first download at once: "Downloading…". Until a download succeeds:
+  **"Not ready offline"**. After success: **"Ready offline · updated 10 Oct, 14:32"**.
+- After a failed refresh: **"Last update failed · copy from 9 Oct, 18:05"** (or "Not ready
+  offline" when there is no copy), with a plain reason — offline, storage full, couldn't reach
+  SafeBite — and **Try again**.
+- **Refresh now**, enabled online.
+- Turning the switch off asks "Remove the offline copy from this device?" and clears at once.
+- IndexedDB unavailable or quota refused on the first write: "This device can't store an
+  offline copy." The switch stays off.
+- **Clear device data** (the §3.8 button): runs `clearDeviceData()` and reports with 5a's
+  messages.
+
+**In `offlineMember`:** the shell shows a banner in place of the generic offline notice:
+"Offline copy from 10 Oct, 14:32. Adding and editing need a connection." When `now −
+downloadedAt` exceeds 7 days it turns amber: "This offline copy is over a week old. Evidence may
+have changed since." Evidence rows keep their own checked dates and "needs rechecking" status.
+Discover shows "Search needs a connection." in place of the search panel's actions. Call-ahead
+questions show as usual.
+
+#### Error handling
+
+- **Refresh failure** at any point: nothing written; the previous copy stays; Settings shows the
+  failure. `permission-denied` during the refresh's reads is a confirmed loss of access.
+- **Quota exceeded / IndexedDB missing / transaction aborted:** treated as a failed refresh;
+  on the very first download, the "can't store" message.
+- **Malformed or partial copy** (schema mismatch, `complete` missing, a parse failure): treated
+  as no copy and wiped through the cleanup path; never rendered in part.
+- **Clear failure:** §3.8's pending-clear marker blocks start-up until it succeeds.
+
+#### Carried from Plan 5a (hard requirements, before `offlineCopy` is registered)
+
+- **Per-run clear token.** `safebite.pendingClear` becomes a token per clearing run instead of
+  one shared boolean, so two tabs clearing at once cannot mask a failure (5a ledger).
+- **Stale notice.** The "Some data on this device couldn't be cleared" sign-in notice is dropped
+  once a later clear succeeds (5a ledger).
+- **Cleaner boundary.** The `offlineCopy` cleaner must not remove 5a's Auth cleanup intents
+  (`safebite.authCleanup.*`), the deleted-UID record (`safebite.deletedUids`), or the Firebase
+  Auth database. A regression test attempts the clear and asserts all three survive
+  (5a persistence report, review #6).
+
+#### Empirical stops (prove before any task builds on them; record the result in the plan)
+
+1. **Offline membership read.** With persistence off, how long `getDoc` takes to fail in real
+   airplane mode and in Chromium offline emulation, and with which code. Sets the startup
+   timeout (6 s assumed).
+2. **Expired-token restore.** A saved sign-in older than an hour restores offline with
+   `currentUser` set and is not signed out by the failed token refresh; on reconnection the
+   refresh succeeds.
+3. **Persistent storage on iPhone.** What `navigator.storage.persist()` returns in an installed
+   Home Screen app and in Safari, and whether the copy survives a full app close.
+4. **Cross-tab serialisation.** Two documents: a refresh's step-3 transaction queued behind a
+   `clearCopy()` in the other tab observes the bumped epoch and aborts.
+
+#### Tests
+
+**Unit:** store tagging and mismatched `uid`/`householdId` refusal; epoch abort of a late
+`replaceCopy`; malformed-copy wipe; cleaner boundary (5a keys and Auth DB survive); refresher
+single flight and "run once more"; every row of the startup table, the 30-day edges and a future
+`membershipCheckedAt`; the 6 s timeout and `navigator.onLine === false` fast path; banner
+thresholds (exactly 7 days, just over); evidence "needs rechecking" computed against today with an
+old copy; per-run clear token and stale-notice removal; opt-in scoped per account.
+
+**Browser (emulators):**
+
+1. Opt in → "Ready offline" → browser offline → reload → restaurants, evidence (with history)
+   and both members' notes readable; writes disabled; age banner shown.
+2. Account switch → the other account sees no copy and the stores are empty.
+3. Sign out in tab B while tab A's refresh is between steps 2 and 3 → nothing written back.
+4. Membership revoked on the server while offline → reconnect → copy wiped, today's screen.
+5. A copy whose `membershipCheckedAt` is 31 days old (clock faked) → "needs a connection".
+6. Switch off → confirm → copy cleared.
+7. A refresh interrupted by a forced failure → previous copy and `downloadedAt` unchanged.
+8. Offline Discover shows "Search needs a connection."
+
+**Real-iPhone acceptance** (added to the 5c script, runnable once 5b is deployed): opt in, wait
+for "Ready offline", fully close the app, airplane mode, reopen, read restaurants, evidence and
+notes; back online, sign out, and confirm Settings shows no copy for the next account.
+
+#### Decisions taken without owner input (override if wrong)
+
+| Decision | Reason |
+|----------|--------|
+| 15-minute refresh interval while visible; refresh on return when older than 15 minutes | Fresh enough for a household's pace of change, cheap in reads |
+| 6-second startup timeout (subject to stop 1) | Long enough on a weak signal, short enough not to feel stuck |
+| One copy per device, not per account | Only the signed-in account may read it; a switch clears it anyway |
+| The whole household, not just the shortlist | Small data; an unexpected dead zone can involve any record |
+| `displayName` taken from the copy offline | The server cannot be asked; the name is not security-relevant |
+| No new Firestore rules or indexes | All reads already exist online and are allowed by the rules |
+
+#### Deploy note
+
+Hosting only: no rules, functions or index changes. Older cached clients have no copy and are
+unaffected. The 5a pending-clear token change is backward compatible: a legacy `"1"` value is
+treated as a pending clear.
+
+#### Not in this plan
+
+Offline edits or a write queue; offline Discover; background refresh while the app is closed
+(not reliable for an installed iPhone web app); syncing a copy between devices; legal-page wording
+for retention (5c documents what 5b establishes).
