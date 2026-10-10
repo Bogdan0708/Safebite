@@ -17,6 +17,7 @@ import {
   type Transaction,
 } from "firebase/firestore";
 import { db } from "../firebase";
+import { NOT_IN_COPY, withCopy } from "../offline/withCopy";
 import { fromCalendarDate, toCalendarDate } from "./dates";
 import type { Author, Claim, ClaimInput, ClaimSource, Restaurant, RestaurantInput } from "./types";
 
@@ -29,10 +30,12 @@ import type { Author, Claim, ClaimInput, ClaimSource, Restaurant, RestaurantInpu
  */
 
 export type Snapshot<T> =
-  | { status: "ready" | "offline"; value: T }
+  /** `source: "copy"`: read from the offline copy because the server could not answer (spec §3.9). */
+  | { status: "ready" | "offline"; value: T; source?: "copy" }
   | { status: "gone" }
   | { status: "denied" }
-  | { status: "error"; message: string };
+  /** `cacheMiss`: offline and this document is not in the memory cache — the copy may still have it. */
+  | { status: "error"; message: string; cacheMiss?: true };
 
 export type WriteOutcome<T = void> =
   | { kind: "ok"; value: T }
@@ -108,7 +111,7 @@ export function listenerFailure(err: FirestoreError): Snapshot<never> {
 /** includeMetadataChanges: a cache→server transition with identical data must still flip offline→ready. */
 export const LISTEN = { includeMetadataChanges: true } as const;
 
-export function watchRestaurants(hid: string, cb: (s: Snapshot<Restaurant[]>) => void): () => void {
+function listenRestaurants(hid: string, cb: (s: Snapshot<Restaurant[]>) => void): () => void {
   return onSnapshot(
     query(restaurantsCol(hid), orderBy("name")),
     LISTEN,
@@ -117,14 +120,14 @@ export function watchRestaurants(hid: string, cb: (s: Snapshot<Restaurant[]>) =>
   );
 }
 
-export function watchRestaurant(hid: string, rid: string, cb: (s: Snapshot<Restaurant>) => void): () => void {
+function listenRestaurant(hid: string, rid: string, cb: (s: Snapshot<Restaurant>) => void): () => void {
   return onSnapshot(
     restaurantRef(hid, rid),
     LISTEN,
     (snap) => {
       if (!snap.exists()) {
         // A cached miss is not proof of deletion; only the server may say "gone".
-        cb(snap.metadata.fromCache ? { status: "error", message: "You are offline and this restaurant has not been loaded on this device." } : { status: "gone" });
+        cb(snap.metadata.fromCache ? { status: "error", message: NOT_IN_COPY, cacheMiss: true } : { status: "gone" });
         return;
       }
       cb({ status: snap.metadata.fromCache ? "offline" : "ready", value: toRestaurant(snap) });
@@ -133,13 +136,28 @@ export function watchRestaurant(hid: string, rid: string, cb: (s: Snapshot<Resta
   );
 }
 
-export function watchClaims(hid: string, rid: string, cb: (s: Snapshot<Claim[]>) => void): () => void {
+function listenClaims(hid: string, rid: string, cb: (s: Snapshot<Claim[]>) => void): () => void {
   return onSnapshot(
     query(claimsCol(hid, rid)),
     LISTEN,
     (snap) => cb({ status: snap.metadata.fromCache ? "offline" : "ready", value: snap.docs.map(toClaim) }),
     (err) => cb(listenerFailure(err)),
   );
+}
+
+export function watchRestaurants(hid: string, cb: (s: Snapshot<Restaurant[]>) => void): () => void {
+  return withCopy<Restaurant[]>((c) => listenRestaurants(hid, c), (copy) => ({ status: "offline", source: "copy", value: copy.restaurants }))(cb);
+}
+
+export function watchRestaurant(hid: string, rid: string, cb: (s: Snapshot<Restaurant>) => void): () => void {
+  return withCopy<Restaurant>((c) => listenRestaurant(hid, rid, c), (copy) => {
+    const found = copy.restaurants.find((r) => r.id === rid);
+    return found ? { status: "offline", source: "copy", value: found } : { status: "error", message: NOT_IN_COPY, cacheMiss: true };
+  })(cb);
+}
+
+export function watchClaims(hid: string, rid: string, cb: (s: Snapshot<Claim[]>) => void): () => void {
+  return withCopy<Claim[]>((c) => listenClaims(hid, rid, c), (copy) => ({ status: "offline", source: "copy", value: copy.claims[rid] ?? [] }))(cb);
 }
 
 export function classify(err: unknown): WriteOutcome<never> {

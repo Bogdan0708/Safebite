@@ -1,6 +1,7 @@
 import { doc, onSnapshot, orderBy, query, serverTimestamp, type DocumentData, type DocumentSnapshot } from "firebase/firestore";
 import { ConflictError, LISTEN, listenerFailure, notesCol, NotFoundError, observed, restaurantRef, toDate, write, type Snapshot, type WriteOutcome } from "./repository";
 import type { Author, Note } from "./types";
+import { withCopy } from "../offline/withCopy";
 
 /**
  * Authored notes on a restaurant (spec §3.7). Only the author edits or deletes (rules-enforced);
@@ -21,13 +22,17 @@ export function toNote(snap: Pick<DocumentSnapshot, "id" | "data">): Note {
   };
 }
 
-export function watchNotes(hid: string, rid: string, cb: (s: Snapshot<Note[]>) => void): () => void {
+function listenNotes(hid: string, rid: string, cb: (s: Snapshot<Note[]>) => void): () => void {
   return onSnapshot(
     query(notesCol(hid, rid), orderBy("createdAt", "desc")),
     LISTEN,
     (snap) => cb({ status: snap.metadata.fromCache ? "offline" : "ready", value: snap.docs.map(toNote) }),
     (err) => cb(listenerFailure(err)),
   );
+}
+
+export function watchNotes(hid: string, rid: string, cb: (s: Snapshot<Note[]>) => void): () => void {
+  return withCopy<Note[]>((c) => listenNotes(hid, rid, c), (copy) => ({ status: "offline", source: "copy", value: copy.notes[rid] ?? [] }))(cb);
 }
 
 export function addNote(hid: string, rid: string, author: Author, text: string): Promise<WriteOutcome<string>> {

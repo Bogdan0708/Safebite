@@ -14,6 +14,8 @@ const m = vi.hoisted(() => ({
 }));
 vi.mock("./repository", () => ({ watchRestaurants: m.watchRestaurants, finishDeleting: m.finishDeleting }));
 vi.mock("./collection", () => ({ watchCollection: m.watchCollection }));
+const hooks = vi.hoisted(() => ({ serving: false }));
+vi.mock("../offline/hooks", () => ({ useCopyServing: () => hooks.serving, useCopyMode: () => null }));
 vi.mock("../auth/AuthProvider", () => ({
   useAuth: () => ({ state: { status: "member", uid: "ava-uid", email: "ava@safebite.test", householdId: "home", displayName: "Ava" }, signOut: m.signOut }),
 }));
@@ -23,6 +25,7 @@ import { RestaurantsPage } from "./RestaurantsPage";
 let emit: (s: Snapshot<Restaurant[]>) => void = () => {};
 let emitState: (s: Snapshot<Record<string, CollectionState>>) => void = () => {};
 beforeEach(() => {
+  hooks.serving = false;
   m.watchRestaurants.mockImplementation((_hid: string, cb: (s: Snapshot<Restaurant[]>) => void) => {
     emit = cb;
     return () => {};
@@ -182,5 +185,15 @@ describe("RestaurantsPage — shortlist", () => {
     renderPage();
     act(() => emit({ status: "ready", value: [r({ id: "d", name: "Doomed", deleting: true })] }));
     await waitFor(() => expect(screen.getByTestId("restaurant-deleting")).toHaveTextContent("Could not finish deleting. Tap Finish deleting to try again."));
+  });
+});
+
+describe("offline copy (spec §3.9)", () => {
+  it("an empty copy says so instead of showing a bare list", async () => {
+    hooks.serving = true;
+    render(<MemoryRouter><RestaurantsPage /></MemoryRouter>);
+    act(() => emit({ status: "offline", source: "copy", value: [] }));
+    act(() => emitState({ status: "offline", source: "copy", value: {} }));
+    expect(await screen.findByTestId("copy-empty")).toHaveTextContent("Nothing in the offline copy.");
   });
 });
