@@ -119,6 +119,19 @@ export async function readMeta(): Promise<CopyMeta | null> {
   }
 }
 
+/** True when a meta record exists but has the wrong shape (readMeta reports it as null). */
+export async function hasMalformedMeta(): Promise<boolean> {
+  if (!hasIndexedDb()) return false;
+  try {
+    return await withDb(async (db) => {
+      const value = await result(db.transaction("meta", "readonly").objectStore("meta").get(META_KEY));
+      return value !== undefined && !isMeta(value);
+    });
+  } catch {
+    return false;
+  }
+}
+
 export async function readCopy(id: CopyIdentity): Promise<ReadCopyResult> {
   if (!hasIndexedDb()) return { kind: "none" };
   try {

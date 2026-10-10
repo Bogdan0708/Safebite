@@ -27,6 +27,7 @@ function Gate() {
       return <DeletionPendingScreen />;
     case "error":
       return <MembershipErrorScreen />;
+    case "offlineMember":
     case "member":
       return <AppShell />;
   }

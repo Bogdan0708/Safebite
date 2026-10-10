@@ -1,3 +1,5 @@
+import "fake-indexeddb/auto";
+import { IDBFactory } from "fake-indexeddb";
 import { render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -10,7 +12,7 @@ const { signInMock } = vi.hoisted(() => ({ signInMock: vi.fn() }));
 const { resetDocument } = vi.hoisted(() => ({ resetDocument: vi.fn() }));
 vi.mock("./resetDocument", () => ({ resetDocument }));
 const { clearDeviceData } = vi.hoisted(() => ({ clearDeviceData: vi.fn() }));
-vi.mock("../device/cleanup", () => ({ clearDeviceData }));
+vi.mock("../device/cleanup", async (importOriginal) => ({ ...(await importOriginal<typeof import("../device/cleanup")>()), clearDeviceData }));
 const { isDeletedUid, forgetDeletedUid, discardDeletedNoticeUnlessFor } = vi.hoisted(() => ({
   isDeletedUid: vi.fn((_uid: string) => false),
   forgetDeletedUid: vi.fn(),
@@ -34,8 +36,18 @@ vi.mock("firebase/firestore", () => ({
   doc: (_db: unknown, path: string) => ({ path }),
   getDocFromServer: (ref: { path: string }) => getDocMock(ref.path),
 }));
+const t = vi.hoisted(() => ({ timeout: undefined as number | undefined }));
+vi.mock("./membershipCheck", async (importOriginal) => {
+  const real = await importOriginal<typeof import("./membershipCheck")>();
+  return { ...real, membershipWithTimeout: (uid: string) => real.membershipWithTimeout(uid, t.timeout ?? real.MEMBERSHIP_TIMEOUT_MS) };
+});
 
 import { AuthProvider, useAuth } from "./AuthProvider";
+import { auth as authMock } from "../firebase";
+import { getCopySession, reportDenied, setCopySession } from "../offline/session";
+import { readMeta, readToken, replaceCopy, setOptIn } from "../offline/store";
+import { COPY_MAX_AGE_MS } from "../offline/types";
+import { EXPIRED_MESSAGE, NO_ANSWER_MESSAGE } from "./AuthProvider";
 
 function Probe() {
   const { state } = useAuth();
@@ -64,6 +76,12 @@ beforeEach(() => {
   forgetDeletedUid.mockReset();
   discardDeletedNoticeUnlessFor.mockReset();
   clearDeviceData.mockResolvedValue({ failed: [] });
+  globalThis.indexedDB = new IDBFactory();
+  localStorage.clear();
+  sessionStorage.clear();
+  setCopySession(null);
+  t.timeout = undefined;
+  (authMock as { currentUser?: unknown }).currentUser = undefined;
 });
 
 describe("AuthProvider", () => {
@@ -311,5 +329,246 @@ it("an offline failure reading the record is the error state, not notMember", as
     render(<AuthProvider><Probe /></AuthProvider>);
     listeners[0]({ uid: "u2", email: "b@x" });
     await waitFor(() => expect(discardDeletedNoticeUnlessFor).toHaveBeenCalledWith("u2"));
+  });
+});
+
+const unavailable = () => Object.assign(new Error("unavailable"), { code: "unavailable" });
+const AVA = { uid: "ava-uid", email: "ava@safebite.test" };
+
+async function seedCopy(householdId = "home", checkedAt = Date.now()) {
+  await setOptIn("ava-uid", true);
+  await replaceCopy({ uid: "ava-uid", householdId, displayName: "Ava" }, await readToken(), { restaurants: [], claims: {}, collection: {}, notes: {} }, checkedAt);
+}
+
+function memberDocs() {
+  getDocMock.mockImplementation(async (path: string) => {
+    if (path === "users/ava-uid") return snap({ householdId: "home", displayName: "Ava" });
+    if (path === "households/home") return snap({ name: "Home", memberIds: ["ava-uid"] });
+    return snap(undefined);
+  });
+}
+
+function stateText() {
+  return screen.getByTestId("state").textContent ?? "";
+}
+
+describe("AuthProvider offline (spec §3.9)", () => {
+  it("no answer with a usable copy opens offlineMember from the copy", async () => {
+    await seedCopy();
+    getDocMock.mockRejectedValue(unavailable());
+    render(<AuthProvider><Probe /></AuthProvider>);
+    listeners[0](AVA);
+    await waitFor(() => expect(stateText()).toContain('"status":"offlineMember"'));
+    expect(stateText()).toContain('"householdId":"home"');
+    expect(stateText()).toContain('"displayName":"Ava"');
+    expect(getCopySession()).toEqual({ uid: "ava-uid", householdId: "home", mode: "offlineMember" });
+  });
+
+  it("no answer with a copy past 30 days says it needs a connection", async () => {
+    await seedCopy("home", Date.now() - COPY_MAX_AGE_MS - 1000);
+    getDocMock.mockRejectedValue(unavailable());
+    render(<AuthProvider><Probe /></AuthProvider>);
+    listeners[0](AVA);
+    await waitFor(() => expect(stateText()).toContain(EXPIRED_MESSAGE));
+  });
+
+  it("no answer with another account's copy is the plain membership error", async () => {
+    await seedCopy();
+    getDocMock.mockRejectedValue(unavailable());
+    render(<AuthProvider><Probe /></AuthProvider>);
+    listeners[0]({ uid: "bogdan-uid", email: "bogdan@safebite.test" });
+    await waitFor(() => expect(stateText()).toContain(NO_ANSWER_MESSAGE));
+  });
+
+  it("a member answer renews the 30-day window", async () => {
+    const old = Date.now() - 10 * 24 * 60 * 60 * 1000;
+    await seedCopy("home", old);
+    memberDocs();
+    render(<AuthProvider><Probe /></AuthProvider>);
+    listeners[0](AVA);
+    await waitFor(() => expect(stateText()).toContain('"status":"member"'));
+    await waitFor(async () => expect((await readMeta())!.membershipCheckedAt).toBeGreaterThan(old));
+  });
+
+  it("a member of a different household loses the old copy and is told (ruling 8)", async () => {
+    await seedCopy("old-home");
+    memberDocs();
+    render(<AuthProvider><Probe /></AuthProvider>);
+    listeners[0](AVA);
+    await waitFor(() => expect(stateText()).toContain('"householdChanged":true'));
+    await expect(readMeta()).resolves.toBeNull();
+  });
+
+  it("a confirmed loss of access wipes the device before showing the screen", async () => {
+    getDocMock.mockImplementation(async () => snap(undefined));
+    render(<AuthProvider><Probe /></AuthProvider>);
+    listeners[0](AVA);
+    await waitFor(() => expect(stateText()).toContain('"notMember"'));
+    expect(clearDeviceData).toHaveBeenCalledTimes(1);
+  });
+
+  it("a late member answer after the timeout switches offlineMember to member in place (review P3-7)", async () => {
+    t.timeout = 50;
+    await seedCopy();
+    const slow = deferred<ReturnType<typeof snap>>();
+    getDocMock.mockImplementation((path: string) => (path === "users/ava-uid" ? slow.promise : Promise.resolve(snap({ name: "Home", memberIds: ["ava-uid"] }))));
+    render(<AuthProvider><Probe /></AuthProvider>);
+    listeners[0](AVA);
+    await waitFor(() => expect(stateText()).toContain('"status":"offlineMember"'));
+    slow.resolve(snap({ householdId: "home", displayName: "Ava" }));
+    await waitFor(() => expect(stateText()).toContain('"status":"member"'));
+    expect(resetDocument).not.toHaveBeenCalled();
+  });
+
+  it("a late not-a-member answer wipes the copy and resets an offline session", async () => {
+    t.timeout = 50;
+    await seedCopy();
+    const slow = deferred<ReturnType<typeof snap>>();
+    getDocMock.mockImplementation((path: string) => (path === "users/ava-uid" ? slow.promise : Promise.resolve(snap(undefined))));
+    render(<AuthProvider><Probe /></AuthProvider>);
+    listeners[0](AVA);
+    await waitFor(() => expect(stateText()).toContain('"status":"offlineMember"'));
+    slow.resolve(snap(undefined));
+    await waitFor(() => expect(resetDocument).toHaveBeenCalledTimes(1));
+    expect(clearDeviceData).toHaveBeenCalled();
+  });
+
+  it("in offlineMember, the online event re-checks membership quietly", async () => {
+    await seedCopy();
+    getDocMock.mockRejectedValue(unavailable());
+    (authMock as { currentUser?: unknown }).currentUser = AVA;
+    render(<AuthProvider><Probe /></AuthProvider>);
+    listeners[0](AVA);
+    await waitFor(() => expect(stateText()).toContain('"status":"offlineMember"'));
+    memberDocs();
+    window.dispatchEvent(new Event("online"));
+    await waitFor(() => expect(stateText()).toContain('"status":"member"'));
+  });
+
+  it("a listener denial while member re-reads membership once (review R2-4)", async () => {
+    memberDocs();
+    (authMock as { currentUser?: unknown }).currentUser = AVA;
+    render(<AuthProvider><Probe /></AuthProvider>);
+    listeners[0](AVA);
+    await waitFor(() => expect(stateText()).toContain('"status":"member"'));
+    getDocMock.mockReset();
+    getDocMock.mockImplementation(async () => snap(undefined));
+    reportDenied();
+    reportDenied();
+    await waitFor(() => expect(stateText()).toContain('"notMember"'));
+    expect(getDocMock.mock.calls.filter(([p]) => p === "users/ava-uid")).toHaveLength(1);
+    expect(clearDeviceData).toHaveBeenCalled();
+  });
+
+  // Controller ruling 2: at most one read per denial episode, even while that read is slow.
+  it("further denials during a slow denial read add no reads; a later denial starts a new episode", async () => {
+    memberDocs();
+    (authMock as { currentUser?: unknown }).currentUser = AVA;
+    render(<AuthProvider><Probe /></AuthProvider>);
+    listeners[0](AVA);
+    await waitFor(() => expect(stateText()).toContain('"status":"member"'));
+    const slow = deferred<ReturnType<typeof snap>>();
+    getDocMock.mockReset();
+    getDocMock.mockImplementation((path: string) => (path === "users/ava-uid" ? slow.promise : Promise.resolve(snap({ name: "Home", memberIds: ["ava-uid"] }))));
+    const userReads = () => getDocMock.mock.calls.filter(([p]) => p === "users/ava-uid").length;
+    reportDenied();
+    await new Promise((r) => setTimeout(r, 10));
+    reportDenied();
+    reportDenied();
+    expect(userReads()).toBe(1);
+    slow.resolve(snap({ householdId: "home", displayName: "Ava" }));
+    await waitFor(() => expect(getDocMock.mock.calls.filter(([p]) => p === "households/home")).toHaveLength(1));
+    await new Promise((r) => setTimeout(r, 10));
+    expect(stateText()).toContain('"status":"member"');
+    memberDocs();
+    reportDenied();
+    await waitFor(() => expect(userReads()).toBe(2));
+    expect(clearDeviceData).not.toHaveBeenCalled();
+  });
+
+  it("a denial outside a member session is ignored", async () => {
+    await seedCopy();
+    getDocMock.mockRejectedValue(unavailable());
+    (authMock as { currentUser?: unknown }).currentUser = AVA;
+    render(<AuthProvider><Probe /></AuthProvider>);
+    listeners[0](AVA);
+    await waitFor(() => expect(stateText()).toContain('"status":"offlineMember"'));
+    const before = getDocMock.mock.calls.length;
+    reportDenied();
+    await new Promise((r) => setTimeout(r, 10));
+    expect(getDocMock.mock.calls.length).toBe(before);
+  });
+
+  // Found by the browser suite: a denial during a deletion ran a second wipe whose pending-clear
+  // key a reload could orphan, leaving tabs on "Some data on this device couldn't be cleared."
+  it("a denial during this tab's own account deletion is left to the deletion flow", async () => {
+    memberDocs();
+    (authMock as { currentUser?: unknown }).currentUser = AVA;
+    render(<AuthProvider><Probe /></AuthProvider>);
+    listeners[0](AVA);
+    await waitFor(() => expect(stateText()).toContain('"status":"member"'));
+    sessionStorage.setItem("safebite.deletionRequest", JSON.stringify({ requestId: "r1", uid: "ava-uid" }));
+    const before = getDocMock.mock.calls.length;
+    reportDenied();
+    await new Promise((r) => setTimeout(r, 10));
+    expect(getDocMock.mock.calls.length).toBe(before);
+    expect(stateText()).toContain('"status":"member"');
+  });
+
+  it("a denial for an account already recorded as deleted is left to the reset", async () => {
+    memberDocs();
+    (authMock as { currentUser?: unknown }).currentUser = AVA;
+    render(<AuthProvider><Probe /></AuthProvider>);
+    listeners[0](AVA);
+    await waitFor(() => expect(stateText()).toContain('"status":"member"'));
+    isDeletedUid.mockImplementation((uid: string) => uid === "ava-uid");
+    const before = getDocMock.mock.calls.length;
+    reportDenied();
+    await new Promise((r) => setTimeout(r, 10));
+    expect(getDocMock.mock.calls.length).toBe(before);
+    expect(stateText()).toContain('"status":"member"');
+  });
+
+  it("an account change waits for a loss-of-access wipe still running before it resets", async () => {
+    memberDocs();
+    (authMock as { currentUser?: unknown }).currentUser = AVA;
+    render(<AuthProvider><Probe /></AuthProvider>);
+    listeners[0](AVA);
+    await waitFor(() => expect(stateText()).toContain('"status":"member"'));
+    const slowWipe = deferred<{ failed: string[] }>();
+    clearDeviceData.mockReturnValueOnce(slowWipe.promise);
+    getDocMock.mockImplementation(async () => snap(undefined));
+    reportDenied();
+    await waitFor(() => expect(clearDeviceData).toHaveBeenCalledTimes(1));
+    listeners[0](null);
+    await waitFor(() => expect(clearDeviceData).toHaveBeenCalledTimes(2));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(resetDocument).not.toHaveBeenCalled();
+    slowWipe.resolve({ failed: [] });
+    await waitFor(() => expect(resetDocument).toHaveBeenCalledTimes(1));
+  });
+
+  // Controller ruling 3: `first` rejects on an unclassified read error.
+  it("an unclassified read error at start-up is today's error screen", async () => {
+    getDocMock.mockRejectedValue(Object.assign(new Error("boom"), { code: "internal" }));
+    render(<AuthProvider><Probe /></AuthProvider>);
+    listeners[0](AVA);
+    await waitFor(() => expect(stateText()).toContain(NO_ANSWER_MESSAGE));
+    expect(stateText()).toContain('"status":"error"');
+  });
+
+  it("an unclassified read error during a quiet retry keeps offlineMember", async () => {
+    await seedCopy();
+    getDocMock.mockRejectedValue(unavailable());
+    (authMock as { currentUser?: unknown }).currentUser = AVA;
+    render(<AuthProvider><Probe /></AuthProvider>);
+    listeners[0](AVA);
+    await waitFor(() => expect(stateText()).toContain('"status":"offlineMember"'));
+    getDocMock.mockReset();
+    getDocMock.mockRejectedValue(Object.assign(new Error("boom"), { code: "internal" }));
+    window.dispatchEvent(new Event("online"));
+    await waitFor(() => expect(getDocMock).toHaveBeenCalled());
+    await new Promise((r) => setTimeout(r, 20));
+    expect(stateText()).toContain('"status":"offlineMember"');
   });
 });
