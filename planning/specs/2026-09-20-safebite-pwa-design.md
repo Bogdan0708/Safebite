@@ -1833,8 +1833,9 @@ questions are built into the bundle and need no copy.
 1. **`web/src/offline/store.ts`** — the device copy. IndexedDB only: it imports nothing from
    `firebase/*` or `../firebase`, so registering it cannot initialise Auth before §3.8's
    persistence gate (review P2-5). Operations: `readCopy(uid, hid)`, `readMeta()`,
-   `replaceCopy(uid, hid, epochAtStart, data, now)`, `replaceRestaurant(uid, hid, epochAtStart,
-   rid, data, now)` (partial refresh), `recordMembershipCheck(uid, hid, now)`, `clearCopy()`,
+   `replaceCopy(uid, hid, expected, data, now)`, `replaceRestaurant(uid, hid, expected, rid,
+   data, now)` (partial refresh), where `expected = { epoch, revision }` is captured before the
+   server reads by `readToken()` and enforced inside the replacing transaction, `recordMembershipCheck(uid, hid, now)`, `clearCopy()`,
    `getOptIn(uid)`, `setOptIn(uid, enabled)`. It opens a connection per operation and closes it
    on completion and on `versionchange`, so a background tab never blocks a future upgrade.
    The cleaner `offlineCopy` (calls `clearCopy()` and deletes every `optIn` row) is registered in
@@ -1991,10 +1992,18 @@ Runs only in `member` with the account's opt-in on.
    copy. A partial refresh needs an existing complete copy; without one it does nothing.
 6. A trigger during a running refresh sets "run once more"; at most one extra run follows.
 
-The plan records the measured read count of a full refresh (review P3-10: roughly
-`restaurants + claims + notes + collection` documents; ~900 reads for 100 restaurants, so up to
-~3,600 an hour per visible device with the unconditional timer) for 5c's cost checklist. Cross-tab,
-only one document's timer needs to run; documents that are hidden do not run it.
+**Cost.** A full refresh bills roughly: every restaurant, claim, note and collection document
+returned; one read for each query that returns nothing (Firestore's minimum, common for notes);
+and the rules' membership `get()` on the household document, about one per query (`isMember`,
+`firestore.rules:16–18`). Queries are `1 + 2N + 1` for N restaurants. For 100 restaurants with
+~5 claims and ~2 notes each that is on the order of 1,000–1,100 reads; at four timer refreshes an
+hour, ~4,000+ reads an hour per visible device. Two devices visible for eight hours would then
+exceed the 50,000-read daily free tier from the timer alone. The cost is therefore **not assumed
+to be inside the free tier**: the plan measures the real per-refresh count on the emulator with a
+realistic household (empirical stop 5) and 5c's cost checklist records it with the pilot's
+budget alert. Only visible documents run the timer. The 15-minute interval stays for now; if the
+measured cost is too high, the interval is the first lever (30 minutes halves timer traffic and
+doubles the worst-case staleness).
 
 **Cleanup wins.** Sign-out, account switch, opting out, **Clear device data**, a household move
 and confirmed loss of access all run `clearCopy()`: **one** readwrite transaction over
@@ -2079,6 +2088,10 @@ place of the search panel's actions while offline. Call-ahead questions show as 
    Safari tabs are subject to 7-day eviction of script-writable storage; Home Screen apps are not.
 4. **Cross-tab serialisation.** Two documents: a refresh's step-3 transaction queued behind a
    `clearCopy()` in the other tab observes the changed epoch and aborts.
+5. **Refresh read cost.** On the emulator with a realistic seeded household (and with 100
+   restaurants, ~5 claims and ~2 notes each), count the billed reads of one full refresh,
+   including empty-query minimums and rules `get()` calls, and record the hourly figure per
+   visible device for 5c.
 
 #### Tests
 
@@ -2096,7 +2109,8 @@ partial, and partial versus full across two simulated tabs — never leave older
 `downloadedAt` in the copy; a partial refresh leaves `downloadedAt` unchanged; a refresh whose
 query resolves
 `fromCache` writes nothing; `permission-denied` during a refresh triggers the membership read and
-does not wipe; partial refresh after a write; the 15-minute skip rule; every row of the startup
+does not wipe; partial refresh after a write; the 15-minute timer always running a full refresh while visible
+and not while hidden; every row of the startup
 table, the household-move row, the 30-day edges and a future `membershipCheckedAt`; the 6 s
 timeout, the `navigator.onLine === false` fast path and a late answer applied after the timeout;
 a listener denial triggering one membership read; cross-tab invalidation (BroadcastChannel
@@ -2145,7 +2159,7 @@ for the next account.
 
 | Decision | Reason |
 |----------|--------|
-| 15-minute full refresh while visible, never skipped | Fresh enough for a household's pace of change; reads stay well inside the free tier for two members |
+| 15-minute full refresh while visible, never skipped | Fresh enough for a household's pace of change; cost measured (stop 5) rather than assumed, interval revisited in 5c if needed |
 | 6-second membership timeout; early opening after 3 s (subject to stop 1) | Long enough on a weak signal, short enough not to feel stuck |
 | One copy per device, not per account | Only the signed-in account may read it; an account change clears it anyway |
 | The whole household, not just the shortlist | Small data; an unexpected dead zone can involve any record |
