@@ -15,6 +15,11 @@ const REASON: Record<RefreshFailure, string> = {
   denied: "Couldn't reach SafeBite.",
 };
 
+/** The latest finished run's storage write was refused with no copy on the device. */
+function refusedStorage(status: RefreshStatus): boolean {
+  return status.cantStore && status.lastFailure === "storage" && !status.running;
+}
+
 /** Settings → Offline copy (spec §3.9 "Screens and wording"): this device, this sign-in. */
 export function OfflineSection() {
   const { state } = useAuth();
@@ -46,9 +51,11 @@ export function OfflineSection() {
   }, [uid, optedIn, status.running, status.lastWrittenAt]);
 
   // Quota refused or IndexedDB missing on the first write: the switch stays off (spec §3.9).
-  // The refresher sets `cantStore` only when no copy exists after the refused write.
+  // The refresher sets `cantStore` only when no copy exists after the refused write. It merges
+  // status fields, so a non-storage failure leaves an earlier `cantStore` in place: act only when
+  // the latest failure is itself a storage failure.
   useEffect(() => {
-    if (uid === null || !optedIn || !status.cantStore || status.running || status === statusAtTurnOn.current) return;
+    if (uid === null || !optedIn || !refusedStorage(status) || status === statusAtTurnOn.current) return;
     setOptedIn(false);
     setMeta(null);
     void setOptIn(uid, false).catch(() => {}).finally(() => notifyOptInChanged());
@@ -58,7 +65,7 @@ export function OfflineSection() {
   const signedIn = uid;
   const target = { uid: signedIn, householdId: session.householdId, displayName: session.displayName };
   const memoryOnly = !persistentAuthAllowed();
-  const unableToStore = cantStore || (status.cantStore && !status.running);
+  const unableToStore = cantStore || refusedStorage(status);
 
   async function turnOn() {
     setCantStore(false);

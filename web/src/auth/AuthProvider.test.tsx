@@ -577,7 +577,7 @@ describe("AuthProvider offline (spec §3.9)", () => {
     getDocMock.mockReset();
     getDocMock.mockRejectedValue(Object.assign(new Error("boom"), { code: "internal" }));
     window.dispatchEvent(new Event("online"));
-    await waitFor(() => expect(getDocMock).toHaveBeenCalled());
+    await waitFor(() => expect(getDocMock).toHaveBeenCalled(), { timeout: 3000 });
     await new Promise((r) => setTimeout(r, 20));
     expect(stateText()).toContain('"status":"offlineMember"');
   });

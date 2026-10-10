@@ -195,6 +195,24 @@ describe("OfflineSection", () => {
     expect(m.setOptIn).toHaveBeenCalledWith("ava-uid", true);
   });
 
+  it("a stale can't-store does not turn a re-enabled switch off when the next run fails for another reason", async () => {
+    // First write refused for quota earlier; the member frees space and turns the switch on while offline.
+    m.status = { running: false, lastFailure: "storage", lastWrittenAt: null, cantStore: true };
+    const { rerender } = render(<OfflineSection />);
+    await userEvent.click(await screen.findByTestId("offline-switch"));
+    await waitFor(() => expect(screen.getByTestId("offline-switch")).toBeChecked());
+    m.status = { ...m.status, running: true };
+    rerender(<OfflineSection />);
+    // The refresher merges fields: an offline failure leaves the earlier cantStore: true in place.
+    m.status = { running: false, lastFailure: "offline", lastWrittenAt: null, cantStore: true };
+    rerender(<OfflineSection />);
+    await waitFor(() => expect(screen.getByTestId("offline-reason")).toHaveTextContent("You're offline."));
+    expect(screen.getByTestId("offline-switch")).toBeChecked();
+    expect(m.setOptIn).not.toHaveBeenCalledWith("ava-uid", false);
+    expect(screen.queryByTestId("offline-cant-store")).toBeNull();
+    expect(screen.getByTestId("offline-status")).toHaveTextContent("Not ready offline");
+  });
+
   it("a storage failure on a later refresh keeps the switch on (the copy stays)", async () => {
     m.optIn = true;
     m.meta = META;
