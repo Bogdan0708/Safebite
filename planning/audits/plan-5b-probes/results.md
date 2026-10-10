@@ -23,3 +23,19 @@ all three tests still "passed" because they only assert the uid). The committed 
 so this trap is new for any Plan 5b e2e test that loads Firestore from the harness.
 
 Airplane `first.ms` (483) is under 6000, so no "waiting copy from app start" change is needed.
+
+## Stop 5: refresh read cost
+
+Run 2026-10-10 against the emulators (`demo-safebite`), base `af470af`, Chromium via Playwright.
+Spec: `stop-5-cost.spec.ts` (run from a temporary copy `web/e2e/zz-probe-5b-cost.spec.ts`, removed afterwards).
+Log: `/home/godja/.claude/jobs/ecbf7290/tmp/plan-5b-stop-5.log`. Household: 100 restaurants, 5 claims each, 4 notes on
+half of them (50 empty notes queries), no collection documents.
+
+```
+STOP5 {"queries":202,"documents":800,"emptyQueries":51} estimatedBilledReads=1053 perHourAt4=4212
+```
+
+Estimate only: the emulator does not bill. `estimatedBilledReads` = documents + one minimum read per empty query +
+one rules `get()` per query. One full refresh of this household is ~1050 reads; four per hour while visible is ~4200.
+Plan 5c checks the pilot's real usage. The Auth module is imported with the `?v=` URL `/src/firebase.ts` uses (the
+Task 1 finding, applied by controller ruling), not the bare deps path in the brief.

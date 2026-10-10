@@ -1,5 +1,5 @@
 import { doc, onSnapshot, orderBy, query, serverTimestamp, type DocumentData, type DocumentSnapshot } from "firebase/firestore";
-import { ConflictError, LISTEN, listenerFailure, notesCol, NotFoundError, restaurantRef, toDate, write, type Snapshot, type WriteOutcome } from "./repository";
+import { ConflictError, LISTEN, listenerFailure, notesCol, NotFoundError, observed, restaurantRef, toDate, write, type Snapshot, type WriteOutcome } from "./repository";
 import type { Author, Note } from "./types";
 
 /**
@@ -31,17 +31,17 @@ export function watchNotes(hid: string, rid: string, cb: (s: Snapshot<Note[]>) =
 }
 
 export function addNote(hid: string, rid: string, author: Author, text: string): Promise<WriteOutcome<string>> {
-  return write(async (tx) => {
+  return observed(hid, rid, write(async (tx) => {
     const parent = await tx.get(restaurantRef(hid, rid));
     if (!parent.exists() || (parent.data() as DocumentData).deleting === true) throw new NotFoundError();
     const ref = doc(notesCol(hid, rid));
     tx.set(ref, { text, authorUid: author.uid, authorName: author.displayName, createdAt: serverTimestamp(), updatedAt: serverTimestamp(), version: 1 });
     return ref.id;
-  });
+  }));
 }
 
 export function updateNote(hid: string, rid: string, nid: string, baseVersion: number, text: string): Promise<WriteOutcome<number>> {
-  return write(async (tx) => {
+  return observed(hid, rid, write(async (tx) => {
     const parent = await tx.get(restaurantRef(hid, rid));
     const snap = await tx.get(doc(notesCol(hid, rid), nid));
     if (!parent.exists() || (parent.data() as DocumentData).deleting === true || !snap.exists()) throw new NotFoundError();
@@ -50,14 +50,14 @@ export function updateNote(hid: string, rid: string, nid: string, baseVersion: n
     const next = baseVersion + 1;
     tx.update(snap.ref, { text, updatedAt: serverTimestamp(), version: next });
     return next;
-  });
+  }));
 }
 
 export function deleteNote(hid: string, rid: string, nid: string, baseVersion: number): Promise<WriteOutcome> {
-  return write(async (tx) => {
+  return observed(hid, rid, write(async (tx) => {
     const snap = await tx.get(doc(notesCol(hid, rid), nid));
     if (!snap.exists()) throw new NotFoundError();
     if (toNote(snap).version !== baseVersion) throw new ConflictError();
     tx.delete(snap.ref);
-  });
+  }));
 }

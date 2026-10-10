@@ -32,10 +32,13 @@ vi.mock("firebase/auth", () => ({
   signInWithEmailAndPassword: signInMock,
   signOut: vi.fn(),
 }));
-vi.mock("firebase/firestore", () => ({
+vi.mock("firebase/firestore", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("firebase/firestore")>()),
   doc: (_db: unknown, path: string) => ({ path }),
   getDocFromServer: (ref: { path: string }) => getDocMock(ref.path),
 }));
+const refresh = vi.hoisted(() => ({ requestFull: vi.fn(async () => {}), requestPartial: vi.fn(async () => {}) }));
+vi.mock("../offline/refresher", () => ({ refresher: refresh, useOptInVersion: () => 0 }));
 const t = vi.hoisted(() => ({ timeout: undefined as number | undefined }));
 vi.mock("./membershipCheck", async (importOriginal) => {
   const real = await importOriginal<typeof import("./membershipCheck")>();
@@ -49,6 +52,7 @@ import { AuthProvider, useAuth } from "./AuthProvider";
 import { auth as authMock } from "../firebase";
 import { getCopySession, reportDenied, setCopySession } from "../offline/session";
 import { readMeta, readToken, replaceCopy, setOptIn } from "../offline/store";
+import { observed } from "../records/repository";
 import { COPY_MAX_AGE_MS } from "../offline/types";
 import { EXPIRED_MESSAGE, NO_ANSWER_MESSAGE } from "./AuthProvider";
 
@@ -86,6 +90,8 @@ beforeEach(() => {
   t.timeout = undefined;
   early.candidate = null;
   (authMock as { currentUser?: unknown }).currentUser = undefined;
+  refresh.requestFull.mockClear();
+  refresh.requestPartial.mockClear();
 });
 
 describe("AuthProvider", () => {
@@ -657,5 +663,26 @@ describe("early opening (spec §3.9 ruling 7)", () => {
     await waitFor(() => expect(stateText()).toContain('"status":"error"'));
     expect(stateText()).toContain(NO_ANSWER_MESSAGE);
     expect(getCopySession()).toBeNull();
+  });
+});
+
+describe("refresh start (spec §3.9 Refresh step 4)", () => {
+  it("an opted-out member starts no refresh", async () => {
+    memberDocs();
+    render(<AuthProvider><Probe /></AuthProvider>);
+    listeners[0](AVA);
+    await waitFor(() => expect(stateText()).toContain('"status":"member"'));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(refresh.requestFull).not.toHaveBeenCalled();
+  });
+
+  it("starts a full refresh, and a successful write requests a partial one", async () => {
+    await setOptIn("ava-uid", true);
+    memberDocs();
+    render(<AuthProvider><Probe /></AuthProvider>);
+    listeners[0](AVA);
+    await waitFor(() => expect(refresh.requestFull).toHaveBeenCalledWith({ uid: "ava-uid", householdId: "home", displayName: "Ava" }));
+    await observed("home", "r1", Promise.resolve({ kind: "ok" as const, value: undefined }));
+    await waitFor(() => expect(refresh.requestPartial).toHaveBeenCalledWith({ uid: "ava-uid", householdId: "home", displayName: "Ava" }, "r1"));
   });
 });

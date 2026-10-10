@@ -9,6 +9,10 @@ import { decideNoAnswer, prepareMemberCopy } from "../offline/decide";
 import { isServingCopy, setCopySession, setDeniedHandler, startCopyWatch } from "../offline/session";
 import { earlyCopyCandidate } from "../offline/early";
 import { EARLY_OPEN_MS, REFRESH_INTERVAL_MS } from "../offline/types";
+import { refresher, useOptInVersion } from "../offline/refresher";
+import { startRefreshTriggers } from "../offline/refreshTriggers";
+import { getOptIn, readMeta } from "../offline/store";
+import { setWriteObserver } from "../records/repository";
 import { membershipWithTimeout, type MembershipAnswer } from "./membershipCheck";
 import { resetDocument } from "./resetDocument";
 
@@ -239,6 +243,39 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
     return () => setDeniedHandler(null);
   }, [resolveForUser]);
+
+  // Keep the copy current while a member is opted in on this device (spec §3.9 "Refresh").
+  const optInVersion = useOptInVersion();
+  const memberKey = state.status === "member" ? `${state.uid}|${state.householdId}|${state.displayName}` : null;
+  useEffect(() => {
+    const current = stateRef.current;
+    if (memberKey === null || current.status !== "member") return;
+    const target = { uid: current.uid, householdId: current.householdId, displayName: current.displayName };
+    let cancelled = false;
+    let stopTriggers = () => {};
+    void getOptIn(target.uid).then((on) => {
+      if (cancelled || !on) return;
+      void refresher.requestFull(target);
+      stopTriggers = startRefreshTriggers(
+        () => void refresher.requestFull(target),
+        async () => {
+          const meta = await readMeta();
+          return meta ? Date.now() - meta.downloadedAt : null;
+        },
+      );
+    });
+    setWriteObserver((hid, rid) => {
+      if (hid !== target.householdId) return;
+      void getOptIn(target.uid).then((on) => {
+        if (on) void refresher.requestPartial(target, rid);
+      });
+    });
+    return () => {
+      cancelled = true;
+      stopTriggers();
+      setWriteObserver(null);
+    };
+  }, [memberKey, optInVersion]);
 
   // Leaving offlineMember: retry on reconnection and every 15 minutes while visible (spec §3.9).
   useEffect(() => {

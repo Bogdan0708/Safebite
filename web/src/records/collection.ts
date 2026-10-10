@@ -1,7 +1,7 @@
 import { collection, onSnapshot, serverTimestamp, Timestamp, type DocumentData, type DocumentSnapshot } from "firebase/firestore";
 import { db } from "../firebase";
 import { fromCalendarDate, toCalendarDate } from "./dates";
-import { collectionRef, ConflictError, LISTEN, listenerFailure, NotFoundError, restaurantRef, toDate, write, type Snapshot, type WriteOutcome } from "./repository";
+import { collectionRef, ConflictError, LISTEN, listenerFailure, NotFoundError, observed, restaurantRef, toDate, write, type Snapshot, type WriteOutcome } from "./repository";
 import type { Author, CalendarDate, CollectionState } from "./types";
 
 /**
@@ -52,7 +52,7 @@ interface StatePatch {
 }
 
 function writeState(hid: string, rid: string, author: Author, baseVersion: number, patch: StatePatch): Promise<WriteOutcome<number>> {
-  return write(async (tx) => {
+  return observed(hid, rid, write(async (tx) => {
     const parent = await tx.get(restaurantRef(hid, rid));
     if (!parent.exists() || (parent.data() as DocumentData).deleting === true) throw new NotFoundError();
     const ref = collectionRef(hid, rid);
@@ -73,7 +73,7 @@ function writeState(hid: string, rid: string, author: Author, baseVersion: numbe
     if (visitedOn !== null) data.visitedOn = fromCalendarDate(visitedOn);
     tx.set(ref, data);
     return version + 1;
-  });
+  }));
 }
 
 export function setShortlisted(hid: string, rid: string, author: Author, baseVersion: number, shortlisted: boolean): Promise<WriteOutcome<number>> {

@@ -32,11 +32,13 @@ vi.mock("firebase/firestore", async (importOriginal) => {
 import {
   addClaim,
   createRestaurant,
+  deleteClaim,
   deleteRestaurant,
   finishDeleting,
   markCleanupDone,
   markDeleting,
   removeCollectionState,
+  setWriteObserver,
   sweepClaims,
   sweepNotes,
   toClaim,
@@ -329,5 +331,31 @@ describe("watchers", () => {
     m.onSnapshot.mockImplementation(() => () => {});
     watchRestaurants("home", () => {});
     expect(m.onSnapshot.mock.calls[0]![1]).toEqual({ includeMetadataChanges: true });
+  });
+});
+
+describe("write observer (spec §3.9 Refresh step 5)", () => {
+  afterEach(() => {
+    setWriteObserver(null);
+  });
+
+  it("reports the household and restaurant after a successful write only", async () => {
+    const seen = vi.fn();
+    setWriteObserver(seen);
+    m.runTransaction.mockResolvedValueOnce("new-rid");
+    await createRestaurant("home", "ava-uid", { name: "Da Marco", address: "1 St" });
+    expect(seen).toHaveBeenCalledWith("home", "new-rid");
+    m.runTransaction.mockResolvedValueOnce(undefined);
+    await deleteClaim("home", "r1", "c1");
+    expect(seen).toHaveBeenLastCalledWith("home", "r1");
+    m.runTransaction.mockRejectedValueOnce(Object.assign(new Error("x"), { code: "permission-denied" }));
+    await deleteClaim("home", "r1", "c2");
+    expect(seen).toHaveBeenCalledTimes(2);
+  });
+
+  it("an observer that throws never breaks the write", async () => {
+    setWriteObserver(() => { throw new Error("observer"); });
+    m.runTransaction.mockResolvedValueOnce(undefined);
+    await expect(deleteClaim("home", "r1", "c1")).resolves.toEqual({ kind: "ok", value: undefined });
   });
 });

@@ -162,8 +162,29 @@ export async function write<T>(run: (tx: Transaction) => Promise<T>): Promise<Wr
   }
 }
 
+type WriteObserver = (hid: string, rid: string) => void;
+let writeObserver: WriteObserver | null = null;
+
+/** The offline refresher's partial refresh after a successful write (spec §3.9 Refresh step 5). */
+export function setWriteObserver(observer: WriteObserver | null): void {
+  writeObserver = observer;
+}
+
+/** Reports `hid`/`rid` to the observer when the write succeeded. Never affects the outcome. */
+export async function observed<T>(hid: string, rid: string | ((value: T) => string), outcome: Promise<WriteOutcome<T>>): Promise<WriteOutcome<T>> {
+  const out = await outcome;
+  if (out.kind === "ok") {
+    try {
+      writeObserver?.(hid, typeof rid === "function" ? rid(out.value) : rid);
+    } catch {
+      // never let the copy affect a write
+    }
+  }
+  return out;
+}
+
 export function createRestaurant(hid: string, uid: string, input: RestaurantInput): Promise<WriteOutcome<string>> {
-  return write(async (tx) => {
+  return observed(hid, (id: string) => id, write(async (tx) => {
     const ref = doc(restaurantsCol(hid));
     const data: DocumentData = { name: input.name, address: input.address, createdBy: uid, createdAt: serverTimestamp(), updatedAt: serverTimestamp(), version: 1, deleting: false };
     if (input.phone !== undefined) data.phone = input.phone;
@@ -171,7 +192,7 @@ export function createRestaurant(hid: string, uid: string, input: RestaurantInpu
     if (input.googlePlaceId !== undefined) data.googlePlaceId = input.googlePlaceId;
     tx.set(ref, data);
     return ref.id;
-  });
+  }));
 }
 
 /**
@@ -180,7 +201,7 @@ export function createRestaurant(hid: string, uid: string, input: RestaurantInpu
  * version/updatedAt are written, so lat/lng/googlePlaceId are preserved.
  */
 export function updateRestaurant(hid: string, rid: string, baseVersion: number, input: RestaurantInput): Promise<WriteOutcome<number>> {
-  return write(async (tx) => {
+  return observed(hid, rid, write(async (tx) => {
     const snap = await tx.get(restaurantRef(hid, rid));
     if (!snap.exists()) throw new NotFoundError();
     const current = toRestaurant(snap);
@@ -196,12 +217,12 @@ export function updateRestaurant(hid: string, rid: string, baseVersion: number, 
       version: next,
     });
     return next;
-  });
+  }));
 }
 
 /** Deletion step 1. Idempotent: an already-marked restaurant is left alone (resume path). */
 export function markDeleting(hid: string, rid: string, baseVersion: number): Promise<WriteOutcome<number>> {
-  return write(async (tx) => {
+  return observed(hid, rid, write(async (tx) => {
     const snap = await tx.get(restaurantRef(hid, rid));
     if (!snap.exists()) throw new NotFoundError();
     const current = toRestaurant(snap);
@@ -210,7 +231,7 @@ export function markDeleting(hid: string, rid: string, baseVersion: number): Pro
     const next = baseVersion + 1;
     tx.update(snap.ref, { deleting: true, version: next, updatedAt: serverTimestamp() });
     return next;
-  });
+  }));
 }
 
 /**
@@ -293,7 +314,7 @@ export async function finishDeleting(hid: string, rid: string, onProgress?: (ste
   if (state.kind !== "ok") return state;
   const done = await markCleanupDone(hid, rid);
   if (done.kind !== "ok") return done;
-  return removeRestaurant(hid, rid);
+  return observed(hid, rid, removeRestaurant(hid, rid));
 }
 
 /** The whole protocol (spec §3.5, extended by §3.7). Stops at the first non-ok step. */
@@ -305,7 +326,7 @@ export async function deleteRestaurant(hid: string, rid: string, baseVersion: nu
 }
 
 export function addClaim(hid: string, rid: string, author: Author, input: ClaimInput): Promise<WriteOutcome<string>> {
-  return write(async (tx) => {
+  return observed(hid, rid, write(async (tx) => {
     const parent = await tx.get(restaurantRef(hid, rid));
     if (!parent.exists() || (parent.data() as DocumentData).deleting === true) throw new NotFoundError();
     const ref = doc(claimsCol(hid, rid));
@@ -324,11 +345,11 @@ export function addClaim(hid: string, rid: string, author: Author, input: ClaimI
     if (input.expiresAt !== undefined) data.expiresAt = fromCalendarDate(input.expiresAt);
     tx.set(ref, data);
     return ref.id;
-  });
+  }));
 }
 
 export function deleteClaim(hid: string, rid: string, cid: string): Promise<WriteOutcome> {
-  return write(async (tx) => {
+  return observed(hid, rid, write(async (tx) => {
     tx.delete(doc(claimsCol(hid, rid), cid));
-  });
+  }));
 }
