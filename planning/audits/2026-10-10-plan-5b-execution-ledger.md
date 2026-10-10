@@ -20,7 +20,9 @@ Typecheck clean.
 | 1 offline timing | see `plan-5b-probes/results.md` (airplane first auth 483 ms, read fails 24 ms; stall first auth 30375 ms, read fails 10012 ms, both `unavailable`) | `MEMBERSHIP_TIMEOUT_MS` 6000 and `EARLY_OPEN_MS` 3000 stay |
 | 2 expired-token restore | holds | stored user restored offline with an expired token, kept 10 s, refreshes on reconnection; `offlineMember` buildable |
 | 3 iPhone storage | owner-run after deploy | — |
-| 4 cross-tab serialisation | Task 3 | — |
+| 4 cross-tab serialisation | holds (Chromium, `e2e/offline-store.spec.ts`): a replacement queued behind another tab's held clear transaction returns `cleared`, meta stays null | epoch check inside the replacing transaction is sufficient |
 | 5 refresh read cost | Task 8 | — |
 
 ## Ledger
+
+- Task 3: dev dependency `fake-indexeddb` resolved to 6.2.5. Rulings applied: write phase of `replaceCopy`/`replaceRestaurant` aborts the transaction on a synchronous throw; stop 4 waits on a `__held` signal from tab B instead of a 100 ms sleep.
