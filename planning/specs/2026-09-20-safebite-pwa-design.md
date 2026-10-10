@@ -1769,11 +1769,24 @@ eight P3 findings, verified against the code and amended below.
 | P3-7 Late membership answer after the timeout | Applied when it arrives, guarded by the generation counter |
 | P3-8 Clear token scheme | One key per run (`safebite.pendingClear.<token>`) |
 | P3-9 Read-source wiring details | Specified under Read source and Screens |
-| P3-10 Refresh cost | Partial refresh after writes; timer skipped when live data is current; read count recorded |
+| P3-10 Refresh cost | Partial refresh after writes; read count recorded (the timer-skip rule was later withdrawn, R2-1) |
 | P3-11 Opt-in wording vs the cleaner | Ruling 2 restated; §3.8 sentence amended; switch disabled under memory-only Auth |
 | P3-12 Safari-tab storage eviction | Stop 3 tests Safari tab and Home Screen app separately; Settings wording |
 | P3-13 Store transaction contract | One transaction for clear; equality epoch check; connection per operation |
 | P3-14 Test tooling | `fake-indexeddb` dev dependency; harness page; pause hook |
+
+A second, owner-supplied review of the amended section (against `9294048`) found six more P2 gaps
+and two contract gaps, verified against the code and amended below.
+
+| Finding | Amendment |
+|---|---|
+| R2-1 The 15-minute skip rule can leave unopened restaurants stale | The skip rule is removed; the timer always runs a full refresh |
+| R2-2 An older refresh in one tab can overwrite a newer copy from another | `meta.revision` checked and incremented by every full and partial replacement; stale work is discarded and re-run |
+| R2-3 Start-up clearing removes other runs' pending keys | Only the keys captured before the run are retired; the gate is re-checked before the app opens |
+| R2-4 A live listener's `permission-denied` has no cleanup path | Any listener denial triggers the server membership read |
+| R2-5 Clearing in one tab leaves copy data shown in another | Cross-tab invalidation (BroadcastChannel plus checks on resume and before each copy read) |
+| R2-6 Write routes without a data listener stay enabled offline | A single write-access gate for every write control and submit handler (`RestaurantFormPage.tsx:79` create mode, `ClaimFormPage.tsx:128`) |
+| Contracts | A partial refresh never changes `downloadedAt`; an open offline session re-checks the 30-day limit |
 
 Review open question 5 (a rules/client mismatch returning `permission-denied` on every refresh)
 is settled without a new ruling: a denial during a refresh does not wipe by itself; it triggers
@@ -1791,7 +1804,7 @@ questions are built into the bundle and need no copy.
 
 | Store | Key | Contents |
 |---|---|---|
-| `meta` | `"copy"` | `{ uid, householdId, displayName, epoch, downloadedAt, membershipCheckedAt, complete: true }` |
+| `meta` | `"copy"` | `{ uid, householdId, displayName, revision, downloadedAt, membershipCheckedAt, complete: true }` |
 | `restaurants` | `id` | restaurant fields as `toRestaurant` produces them |
 | `claims` | `[rid, id]` | claim fields as `toClaim` produces them |
 | `collection` | `rid` | collection fields |
@@ -1806,7 +1819,11 @@ questions are built into the bundle and need no copy.
   status is computed by the existing `evidenceStatus(claim, today)` with `useToday()`'s date,
   never the download date.
 - `downloadedAt` (last complete download) and `membershipCheckedAt` (last server-confirmed
-  membership) are separate fields and are renewed by different events (below).
+  membership) are separate fields and are renewed by different events (below). A partial
+  refresh never changes `downloadedAt`: the copy's age is the age of its oldest part.
+- `revision` counts replacements of the copy. Every full or partial replacement checks that it is
+  unchanged since its own reads began and increments it, so work based on older reads can never
+  overwrite newer data written by another tab (review R2-2).
 - The epoch is compared by **equality**. A browser-evicted or user-cleared database returns
   without a `control` row (epoch absent); equality still makes a stale refresh abort, so the
   design does not rely on the epoch only ever increasing.
@@ -1857,6 +1874,9 @@ within the 30-day window.
   <the copy's data for that query> }` instead. A non-cache snapshot always wins and replaces the
   copy value. Without a usable copy, today's behaviour stands ("Showing last loaded data", or
   "not loaded on this device").
+- **A listener denial** (`permission-denied`, today's `denied` state) also triggers the server
+  membership read, at most once per denial episode; its answer decides, exactly as at start-up:
+  a confirmed loss of access wipes the copy and resets the document (review R2-4).
 - **`offlineMember`:** no Firestore listener is created; watchers read the copy once on
   subscription and again when the state changes.
 - A restaurant absent from the copy emits today's "not loaded on this device" error.
@@ -1867,6 +1887,37 @@ within the 30-day window.
   (today's empty states render only from `ready`).
 - **Transition `offlineMember → member`.** Watchers keep the copy value until the first server
   snapshot arrives, so the page does not flash "Loading…".
+
+#### Cross-tab invalidation (review R2-5)
+
+Copy data already on screen must disappear when another tab clears it, opts out, or finds access
+revoked, even though this tab's Auth identity has not changed.
+
+- Every `clearCopy()`, opt-out and confirmed loss of access posts `{ type: "invalidated" }` on a
+  `BroadcastChannel("safebite-offline")`. A pending-clear key appearing (the `storage` event on
+  `safebite.pendingClear.*`) counts the same.
+- A document that is showing copy data (`offlineMember`, or any watcher emitting a copy value)
+  and receives either signal resets itself (`resetDocument()`); start-up then decides afresh.
+- Because messages can be missed by a suspended tab, eligibility is also re-checked on
+  `visibilitychange` to visible, on `pageshow`, and before every copy read: `meta` present,
+  complete, the same `uid`, `householdId` and opt-in, no pending-clear key, and within 30 days.
+  Any failure while showing copy data resets the document.
+- **30-day limit in an open session:** the same check runs every minute while showing copy data,
+  so an offline session that stays open past the limit moves to "This offline copy needs a
+  connection to confirm your access." even though membership retries keep returning no answer.
+
+#### Write access (review R2-6)
+
+One function, `canWrite()` (exposed through a `useWriteAccess()` hook), decides every write: it is
+false in `offlineMember`, while any watcher on the page is serving copy data, and while
+`navigator.onLine === false`. Every write control and every submit handler uses it, including the
+routes that have no data listener of their own: `/restaurants/new` (`RestaurantFormPage.tsx:79`
+derives `offline` only from the edit-mode subscription today), the evidence form
+(`ClaimFormPage.tsx:128` has no offline check), notes, shortlist and visited controls, restaurant
+delete, and the account pages' online-only actions. A write route opened while writes are not
+allowed shows "Adding and editing need a connection." with its controls disabled; a form already
+open when the connection drops disables its submit, and the handler re-checks `canWrite()` before
+sending. The server transaction stays the final guard, but it is no longer the only one.
 
 #### Startup and the `offlineMember` state
 
@@ -1907,7 +1958,8 @@ server (Server reads) and classifies:
 - **Clock:** a `membershipCheckedAt` in the future counts as outside the window.
 - **`displayName`** for `offlineMember` comes from `meta.displayName`.
 - **Leaving `offlineMember`:** on the `online` event and every 15 minutes while visible, the
-  membership read is retried. A server "member" answer switches to `member` in place and starts a
+  membership read is retried; the 30-day limit is re-checked as described under Cross-tab
+  invalidation. A server "member" answer switches to `member` in place and starts a
   refresh. A confirmed loss of access wipes the copy and resets the document as an account change
   does today. "No answer" keeps the state.
 
@@ -1915,7 +1967,7 @@ server (Server reads) and classifies:
 
 Runs only in `member` with the account's opt-in on.
 
-1. Capture `uid`, `householdId`, `displayName` and `control.epoch`.
+1. Capture `uid`, `householdId`, `displayName`, `control.epoch` and `meta.revision` (absent → 0).
 2. Read from the server (Server reads): the restaurants query, then for each restaurant its
    claims and notes, and the collection query. There is no collection-group rule and none is
    added, so claims and notes are one query per restaurant. A `fromCache` result, or any
@@ -1923,22 +1975,26 @@ Runs only in `member` with the account's opt-in on.
    it ends the refresh and triggers the membership read, whose answer decides.
 3. One readwrite transaction over `control`, `optIn`, `meta` and every record store: re-read
    the epoch, `optIn[uid]` and `meta`. Abort without writing if the epoch differs, the opt-in is
-   off, or `meta` names another account or household. Otherwise replace every record store and
-   write `meta` last with `displayName`, `downloadedAt = membershipCheckedAt = now` and
-   `complete: true`. A `QuotaExceededError` rolls the whole transaction back, so the previous
+   off, or `meta` names another account or household. If `meta.revision` differs from the
+   captured value, another tab wrote newer data meanwhile: abort without writing and set "run
+   once more". Otherwise replace every record store and write `meta` last with `displayName`,
+   `revision + 1`, `downloadedAt = membershipCheckedAt = now` and `complete: true`. A `QuotaExceededError` rolls the whole transaction back, so the previous
    copy stays intact.
 4. **Triggers (full refresh):** entering `member`; turning the switch on; the `online` event;
    **Refresh now**; returning to the page (`visibilitychange`) when the copy is older than 15
-   minutes; every 15 minutes while visible, **skipped** when every live listener has delivered a
-   non-cache snapshot since the last download (the shown data is already current).
+   minutes; every 15 minutes while visible. Live listeners only prove the queries on screen are
+   current, not the stored copy, so the timer is never skipped (review R2-1).
 5. **After a successful write** (record, claim, collection, note): a partial refresh of that
-   restaurant only (`replaceRestaurant`), under the same epoch and identity checks; deleting a
-   restaurant removes it from the copy.
+   restaurant only (`replaceRestaurant`), under the same epoch, identity and revision checks
+   (a revision mismatch discards it and re-runs it); it increments `revision` and leaves
+   `downloadedAt` and `membershipCheckedAt` unchanged. Deleting a restaurant removes it from the
+   copy. A partial refresh needs an existing complete copy; without one it does nothing.
 6. A trigger during a running refresh sets "run once more"; at most one extra run follows.
 
 The plan records the measured read count of a full refresh (review P3-10: roughly
-`restaurants + claims + notes + collection` documents; ~900 reads for 100 restaurants) for 5c's
-cost checklist.
+`restaurants + claims + notes + collection` documents; ~900 reads for 100 restaurants, so up to
+~3,600 an hour per visible device with the unconditional timer) for 5c's cost checklist. Cross-tab,
+only one document's timer needs to run; documents that are hidden do not run it.
 
 **Cleanup wins.** Sign-out, account switch, opting out, **Clear device data**, a household move
 and confirmed loss of access all run `clearCopy()`: **one** readwrite transaction over
@@ -1996,9 +2052,11 @@ place of the search panel's actions while offline. Call-ahead questions show as 
 - **Per-run clear keys** (review P3-8). Each `clearDeviceData()` run writes its own key
   `safebite.pendingClear.<random token>` before running the cleaners and removes only that key,
   only on success. `pendingClear()` is true while any such key, or the legacy
-  `safebite.pendingClear === "1"`, exists. The start-up clearing screen removes every pending key
-  (legacy included) when its run succeeds. Two tabs clearing at once therefore cannot mask a
-  failure (5a ledger).
+  `safebite.pendingClear === "1"`, exists. The start-up clearing screen captures the pending keys
+  present when it starts (legacy included), runs the cleaners, and on success removes only that
+  captured set; keys written later by another tab's run are left for that run (review R2-3). It
+  then re-checks `pendingClear()` before opening the app and clears again if a key remains. Two
+  tabs clearing at once therefore cannot mask a failure (5a ledger).
 - **Stale notice.** The "Some data on this device couldn't be cleared" sign-in notice is dropped
   when no pending key remains (5a ledger).
 - **Cleaner boundary.** The `offlineCopy` cleaner must not remove 5a's Auth cleanup intents
@@ -2033,15 +2091,24 @@ cross-tab test; the refresher's pause hook.
 `meta`; malformed-copy wipe; quota rollback keeps the old copy; cleaner boundary (5a keys and Auth
 DB survive); module-graph guard (importing `device/registerCleaners` with `../firebase` mocked to
 throw does not throw); start-up with a pending key and a seeded copy clears the copy before the
-app renders; refresher single flight and "run once more"; a refresh whose query resolves
+app renders; refresher single flight and "run once more"; revision interleavings — full versus full, full versus
+partial, and partial versus full across two simulated tabs — never leave older data or an older
+`downloadedAt` in the copy; a partial refresh leaves `downloadedAt` unchanged; a refresh whose
+query resolves
 `fromCache` writes nothing; `permission-denied` during a refresh triggers the membership read and
 does not wipe; partial refresh after a write; the 15-minute skip rule; every row of the startup
 table, the household-move row, the 30-day edges and a future `membershipCheckedAt`; the 6 s
 timeout, the `navigator.onLine === false` fast path and a late answer applied after the timeout;
+a listener denial triggering one membership read; cross-tab invalidation (BroadcastChannel
+message, pending-clear `storage` event, resume re-check) resetting a document that shows copy
+data; the 30-day limit reached during an open offline session; `canWrite()` false in each of its
+three conditions and every write control and handler honouring it;
 early-opening conditions (each one false prevents it) and Auth answering with another or no user;
 banner thresholds (exactly 7 days, just over); evidence "needs rechecking" computed against today
 with an old copy; per-run clear keys (two runs, one failing, the marker survives; legacy `"1"`)
-and stale-notice removal; opt-in cleared on sign-out and disabled under memory-only Auth.
+and stale-notice removal; start-up clearing retires only its captured keys while a concurrent
+run's new key survives its failure; opt-in cleared on sign-out and disabled under memory-only
+Auth.
 
 **Browser (emulators; the Vite dev server stays reachable, so "offline" means aborting the
 emulator origins `127.0.0.1:8080`, `:9099` and `:5001` with `page.route`, with `navigator.onLine`
@@ -2061,6 +2128,12 @@ stubbed where a scenario needs the fast path):**
 9. Switch off → confirm → copy cleared.
 10. A refresh interrupted by a forced failure → previous copy and `downloadedAt` unchanged.
 11. Offline Discover shows "Search needs a connection."
+12. Revocation while online: membership removed on the server while the app is open as `member`
+    → listener denial → membership read → copy wiped, today's screen.
+13. Cross-tab: tab A shows copy data offline; tab B turns the switch off → tab A resets and no
+    longer shows the data.
+14. Write gates: open `/restaurants/new` and the evidence form directly while offline → controls
+    disabled with the notice; a form open when the connection drops disables its submit.
 
 **Real-iPhone acceptance** (added to the 5c script, runnable once 5b is deployed): opt in in the
 Home Screen app, wait for "Ready offline", fully close the app, airplane mode, reopen, read
@@ -2072,7 +2145,7 @@ for the next account.
 
 | Decision | Reason |
 |----------|--------|
-| 15-minute refresh interval while visible, skipped when live data is current | Fresh enough for a household's pace of change, cheap in reads |
+| 15-minute full refresh while visible, never skipped | Fresh enough for a household's pace of change; reads stay well inside the free tier for two members |
 | 6-second membership timeout; early opening after 3 s (subject to stop 1) | Long enough on a weak signal, short enough not to feel stuck |
 | One copy per device, not per account | Only the signed-in account may read it; an account change clears it anyway |
 | The whole household, not just the shortlist | Small data; an unexpected dead zone can involve any record |
