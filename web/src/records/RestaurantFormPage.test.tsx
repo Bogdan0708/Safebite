@@ -13,6 +13,8 @@ const m = vi.hoisted(() => ({
   watchRestaurants: vi.fn(),
 }));
 vi.mock("./repository", () => m);
+const w = vi.hoisted(() => ({ writable: true }));
+vi.mock("../offline/writeAccess", () => ({ useWriteAccess: () => w.writable, canWrite: () => w.writable }));
 vi.mock("../auth/AuthProvider", () => ({
   useAuth: () => ({ state: { status: "member", uid: "ava-uid", email: "ava@safebite.test", householdId: "home", displayName: "Ava" }, signOut: vi.fn() }),
 }));
@@ -36,6 +38,7 @@ const stored: Restaurant = {
 };
 
 beforeEach(() => {
+  w.writable = true;
   m.watchRestaurant.mockImplementation((_h: string, _r: string, cb: (s: Snapshot<Restaurant>) => void) => {
     emit = cb;
     return () => {};
@@ -280,4 +283,27 @@ describe("readPrefill", () => {
     { prefill: { googlePlaceId: "x".repeat(201) } },
     { prefill: { googlePlaceId: 1 } },
   ])("returns null for %j", (state) => expect(readPrefill(state)).toBeNull());
+});
+
+describe("write gate (review R2-6)", () => {
+  it("opening /restaurants/new while writes are not allowed disables Save and says why", async () => {
+    w.writable = false;
+    renderAt("/restaurants/new");
+    expect(await screen.findByTestId("write-blocked")).toHaveTextContent("Adding and editing need a connection.");
+    expect(screen.getByTestId("save-restaurant")).toBeDisabled();
+  });
+
+  it("a form open when the connection drops never sends, even if submitted", async () => {
+    m.createRestaurant.mockResolvedValue({ kind: "ok", value: "new-id" });
+    renderAt("/restaurants/new");
+    await screen.findByTestId("restaurant-form");
+    // A valid form, so the gate (not validation) is what stops the write (controller ruling m5).
+    await userEvent.type(screen.getByTestId("field-name"), "Da Marco");
+    await userEvent.type(screen.getByTestId("field-address"), "Via Roma 1");
+    w.writable = false;
+    const form = screen.getByTestId("restaurant-form") as HTMLFormElement;
+    act(() => { form.requestSubmit(); });
+    await new Promise((r) => setTimeout(r, 10));
+    expect(m.createRestaurant).not.toHaveBeenCalled();
+  });
 });

@@ -4,6 +4,7 @@ import { abortable, callable, isAbortError } from "../api/callable";
 import { useAuth } from "../auth/AuthProvider";
 import { ChangePasswordForm } from "./ChangePasswordForm";
 import { ExportSection } from "../account/ExportSection";
+import { useWriteAccess } from "../offline/writeAccess";
 
 interface WhoAmI {
   uid: string;
@@ -15,6 +16,7 @@ const whoami = callable<Record<string, never>, WhoAmI>("whoami");
 
 export function SettingsPage() {
   const { state, signOut } = useAuth();
+  const writable = useWriteAccess();
   const [confirmed, setConfirmed] = useState<WhoAmI | null>(null);
   const [error, setError] = useState<string | null>(null);
   // Held in a ref so React StrictMode's mount → unmount → mount in development reuses the
@@ -44,7 +46,15 @@ export function SettingsPage() {
       {error && <p role="alert">{error}</p>}
       <ChangePasswordForm />
       <ExportSection />
-      <p><Link to="/settings/delete-account" data-testid="delete-account-link">Delete account</Link></p>
+      <p><Link
+          to="/settings/delete-account"
+          data-testid="delete-account-link"
+          aria-disabled={writable ? undefined : "true"}
+          className={writable ? undefined : "disabled-link"}
+          onClick={(e) => { if (!writable) e.preventDefault(); }}
+        >
+          Delete account
+        </Link></p>
       <button data-testid="signout" type="button" onClick={() => void signOut()}>Sign out</button>
     </section>
   );

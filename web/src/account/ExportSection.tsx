@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useWriteAccess } from "../offline/writeAccess";
 import { exportHouseholdCall } from "./api";
 import { downloadFile, exportFileName, shareOrDownload } from "./exportFile";
 
@@ -13,6 +14,7 @@ const TEXT: Record<Exclude<State, "idle" | "ready">, string> = {
 
 /** Settings → Export household data. The file lives in component state only and is dropped on unmount. */
 export function ExportSection() {
+  const writable = useWriteAccess();
   const [state, setState] = useState<State>("idle");
   const [file, setFile] = useState<File | null>(null);
 
@@ -33,7 +35,7 @@ export function ExportSection() {
     <section data-testid="export-section">
       <h3>Export household data</h3>
       <p data-testid="export-warning">The file contains both members' notes and leaves the app once you share or save it.</p>
-      <button type="button" data-testid="export-prepare" disabled={state === "preparing"} onClick={() => void prepare()}>Prepare export</button>
+      <button type="button" data-testid="export-prepare" disabled={state === "preparing" || !writable} onClick={() => void prepare()}>Prepare export</button>
       <p data-testid="export-status" data-state={state} role="status">
         {state === "ready" ? "Your export is ready." : state === "idle" ? "" : TEXT[state]}
       </p>

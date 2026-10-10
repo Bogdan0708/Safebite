@@ -3,6 +3,8 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router";
 import { useAuth } from "../auth/AuthProvider";
 import { db } from "../firebase";
+import { useWriteAccess } from "../offline/writeAccess";
+import { WriteBlockedNotice } from "../offline/WriteBlockedNotice";
 import { useMember } from "../records/useMember";
 import { DeletePasswordForm } from "./DeletePasswordForm";
 
@@ -10,6 +12,7 @@ import { DeletePasswordForm } from "./DeletePasswordForm";
 export function DeleteAccountPage() {
   const { householdId, uid, displayName } = useMember();
   const { state } = useAuth();
+  const writable = useWriteAccess();
   const [onlyMember, setOnlyMember] = useState<boolean | null>(null);
 
   useEffect(() => {
@@ -25,6 +28,7 @@ export function DeleteAccountPage() {
 
   return (
     <section>
+      {!writable && <WriteBlockedNotice />}
       <h2>Delete account</h2>
       <p data-testid="delete-account-email">Deleting the account {(state.status === "member" ? state.email : null) || displayName}</p>
       {onlyMember !== null && (
@@ -35,7 +39,7 @@ export function DeleteAccountPage() {
         </p>
       )}
       <p>This cannot be undone. <Link to="/settings" data-testid="export-first">Export first</Link></p>
-      <DeletePasswordForm submitLabel="Delete my account" testid="delete" expectedUid={uid} />
+      <DeletePasswordForm submitLabel="Delete my account" testid="delete" expectedUid={uid} gated />
     </section>
   );
 }

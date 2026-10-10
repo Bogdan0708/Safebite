@@ -1,5 +1,7 @@
 import { useState, type SubmitEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router";
+import { canWrite, useWriteAccess } from "../offline/writeAccess";
+import { WriteBlockedNotice } from "../offline/WriteBlockedNotice";
 import { outcomeMessage } from "./messages";
 import { addClaim, type WriteOutcome } from "./repository";
 import { CLAIM_KINDS, CLAIM_KIND_LABELS, CLAIM_VALUES, CLAIM_VALUE_LABELS, SOURCE_TYPES, SOURCE_TYPE_LABELS, type ClaimInput, type ClaimKind, type ClaimValue, type SourceType } from "./types";
@@ -35,6 +37,7 @@ export function toClaimInput(form: RawClaimForm): ClaimInput {
 
 export function ClaimFormPage() {
   const { householdId, uid, displayName } = useMember();
+  const writable = useWriteAccess();
   const { rid } = useParams();
   const navigate = useNavigate();
   const today = useToday();
@@ -57,6 +60,7 @@ export function ClaimFormPage() {
 
   async function onSubmit(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (!canWrite()) return;
     const input = toClaimInput(form);
     const problems = validateClaimInput(input, today);
     setErrors(problems);
@@ -78,6 +82,7 @@ export function ClaimFormPage() {
     <section>
       <h2>Add evidence</h2>
       <p>Record one fact you checked, where it came from and when. Unknown stays unknown; a note never counts as accreditation.</p>
+      {!writable && <WriteBlockedNotice />}
       <form className="form" data-testid="claim-form" onSubmit={onSubmit} noValidate>
         <label>
           What is this about?
@@ -125,7 +130,7 @@ export function ClaimFormPage() {
           <input data-testid="claim-expires-at" type="date" value={form.expiresAt} onChange={(e) => set("expiresAt", e.target.value)} />
           {err("expiresAt")}
         </label>
-        <button type="submit" data-testid="claim-submit" disabled={busy}>{busy ? "Saving…" : "Save evidence"}</button>
+        <button type="submit" data-testid="claim-submit" disabled={busy || !writable}>{busy ? "Saving…" : "Save evidence"}</button>
         {outcome && outcome !== "ok" && (
           <div role="alert" data-testid="claim-save-outcome" data-kind={outcome}>
             <p>{outcomeMessage(outcome, "This restaurant")}</p>

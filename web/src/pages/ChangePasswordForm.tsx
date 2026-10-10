@@ -1,7 +1,9 @@
 import { useState, type SubmitEvent } from "react";
+import { canWrite, useWriteAccess } from "../offline/writeAccess";
 import { CHANGE_PASSWORD_MESSAGES, changePassword, validateNewPassword, type ChangePasswordResult } from "../auth/changePassword";
 
 export function ChangePasswordForm() {
+  const writable = useWriteAccess();
   const [current, setCurrent] = useState("");
   const [next, setNext] = useState("");
   const [confirm, setConfirm] = useState("");
@@ -12,6 +14,7 @@ export function ChangePasswordForm() {
 
   async function onSubmit(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (!canWrite()) return;
     setSuccess(false);
     setOutcome(null);
     if (!current) {
@@ -61,7 +64,7 @@ export function ChangePasswordForm() {
         <input type="password" autoComplete="new-password" data-testid="pw-confirm" value={confirm} onChange={(e) => setConfirm(e.target.value)} />
       </label>
       {error && <span className="field-error" data-testid="pw-error">{error}</span>}
-      <button type="submit" data-testid="pw-submit" disabled={busy}>{busy ? "Changing…" : "Change password"}</button>
+      <button type="submit" data-testid="pw-submit" disabled={busy || !writable}>{busy ? "Changing…" : "Change password"}</button>
       {outcome && <p role="alert" data-testid="pw-outcome" data-kind={outcome}>{CHANGE_PASSWORD_MESSAGES[outcome]}</p>}
       {success && <p role="status" data-testid="pw-success">Password changed</p>}
     </form>
