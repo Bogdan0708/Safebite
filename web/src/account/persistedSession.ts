@@ -84,3 +84,45 @@ function removeFromIndexedDb(key: string, uids: ReadonlySet<string>): Promise<Pe
     }
   });
 }
+
+/**
+ * The uid of the Auth user saved on this device, read without starting Firebase (spec §3.9
+ * "Early opening"). Same layout as removePersistedUsersIfUids (pinned to @firebase/auth 1.13.6).
+ * null: no saved user. "unavailable": could not read, timed out, or an unexpected layout.
+ */
+export function readPersistedUid(): Promise<string | null | "unavailable"> {
+  return new Promise((resolve) => {
+    let settled = false;
+    const done = (value: string | null | "unavailable") => { if (!settled) { settled = true; clearTimeout(timer); resolve(value); } };
+    const timer = setTimeout(() => done("unavailable"), IDB_OPEN_TIMEOUT_MS);
+    try {
+      const key = `firebase:authUser:${firebaseConfig.apiKey}:[DEFAULT]`;
+      const open = indexedDB.open(DB_NAME); // no version: never creates or upgrades the SDK's database
+      open.onerror = () => done("unavailable");
+      open.onblocked = () => done("unavailable");
+      open.onupgradeneeded = () => {
+        open.transaction?.abort(); // the database did not exist
+        done(null);
+      };
+      open.onsuccess = () => {
+        const db = open.result;
+        try {
+          if (!db.objectStoreNames.contains(STORE)) { db.close(); done("unavailable"); return; }
+          const get = db.transaction(STORE, "readonly").objectStore(STORE).get(key);
+          get.onsuccess = () => {
+            db.close();
+            const record = get.result as { value?: { uid?: unknown } } | undefined;
+            if (record === undefined) done(null);
+            else done(typeof record.value?.uid === "string" ? record.value.uid : "unavailable");
+          };
+          get.onerror = () => { db.close(); done("unavailable"); };
+        } catch {
+          try { db.close(); } catch { /* ignore */ }
+          done("unavailable");
+        }
+      };
+    } catch {
+      done("unavailable");
+    }
+  });
+}

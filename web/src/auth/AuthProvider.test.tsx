@@ -41,6 +41,9 @@ vi.mock("./membershipCheck", async (importOriginal) => {
   const real = await importOriginal<typeof import("./membershipCheck")>();
   return { ...real, membershipWithTimeout: (uid: string) => real.membershipWithTimeout(uid, t.timeout ?? real.MEMBERSHIP_TIMEOUT_MS) };
 });
+const early = vi.hoisted(() => ({ candidate: null as null | { uid: string; householdId: string; displayName: string; downloadedAt: number } }));
+vi.mock("../offline/early", () => ({ earlyCopyCandidate: async () => early.candidate }));
+vi.mock("../offline/types", async (importOriginal) => ({ ...(await importOriginal<typeof import("../offline/types")>()), EARLY_OPEN_MS: 20 }));
 
 import { AuthProvider, useAuth } from "./AuthProvider";
 import { auth as authMock } from "../firebase";
@@ -81,6 +84,7 @@ beforeEach(() => {
   sessionStorage.clear();
   setCopySession(null);
   t.timeout = undefined;
+  early.candidate = null;
   (authMock as { currentUser?: unknown }).currentUser = undefined;
 });
 
@@ -570,5 +574,88 @@ describe("AuthProvider offline (spec §3.9)", () => {
     await waitFor(() => expect(getDocMock).toHaveBeenCalled());
     await new Promise((r) => setTimeout(r, 20));
     expect(stateText()).toContain('"status":"offlineMember"');
+  });
+});
+
+describe("early opening (spec §3.9 ruling 7)", () => {
+  const candidate = { uid: "ava-uid", householdId: "home", displayName: "Ava", downloadedAt: 123 };
+
+  it("opens a provisional offlineMember when Auth has not answered in time", async () => {
+    early.candidate = candidate;
+    render(<AuthProvider><Probe /></AuthProvider>);
+    await waitFor(() => expect(stateText()).toContain('"status":"offlineMember"'));
+    expect(stateText()).toContain('"provisional":true');
+    expect(getCopySession()).toEqual({ uid: "ava-uid", householdId: "home", mode: "offlineMember" });
+  });
+
+  it("the same user from Auth reconciles in place: no reset, no loading flash", async () => {
+    early.candidate = candidate;
+    await seedCopy();
+    getDocMock.mockRejectedValue(unavailable());
+    const seen: string[] = [];
+    function Recorder() {
+      const { state } = useAuth();
+      seen.push(state.status);
+      return null;
+    }
+    render(<AuthProvider><Probe /><Recorder /></AuthProvider>);
+    await waitFor(() => expect(stateText()).toContain('"provisional":true'));
+    listeners[0](AVA);
+    await waitFor(() => expect(stateText()).not.toContain("provisional"));
+    expect(stateText()).toContain('"status":"offlineMember"');
+    expect(seen.slice(seen.indexOf("offlineMember"))).not.toContain("loading");
+    expect(resetDocument).not.toHaveBeenCalled();
+  });
+
+  it("Auth answering with no user, or another user, is an account change: clear and reset", async () => {
+    early.candidate = candidate;
+    render(<AuthProvider><Probe /></AuthProvider>);
+    await waitFor(() => expect(stateText()).toContain('"provisional":true'));
+    listeners[0](null);
+    await waitFor(() => expect(resetDocument).toHaveBeenCalledTimes(1));
+    expect(clearDeviceData).toHaveBeenCalled();
+  });
+
+  it("never opens early once Auth has answered", async () => {
+    early.candidate = candidate;
+    memberDocs();
+    render(<AuthProvider><Probe /></AuthProvider>);
+    listeners[0](AVA);
+    await waitFor(() => expect(stateText()).toContain('"status":"member"'));
+    await new Promise((r) => setTimeout(r, 60));
+    expect(stateText()).toContain('"status":"member"');
+  });
+
+  it("another user from Auth is an account change too", async () => {
+    early.candidate = candidate;
+    render(<AuthProvider><Probe /></AuthProvider>);
+    await waitFor(() => expect(stateText()).toContain('"provisional":true'));
+    listeners[0]({ uid: "bogdan-uid", email: "b@safebite.test" });
+    await waitFor(() => expect(resetDocument).toHaveBeenCalledTimes(1));
+    expect(clearDeviceData).toHaveBeenCalled();
+    expect(getDocMock).not.toHaveBeenCalled();
+  });
+
+  it("the same user confirmed as a member becomes member in place", async () => {
+    early.candidate = candidate;
+    await seedCopy();
+    memberDocs();
+    render(<AuthProvider><Probe /></AuthProvider>);
+    await waitFor(() => expect(stateText()).toContain('"provisional":true'));
+    listeners[0](AVA);
+    await waitFor(() => expect(stateText()).toContain('"status":"member"'));
+    expect(getCopySession()).toEqual({ uid: "ava-uid", householdId: "home", mode: "member" });
+    expect(resetDocument).not.toHaveBeenCalled();
+  });
+
+  it("an unclassified read error after a provisional opening is today's error screen, not a lasting provisional copy", async () => {
+    early.candidate = candidate;
+    getDocMock.mockRejectedValue(Object.assign(new Error("boom"), { code: "internal" }));
+    render(<AuthProvider><Probe /></AuthProvider>);
+    await waitFor(() => expect(stateText()).toContain('"provisional":true'));
+    listeners[0](AVA);
+    await waitFor(() => expect(stateText()).toContain('"status":"error"'));
+    expect(stateText()).toContain(NO_ANSWER_MESSAGE);
+    expect(getCopySession()).toBeNull();
   });
 });

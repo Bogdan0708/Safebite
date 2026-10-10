@@ -7,7 +7,8 @@ import { discardDeletedNoticeUnlessFor, readDeletionRequest } from "../account/s
 import { clearDeviceData } from "../device/cleanup";
 import { decideNoAnswer, prepareMemberCopy } from "../offline/decide";
 import { isServingCopy, setCopySession, setDeniedHandler, startCopyWatch } from "../offline/session";
-import { REFRESH_INTERVAL_MS } from "../offline/types";
+import { earlyCopyCandidate } from "../offline/early";
+import { EARLY_OPEN_MS, REFRESH_INTERVAL_MS } from "../offline/types";
 import { membershipWithTimeout, type MembershipAnswer } from "./membershipCheck";
 import { resetDocument } from "./resetDocument";
 
@@ -34,6 +35,10 @@ interface AuthContextValue {
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
+
+function isProvisional(state: AuthState): boolean {
+  return state.status === "offlineMember" && state.provisional === true;
+}
 
 function uidsIn(raw: string | null): string[] {
   try {
@@ -143,9 +148,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       await applyAnswer(user, answer, mine);
       return answer;
     });
-    // `first` rejects on an unclassified read error: today's error screen, unless re-checking quietly.
+    // `first` rejects on an unclassified read error: today's error screen, unless re-checking quietly
+    // an open session. A provisional early opening is not one: it ends on the error screen too.
     firstApplied.catch(() => {
-      if (mine === generationRef.current && !options.quiet) setState({ status: "error", email: user.email, message: NO_ANSWER_MESSAGE });
+      if (mine !== generationRef.current) return;
+      if (options.quiet && !isProvisional(stateRef.current)) return;
+      setCopySession(null);
+      setState({ status: "error", email: user.email, message: NO_ANSWER_MESSAGE });
     });
     // A read that outlived the timeout is applied when it lands (review P3-7).
     void Promise.allSettled([firstApplied, late]).then(([f, l]) => {
@@ -159,6 +168,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [applyAnswer, setState]);
 
   useEffect(() => startCopyWatch(), []);
+
+  // Early opening (spec §3.9 ruling 7, review P2-3): Auth can take ~30 s to report the saved user
+  // on a stalled connection. After 3 s with no Auth answer, open a ready copy for the account saved
+  // on this device; lastUidRef makes a different or missing Auth user an account change.
+  useEffect(() => {
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      void earlyCopyCandidate(Date.now()).then((candidate) => {
+        if (cancelled || !candidate || lastUidRef.current !== null || stateRef.current.status !== "loading") return;
+        lastUidRef.current = candidate.uid;
+        setCopySession({ uid: candidate.uid, householdId: candidate.householdId, mode: "offlineMember" });
+        setState({ status: "offlineMember", uid: candidate.uid, email: null, householdId: candidate.householdId, displayName: candidate.displayName, downloadedAt: candidate.downloadedAt, provisional: true });
+      }).catch(() => {
+        // No early opening; Auth's answer decides as usual.
+      });
+    }, EARLY_OPEN_MS);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [setState]);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
@@ -176,8 +206,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setState({ status: "signedOut" });
         return;
       }
+      const provisional = isProvisional(stateRef.current);
       lastUidRef.current = user.uid;
-      resolveForUser(user);
+      // The same user as an early-opened copy: confirm membership without leaving the copy.
+      resolveForUser(user, { quiet: provisional });
     });
     const onStorage = (event: StorageEvent) => {
       if (event.key !== DELETED_UIDS_KEY) return;
