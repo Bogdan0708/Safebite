@@ -2,7 +2,7 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 const m = vi.hoisted(() => ({ serving: false }));
-vi.mock("../offline/hooks", () => ({ useCopyServing: () => m.serving }));
+vi.mock("../offline/hooks", () => ({ useCopyServing: () => m.serving, useCopyMode: () => null }));
 vi.mock("../auth/AuthProvider", () => ({ useAuth: () => ({ signOut: vi.fn() }) }));
 
 import { ReadStateNotice } from "./ReadStateNotice";
