@@ -46,3 +46,11 @@ the 50,000-read daily free tier named in spec §3.9 "Cost". The interval review 
 which halves timer traffic) is therefore triggered by this measurement, not by assumption. The figure is also a floor
 for this household size: the probe seeded **no collection documents**, and a real shortlist/visited list adds up to N
 more reads per refresh (up to 100 here).
+
+**Owner follow-up (2026-10-11): interval moved to 30 minutes.** The copy refresh now runs every 30 minutes while
+visible (`COPY_REFRESH_INTERVAL_MS`), so the timer makes ~2,106 reads per hour per visible device: 2 × 8 × 4,212 ÷ 2 ≈
+**33,700 reads a day** for the recorded scenario. A separate membership check now runs every 15 minutes while visible
+for every member (`MEMBERSHIP_CHECK_INTERVAL_MS`): one server read of `users/{uid}` and one of `households/{hid}`,
+about 2 reads per check, 8 an hour per visible device, 2 × 8 × 8 = **128 a day**. Together ≈ **33,800 reads a day**,
+inside the 50,000-read daily free tier for this scenario (two devices, eight visible hours, 100 restaurants, no
+collection documents). The floor caveat above still applies; Plan 5c still checks the pilot's real usage.

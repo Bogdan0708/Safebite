@@ -21,7 +21,7 @@ Typecheck clean.
 | 2 expired-token restore | holds | stored user restored offline with an expired token, kept 10 s, refreshes on reconnection; `offlineMember` buildable |
 | 3 iPhone storage | owner-run after deploy | — |
 | 4 cross-tab serialisation | holds (Chromium, `e2e/offline-store.spec.ts`): a replacement queued behind another tab's held clear transaction returns `cleared`, meta stays null | epoch check inside the replacing transaction is sufficient |
-| 5 refresh read cost | `STOP5 {"queries":202,"documents":800,"emptyQueries":51} estimatedBilledReads=1053 perHourAt4=4212` (100 restaurants × 5 claims, 4 notes on half; emulator estimate) | queries = 1 + 2 per restaurant + 1, as designed (no collection-group rule). **Exceeds the free tier:** 2 devices × 8 visible h × 4,212 ≈ 67,400 reads/day, above the 50,000-read daily free tier in spec §3.9 "Cost", so the 5c interval review is triggered by measurement, not assumption. The probe seeded no collection documents; a real shortlist adds up to N reads per refresh, so this is a floor |
+| 5 refresh read cost | `STOP5 {"queries":202,"documents":800,"emptyQueries":51} estimatedBilledReads=1053 perHourAt4=4212` (100 restaurants × 5 claims, 4 notes on half; emulator estimate) | queries = 1 + 2 per restaurant + 1, as designed (no collection-group rule). **Exceeds the free tier:** 2 devices × 8 visible h × 4,212 ≈ 67,400 reads/day, above the 50,000-read daily free tier in spec §3.9 "Cost", so the 5c interval review is triggered by measurement, not assumption. The probe seeded no collection documents; a real shortlist adds up to N reads per refresh, so this is a floor. **2026-10-11:** the owner moved the refresh to 30 minutes: ≈33,800 reads/day with the membership check, inside the free tier (owner follow-up below) |
 
 ## Ledger
 
@@ -45,7 +45,7 @@ Typecheck clean.
 | legacy project string grep | only match is the plan's own constraint sentence ("must not appear in new files"); none in `web/src` or `web/e2e` |
 | offline core Firebase-free grep | "offline core is Firebase-free" |
 
-Stop 5 cost: about 1,053 billed reads per full refresh (202 queries, 800 documents, 51 empty), about 4,212/h per visible device, about 67,400/day for 2 devices x 8 h, above the 50,000-read free tier. The 5c interval review is triggered by this measurement.
+Stop 5 cost: about 1,053 billed reads per full refresh (202 queries, 800 documents, 51 empty), about 4,212/h per visible device, about 67,400/day for 2 devices x 8 h, above the 50,000-read free tier. The 5c interval review is triggered by this measurement. Resolved 2026-10-11 by the owner's 30-minute interval (≈33,800/day; owner follow-up below).
 
 Flakes recorded, not hidden: the unit failure above (name captured this time; earlier 1 in 17 runs) and the emulator-suite failure caused by the WSL2 clock step.
 
@@ -62,8 +62,8 @@ b204593, f709811, 9294048, 1b34ee2, 7528c18 (spec and design reviews); 0df3fb1 (
 - Task 9: `useWatch` keeps the copy value only on a mode switch and holds a bridge lease across the offlineMember to member re-subscribe.
 - Task 10: DeleteAccountPage gated (no brief covered it).
 - Task 11: switch auto-off on a refused first write requires `lastFailure` "storage".
-- Task 12: spec test 14 split into O14a/O14b (so +9, not +8, browser scenarios); `waitPastMembershipCheck` for the WSL2 clock. Finding: `copyUsable` treats a membership check dated in the future as expired with zero tolerance (spec rule kept; owner decision whether to allow a small tolerance).
-- Task 13: the emulator does not deny an open listener when only `memberIds` changes; O12 forces a record write. In production, online loss of access is bounded by the 15-minute refresh denial, start-up, or a denied write; spec §3.9 R2-4/test 12 should say so (owner decision).
+- Task 12: spec test 14 split into O14a/O14b (so +9, not +8, browser scenarios); `waitPastMembershipCheck` for the WSL2 clock. Finding: `copyUsable` treated a membership check dated in the future as expired with zero tolerance; the owner chose a 5-minute tolerance (follow-up below), and the helper stays as belt and braces.
+- Task 13: the emulator does not deny an open listener when only `memberIds` changes; O12 forces a record write. Firebase documents that listener rules are re-evaluated when their dependent documents change, but whether production denies on a `memberIds` change alone is unverified (pilot check, iPhone acceptance step 9). Corrected 2026-10-11: a denied write shows an error but does **not** re-check membership, and a member who never opted in has no refresh to be denied. Online loss of access is now bounded for every member by the 15-minute membership check while visible (owner follow-up below); the copy refresh runs every 30 minutes.
 - Task 14: browser total is 74, not the brief's 73. `web/playwright.config.ts` `globalTimeout` raised 1,200,000 to 1,800,000 ms because the stress run (3 x 8.1 min) exceeds 20 min; comment updated.
 - O5 (spec test 5) uses **Clear device data** in tab B where the spec says sign-out: sign-out shares Auth state, so it also resets tab A and would discard the paused refresh instead of letting it try to write. Device clear runs the same `clearDeviceData()` and keeps tab A alive, so it is the stronger test of "nothing written back".
 
@@ -82,3 +82,17 @@ Commit `8ee7e0a` (code and tests), plus the docs commit that adds this entry.
 Counts after the wave: web unit **737** (3 consecutive runs green, no flake), functions + rules 441 (untouched), browser **75** (`emu:e2e` 75 passed, 8.1 min; `offline-isolation.spec.ts --repeat-each=3 --retries=0` 21 passed).
 
 Not run: real iPhone (stop 3 and the acceptance script) — owner-run after deploy.
+
+## Owner follow-up (2026-10-11)
+
+Owner-approved changes after the final review; spec §3.9 amended first.
+
+1. **Refresh every 30 minutes; 15-minute membership check for every member.** `REFRESH_INTERVAL_MS` replaced by `COPY_REFRESH_INTERVAL_MS` (30 min: refresher timer and resume staleness) and `MEMBERSHIP_CHECK_INTERVAL_MS` (15 min: the new check and the `offlineMember` retry). While `member` and visible, every member, opted in or not, runs one quiet server membership read every 15 minutes; loss of access wipes and resets as a listener denial does; no answer or an unclassified error keeps the state. It skips while a denial read is outstanding or this tab's account deletion runs. A re-check confirming the same member keeps the current state (so a household-change notice is not dropped). Stop-5 estimate recomputed: ≈33,800 reads/day for the recorded scenario, inside the free tier.
+2. **5-minute backward-clock tolerance.** `CLOCK_TOLERANCE_MS`; `copyUsable` accepts `-5 min ≤ age ≤ 30 days`; non-finite still fails closed; the 30-day expiry is not extended.
+3. **Removal wording corrected.** Spec R2-4, the listener-denial bullet, browser test 12, Cost and Decisions; README guardrails; Task 13 entry above; iPhone acceptance step 9 (pilot check of listener re-evaluation versus the 15-minute check).
+
+Commits: `9806d01` (spec), `c932bb1` (code and tests), plus the docs commit that adds this entry.
+
+Counts: web unit **753** (737 + 16 new: AuthProvider 13, eligibility 2, refreshTriggers 1; `npm run test:unit` green twice), functions + rules 441 (untouched, not re-run), browser **75** (`emu:e2e` 75 passed, 7.6 min). Typecheck clean; `REFRESH_INTERVAL_MS` gone from `web/`; Firebase-free core grep clean.
+
+Test note: the new AuthProvider block fakes only `setInterval`/`clearInterval` and waits with a small real-timeout `until` helper, because Testing Library's `waitFor` polls with `setInterval` (it would only re-check on DOM mutations, which made an IndexedDB assertion flaky) and `vi.waitFor` advances fake timers (which would fire the interval under test).

@@ -215,15 +215,16 @@ npm --prefix web run e2e:upgrade      # same-origin release upgrades and the upd
 npm --prefix web run icons            # re-render the PNG icon set from web/assets/safebite-mark.svg
 ```
 
-`npm run test:unit` currently reports 737 tests. `npm run emu:test` currently reports 441 tests (functions + rules). `npm run emu:e2e` currently reports 75 browser scenarios.
+`npm run test:unit` currently reports 753 tests. `npm run emu:test` currently reports 441 tests (functions + rules). `npm run emu:e2e` currently reports 75 browser scenarios.
 
 ### Guardrails
 
 - Local work targets the emulator-only project `demo-safebite`. Nothing here deploys.
 - Deploy order (spec §3.7, §3.8): Firestore rules and functions first (`deleteAccount`, `checkAccountDeletion`, `exportHousehold`, and the amended discovery usage transaction), then hosting; the deletion completion gate protects older cached clients. Set the receipt TTL once: `gcloud firestore fields ttls update expireAt --collection-group=accountDeletionReceipts --enable-ttl --project <pilot>`.
 - Plan 5b (spec §3.9) deploys as hosting only: no rules, functions or index changes.
-- The offline copy lives only in the `safebite-offline` IndexedDB database, per device, tagged with account and household, and only after the member turns on **Keep a copy on this device**. It is read-only, cleared on sign-out, opt-out, **Clear device data** and confirmed loss of access, and stops opening after 30 days without a server-confirmed membership check. Never add Firebase imports to the Firebase-free `web/src/offline/` modules (`registerCleaners.test.tsx` guards the start-up path).
-- A full offline refresh costs roughly one read per document plus one per query (see `planning/audits/plan-5b-probes/results.md`; measured: about 1,050 reads per refresh for a 100-restaurant household); it runs every 15 minutes per visible opted-in device. Watch the pilot's daily reads after deploy.
+- The offline copy lives only in the `safebite-offline` IndexedDB database, per device, tagged with account and household, and only after the member turns on **Keep a copy on this device**. It is read-only, cleared on sign-out, opt-out, **Clear device data** and confirmed loss of access, and stops opening after 30 days without a server-confirmed membership check (a check dated up to 5 minutes in the future, a small clock step back, counts as just now; the 30-day limit is not extended). Never add Firebase imports to the Firebase-free `web/src/offline/` modules (`registerCleaners.test.tsx` guards the start-up path).
+- A full offline refresh costs roughly one read per document plus one per query (see `planning/audits/plan-5b-probes/results.md`; measured: about 1,050 reads per refresh for a 100-restaurant household); it runs every 30 minutes per visible opted-in device (≈33,700 reads a day for two devices visible eight hours, inside the 50,000-read free tier for that scenario). Watch the pilot's daily reads after deploy.
+- Every member, opted in or not, re-reads membership from the server every 15 minutes while the app is visible (the user and household documents, about 2 reads a check, ≈130 a day in the same scenario); this, not a listener denial, bounds how long a removed member keeps access while online. A denied write shows an error but does not re-check membership.
 - Never provision a Firebase Auth UID `former-member`; it is the reserved anonymisation marker (spec §3.8).
 - `checkAccountDeletion` is unauthenticated by design (a deleted account cannot sign in); it runs one request per instance with at most two instances, and belongs on the Plan 5c cost checklist.
 - Membership (`users/{uid}`, `households/{hid}`) is written only with the Admin SDK; there is no sign-up.

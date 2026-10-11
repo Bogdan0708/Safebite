@@ -25,3 +25,12 @@ Empirical stop 3 (spec §3.9) is part of this run.
    whether the copy survives closing Safari, and what step 2 showed.
 8. Optional, slow: leave the installed app unopened for 8 days, then repeat step 3 without
    reconnecting first. Expected: the copy still opens and the banner is amber ("over a week old").
+9. Removal while online (spec §3.9 R2-4, browser test 12; needs a second household member's
+   account on device A). With the app open and visible as that member on device A, on Saved,
+   the owner removes the member on the server (owner action: take the UID out of the
+   household's `memberIds`). Note the time. Record whether device A loses access at once
+   (listener re-evaluation: the not-invited screen within seconds) or only at the next
+   15-minute membership check (within 15 minutes, while the app stays visible). The emulator
+   did not deny an open listener on a `memberIds` change alone, so this step is the production
+   check. Expected either way: the not-invited screen, and Settings on that device no longer
+   lists an offline copy. Re-add the member afterwards.
