@@ -185,6 +185,32 @@ test("O11. offline, Discover says search needs a connection and Enter does not s
   expect(writes).toEqual([]); // no function call was attempted
 });
 
+/**
+ * Submits the form programmatically (as Enter or a stale click would, whatever the button's state)
+ * and reports what the submit handler rendered while it ran. Both form handlers set `busy` (the
+ * button reads "Saving…") synchronously before they call the write, and show a field error or a
+ * save outcome when validation or the write fails; the observer runs from before the submit until
+ * two frames after it, by which time React has rendered every update the handler queued.
+ */
+async function submitAndWatch(page: Page, formTestId: string): Promise<string[]> {
+  return page.getByTestId(formTestId).evaluate(async (form: HTMLFormElement) => {
+    const seen = new Set<string>();
+    const scan = () => {
+      if (form.querySelector('button[type="submit"]')?.textContent?.includes("Saving")) seen.add("saving");
+      if (document.querySelector(".field-error")) seen.add("field-error");
+      if (document.querySelector('[data-testid="save-outcome"], [data-testid="claim-save-outcome"]')) seen.add("outcome");
+    };
+    const observer = new MutationObserver(scan);
+    observer.observe(document.body, { subtree: true, childList: true, characterData: true, attributes: true });
+    form.requestSubmit();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    scan();
+    observer.disconnect();
+    return [...seen];
+  });
+}
+
 test("O14a. write routes opened directly while offline show the notice with their controls disabled", async ({ page, request }) => {
   await signIn(page, "ava@safebite.test");
   await optInAndWait(page);
@@ -195,15 +221,22 @@ test("O14a. write routes opened directly while offline show the notice with thei
   await page.goto("/restaurants/r1/evidence/new");
   await expect(page.getByTestId("write-blocked")).toHaveText("Adding and editing need a connection.", { timeout: 15_000 });
   await expect(page.getByTestId("claim-submit")).toBeDisabled();
-  await page.getByTestId("claim-form").evaluate((f: HTMLFormElement) => f.requestSubmit()); // the handler is gated too
+  // A valid claim (kind, value, source type and checked date default to valid values), so only the gate can stop it.
+  await page.getByTestId("claim-detail").fill("Separate prep area confirmed.");
+  await page.getByTestId("claim-source-label").fill("Phone call with the manager");
+  expect(await submitAndWatch(page, "claim-form")).toEqual([]);
+  await expect(page.getByTestId("claim-submit")).toHaveText("Save evidence");
+  await expect(page).toHaveURL(/\/restaurants\/r1\/evidence\/new$/);
   await page.goto("/restaurants/new");
   await expect(page.getByTestId("write-blocked")).toBeVisible({ timeout: 15_000 });
   await expect(page.getByTestId("save-restaurant")).toBeDisabled();
   await page.getByTestId("field-name").fill("Offline Attempt");
   await page.getByTestId("field-address").fill("1 Nowhere Lane");
-  await page.getByTestId("restaurant-form").evaluate((f: HTMLFormElement) => f.requestSubmit());
-  await expect(page.getByTestId("save-restaurant")).toBeDisabled();
-  expect(writes).toEqual([]);
+  expect(await submitAndWatch(page, "restaurant-form")).toEqual([]);
+  await expect(page.getByTestId("save-restaurant")).toHaveText("Save");
+  await expect(page).toHaveURL(/\/restaurants\/new$/);
+  expect(writes).toEqual([]); // checked last: no write was even attempted
+  // Sanity only: cutServer aborts every emulator request, so nothing could have been created here.
   expect((await listRestaurantIds(request)).sort()).toEqual(["r1", "r2"]);
 });
 
@@ -219,14 +252,18 @@ test("O14b. a form open when the connection drops disables its submit and sends 
   await context.setOffline(true);
   await expect(page.getByTestId("save-restaurant")).toBeDisabled();
   await expect(page.getByTestId("write-blocked")).toHaveText("Adding and editing need a connection.");
-  await page.getByTestId("restaurant-form").evaluate((f: HTMLFormElement) => f.requestSubmit()); // Enter or a stale click
+  expect(await submitAndWatch(page, "restaurant-form")).toEqual([]); // Enter or a stale click
   await expect(page).toHaveURL(/\/restaurants\/new$/);
   await expect(page.getByTestId("field-name")).toHaveValue("Dropped Connection"); // the draft stays
-  expect(writes).toEqual([]);
   // Writes are server transactions, never queued: reconnecting sends nothing either.
   await context.setOffline(false);
   await expect(page.getByTestId("save-restaurant")).toBeEnabled();
   expect(writes).toEqual([]);
   expect((await listRestaurantIds(request)).sort()).toEqual(["r1", "r2"]);
+  // Control: the same draft, submitted the same way once online, reaches the write and the probe sees it.
+  expect(await submitAndWatch(page, "restaurant-form")).toContain("saving");
+  await expect(page.getByTestId("restaurant-name")).toHaveText("Dropped Connection", { timeout: 15_000 });
+  expect(writes.length).toBeGreaterThan(0);
+  expect(await listRestaurantIds(request)).toHaveLength(3);
   await page.close(); // before the dev server's reconnect reload can reach another test
 });
