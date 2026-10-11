@@ -65,5 +65,20 @@ b204593, f709811, 9294048, 1b34ee2, 7528c18 (spec and design reviews); 0df3fb1 (
 - Task 12: spec test 14 split into O14a/O14b (so +9, not +8, browser scenarios); `waitPastMembershipCheck` for the WSL2 clock. Finding: `copyUsable` treats a membership check dated in the future as expired with zero tolerance (spec rule kept; owner decision whether to allow a small tolerance).
 - Task 13: the emulator does not deny an open listener when only `memberIds` changes; O12 forces a record write. In production, online loss of access is bounded by the 15-minute refresh denial, start-up, or a denied write; spec §3.9 R2-4/test 12 should say so (owner decision).
 - Task 14: browser total is 74, not the brief's 73. `web/playwright.config.ts` `globalTimeout` raised 1,200,000 to 1,800,000 ms because the stress run (3 x 8.1 min) exceeds 20 min; comment updated.
+- O5 (spec test 5) uses **Clear device data** in tab B where the spec says sign-out: sign-out shares Auth state, so it also resets tab A and would discard the paused refresh instead of letting it try to write. Device clear runs the same `clearDeviceData()` and keeps tab A alive, so it is the stronger test of "nothing written back".
+
+### Final review fix wave
+
+Commit `8ee7e0a` (code and tests), plus the docs commit that adds this entry.
+
+- I1: reconnecting from `offlineMember` after a household move reset the tab (its own invalidation broadcast) and lost the ruling-8 notice. `prepareMemberCopy` now writes a per-tab sessionStorage flag (uid, new household, time; try/catch) before `clearCopy()` when this document is showing copy data; the next member start with no mismatched copy reads it once (60 s window) and shows the notice. The conservative self-reset stays (old household data never stays on screen). Unit tests in `AuthProvider.test.tsx` and `decide.test.ts`; browser O7b.
+- I2: the two `online`-event AuthProvider tests dispatch inside the retrying `waitFor` (the listener is attached by a passive effect); the 3000 ms timeout removed.
+- M1: `finished(tx)` marks its promise handled at creation, so an aborted transaction under a failed read leaves no unhandled rejection.
+- M2: `offlineCopyCleaner` clears the copy, bumps the epoch and clears every opt-in in one transaction.
+- M3: `isMeta` requires finite revision and times; `copyUsable` fails closed on a non-finite age.
+- M4: the refresher re-kicks when a request joined a loop that had already passed its last check.
+- M5: the write observer's late `getOptIn` answer and the visibility trigger's late `ageOf` answer are ignored once their session or triggers have stopped.
+
+Counts after the wave: web unit **737** (3 consecutive runs green, no flake), functions + rules 441 (untouched), browser **75** (`emu:e2e` 75 passed, 8.1 min; `offline-isolation.spec.ts --repeat-each=3 --retries=0` 21 passed).
 
 Not run: real iPhone (stop 3 and the acceptance script) — owner-run after deploy.
