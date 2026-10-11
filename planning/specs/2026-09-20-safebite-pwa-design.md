@@ -1783,7 +1783,7 @@ and two contract gaps, verified against the code and amended below.
 | R2-1 The 15-minute skip rule can leave unopened restaurants stale | The skip rule is removed; the timer always runs a full refresh |
 | R2-2 An older refresh in one tab can overwrite a newer copy from another | `meta.revision` checked and incremented by every full and partial replacement; stale work is discarded and re-run |
 | R2-3 Start-up clearing removes other runs' pending keys | Only the keys captured before the run are retired; the gate is re-checked before the app opens |
-| R2-4 A live listener's `permission-denied` has no cleanup path | Any listener denial triggers the server membership read |
+| R2-4 A live listener's `permission-denied` has no cleanup path | Any listener denial triggers the server membership read. Owner follow-up (2026-10-11): a listener denial is not guaranteed — the emulator did not deny an open listener when only `memberIds` changed (Task 13) — and a denied write does not re-check, so a 15-minute membership check while visible bounds online loss of access for every member (Leaving and keeping `member`, below) |
 | R2-5 Clearing in one tab leaves copy data shown in another | Cross-tab invalidation (BroadcastChannel plus checks on resume and before each copy read) |
 | R2-6 Write routes without a data listener stay enabled offline | A single write-access gate for every write control and submit handler (`RestaurantFormPage.tsx:79` create mode, `ClaimFormPage.tsx:128`) |
 | Contracts | A partial refresh never changes `downloadedAt`; an open offline session re-checks the 30-day limit |
@@ -1878,6 +1878,13 @@ within the 30-day window.
 - **A listener denial** (`permission-denied`, today's `denied` state) also triggers the server
   membership read, at most once per denial episode; its answer decides, exactly as at start-up:
   a confirmed loss of access wipes the copy and resets the document (review R2-4).
+  - Whether a denial arrives at all is not guaranteed. Firebase documents that a listener's rules
+    are re-evaluated when the documents they depend on change, but the emulator did not deny an
+    open listener when only the household's `memberIds` changed (Plan 5b Task 13), so production
+    behaviour is verified in the pilot (5c, iPhone acceptance).
+  - A denied **write** shows its error but does not trigger a membership read.
+  - What bounds online loss of access is the membership check every 15 minutes while visible
+    (Startup, "Membership check while `member`"), which runs for every member, opted in or not.
 - **`offlineMember`:** no Firestore listener is created; watchers read the copy once on
   subscription and again when the state changes.
 - A restaurant absent from the copy emits today's "not loaded on this device" error.
@@ -1933,7 +1940,8 @@ answer:
 - the saved Auth user's uid, read with the layout §3.8 already pins for `@firebase/auth` 1.13.6
   (`firebaseLocalStorageDb`; unexpected layout → no early opening), equals `meta.uid`;
 - that uid is not in the deleted-session record;
-- the copy is complete, the account is opted in, and `0 ≤ now − membershipCheckedAt ≤ 30 days`.
+- the copy is complete, the account is opted in, and `membershipCheckedAt` is within the window
+  (`−5 minutes ≤ now − membershipCheckedAt ≤ 30 days`, see **Clock** below).
 
 When Auth answers: a different user or no user is an account change — `clearDeviceData()` and
 reset, as today. The same user continues with the membership read below; the provisional state
@@ -1956,8 +1964,19 @@ server (Server reads) and classifies:
   after **6 s** (stop 1 confirms or adjusts). The read is not cancelled: a later answer is
   applied with the same classification — member switches in place, loss of access wipes —
   guarded by `AuthProvider`'s generation counter (review P3-7).
-- **Clock:** a `membershipCheckedAt` in the future counts as outside the window.
+- **Clock:** a `membershipCheckedAt` up to **5 minutes** in the future (a small backward clock
+  step after a check) counts as age 0; more than 5 minutes in the future counts as outside the
+  window, so setting the clock back cannot extend it. The tolerance never extends the 30-day
+  expiry: a check older than 30 days is outside the window whatever the tolerance. A non-finite
+  age (a NaN time or clock) is outside the window.
 - **`displayName`** for `offlineMember` comes from `meta.displayName`.
+- **Membership check while `member`:** every 15 minutes while the document is visible, every
+  member — opted in or not — runs one quiet server membership read (the same read, the same
+  classification). A confirmed loss of access goes through the same wipe and reset as a listener
+  denial (the copy wiped if there is one, today's screen). No answer or a transient error keeps
+  the current state silently. A member answer renews `membershipCheckedAt` through
+  `recordMembershipCheck` (which never creates `meta`). The check skips a document whose own
+  account deletion is running or whose denial read is still outstanding.
 - **Leaving `offlineMember`:** on the `online` event and every 15 minutes while visible, the
   membership read is retried; the 30-day limit is re-checked as described under Cross-tab
   invalidation. A server "member" answer switches to `member` in place and starts a
@@ -1982,8 +2001,8 @@ Runs only in `member` with the account's opt-in on.
    `revision + 1`, `downloadedAt = membershipCheckedAt = now` and `complete: true`. A `QuotaExceededError` rolls the whole transaction back, so the previous
    copy stays intact.
 4. **Triggers (full refresh):** entering `member`; turning the switch on; the `online` event;
-   **Refresh now**; returning to the page (`visibilitychange`) when the copy is older than 15
-   minutes; every 15 minutes while visible. Live listeners only prove the queries on screen are
+   **Refresh now**; returning to the page (`visibilitychange`) when the copy is older than 30
+   minutes; every 30 minutes while visible (owner follow-up 2026-10-11; it was 15). Live listeners only prove the queries on screen are
    current, not the stored copy, so the timer is never skipped (review R2-1).
 5. **After a successful write** (record, claim, collection, note): a partial refresh of that
    restaurant only (`replaceRestaurant`), under the same epoch, identity and revision checks
@@ -1996,14 +2015,14 @@ Runs only in `member` with the account's opt-in on.
 returned; one read for each query that returns nothing (Firestore's minimum, common for notes);
 and the rules' membership `get()` on the household document, about one per query (`isMember`,
 `firestore.rules:16–18`). Queries are `1 + 2N + 1` for N restaurants. For 100 restaurants with
-~5 claims and ~2 notes each that is on the order of 1,000–1,100 reads; at four timer refreshes an
-hour, ~4,000+ reads an hour per visible device. Two devices visible for eight hours would then
-exceed the 50,000-read daily free tier from the timer alone. The cost is therefore **not assumed
-to be inside the free tier**: the plan measures the real per-refresh count on the emulator with a
-realistic household (empirical stop 5) and 5c's cost checklist records it with the pilot's
-budget alert. Only visible documents run the timer. The 15-minute interval stays for now; if the
-measured cost is too high, the interval is the first lever (30 minutes halves timer traffic and
-doubles the worst-case staleness).
+~5 claims and ~2 notes each that is on the order of 1,000–1,100 reads. Stop 5 measured ~1,053
+reads per full refresh (~4,212 an hour at the original 15-minute interval), so two devices visible
+for eight hours made ≈67,400 reads a day, above the 50,000-read daily free tier. The owner
+therefore moved the copy refresh to **30 minutes** (2026-10-11): ≈33,700 reads a day for the same
+scenario, plus the membership check (the user and household documents, about 2 reads every
+15 minutes per visible document, ≈130 a day for two devices over eight hours), ≈33,800 in all —
+inside the free tier for the recorded scenario. 5c's cost checklist still records the pilot's
+real usage with its budget alert. Only visible documents run either timer.
 
 **Cleanup wins.** Sign-out, account switch, opting out, **Clear device data**, a household move
 and confirmed loss of access all run `clearCopy()`: **one** readwrite transaction over
@@ -2109,8 +2128,10 @@ partial, and partial versus full across two simulated tabs — never leave older
 `downloadedAt` in the copy; a partial refresh leaves `downloadedAt` unchanged; a refresh whose
 query resolves
 `fromCache` writes nothing; `permission-denied` during a refresh triggers the membership read and
-does not wipe; partial refresh after a write; the 15-minute timer always running a full refresh while visible
-and not while hidden; every row of the startup
+does not wipe; partial refresh after a write; the 30-minute timer always running a full refresh while visible
+and not while hidden; the 15-minute membership check only while visible and only in `member`
+(opted in or not), a loss of access wiping, no answer keeping the state; the 15-minute
+`offlineMember` retry; the 5-minute clock tolerance edges; every row of the startup
 table, the household-move row, the 30-day edges and a future `membershipCheckedAt`; the 6 s
 timeout, the `navigator.onLine === false` fast path and a late answer applied after the timeout;
 a listener denial triggering one membership read; cross-tab invalidation (BroadcastChannel
@@ -2143,7 +2164,12 @@ stubbed where a scenario needs the fast path):**
 10. A refresh interrupted by a forced failure → previous copy and `downloadedAt` unchanged.
 11. Offline Discover shows "Search needs a connection."
 12. Revocation while online: membership removed on the server while the app is open as `member`
-    → listener denial → membership read → copy wiped, today's screen.
+    → membership read (from a listener denial when one arrives; otherwise the 15-minute
+    membership check) → copy wiped, today's screen. The emulator did not deny an open listener
+    when only `memberIds` changed (Task 13), so the test then changes a record the listener
+    watches (as another member's write would), which makes it re-evaluate and deny; the
+    15-minute check is covered by unit tests, and whether production listeners deny on the
+    `memberIds` change alone is a pilot check.
 13. Cross-tab: tab A shows copy data offline; tab B turns the switch off → tab A resets and no
     longer shows the data.
 14. Write gates: open `/restaurants/new` and the evidence form directly while offline → controls
@@ -2153,13 +2179,17 @@ stubbed where a scenario needs the fast path):**
 Home Screen app, wait for "Ready offline", fully close the app, airplane mode, reopen, read
 restaurants, evidence and notes; with the app open, walk out of signal (or airplane mode while
 open) and open a record not yet viewed; back online, sign out, and confirm Settings shows no copy
-for the next account.
+for the next account. Pilot check for test 12: with the app open as a member on device A, the
+owner removes that member on the server; record whether device A loses access at once (listener
+re-evaluation) or only at the next 15-minute membership check.
 
 #### Decisions taken without owner input (override if wrong)
 
 | Decision | Reason |
 |----------|--------|
-| 15-minute full refresh while visible, never skipped | Fresh enough for a household's pace of change; cost measured (stop 5) rather than assumed, interval revisited in 5c if needed |
+| 30-minute full refresh while visible, never skipped (owner, 2026-10-11; was 15) | Halves the measured stop-5 cost to inside the free tier for the recorded scenario; fresh enough for a household's pace of change |
+| 15-minute membership check while visible, for every member | Bounds online loss of access without relying on listener denials, at ~2 reads a check |
+| 5-minute backward-clock tolerance on `membershipCheckedAt` (owner, 2026-10-11) | A small clock step back after a check must not lock a member out; the 30-day expiry is not extended |
 | 6-second membership timeout; early opening after 3 s (subject to stop 1) | Long enough on a weak signal, short enough not to feel stuck |
 | One copy per device, not per account | Only the signed-in account may read it; an account change clears it anyway |
 | The whole household, not just the shortlist | Small data; an unexpected dead zone can involve any record |
