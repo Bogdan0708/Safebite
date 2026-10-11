@@ -206,7 +206,7 @@ npm run typecheck   # both packages
 npm run test:unit   # web unit tests (no emulator)
 npm run emu:test    # functions + Firestore rules tests (starts emulators)
 npm run emu:e2e     # Playwright browser tests (starts emulators, seeds, runs Vite)
-npm run emu:e2e:stress   # 58 browser scenarios × 3 repeats, retries disabled (flakiness gate)
+npm run emu:e2e:stress   # 74 browser scenarios × 3 repeats, retries disabled (flakiness gate)
 npm --prefix web run build:check   # compile-only build (no Firebase config needed)
 npm --prefix web run build:e2e        # builds the three synthetic bundles: dist-preview, dist-preview-v2, dist-boot-guard (fixtures in web/.env.preview, .env.preview-v2, .env.boot-guard)
 npm --prefix web run e2e:boot-guard   # compile-only bundle with demo values refuses to start (Chromium, no emulators)
@@ -215,12 +215,15 @@ npm --prefix web run e2e:upgrade      # same-origin release upgrades and the upd
 npm --prefix web run icons            # re-render the PNG icon set from web/assets/safebite-mark.svg
 ```
 
-`npm run test:unit` currently reports 529 tests. `npm run emu:test` currently reports 441 tests (functions + rules). `npm run emu:e2e` currently reports 58 browser scenarios.
+`npm run test:unit` currently reports 724 tests. `npm run emu:test` currently reports 441 tests (functions + rules). `npm run emu:e2e` currently reports 74 browser scenarios.
 
 ### Guardrails
 
 - Local work targets the emulator-only project `demo-safebite`. Nothing here deploys.
 - Deploy order (spec §3.7, §3.8): Firestore rules and functions first (`deleteAccount`, `checkAccountDeletion`, `exportHousehold`, and the amended discovery usage transaction), then hosting; the deletion completion gate protects older cached clients. Set the receipt TTL once: `gcloud firestore fields ttls update expireAt --collection-group=accountDeletionReceipts --enable-ttl --project <pilot>`.
+- Plan 5b (spec §3.9) deploys as hosting only: no rules, functions or index changes.
+- The offline copy lives only in the `safebite-offline` IndexedDB database, per device, tagged with account and household, and only after the member turns on **Keep a copy on this device**. It is read-only, cleared on sign-out, opt-out, **Clear device data** and confirmed loss of access, and stops opening after 30 days without a server-confirmed membership check. Never add Firebase imports to the Firebase-free `web/src/offline/` modules (`registerCleaners.test.tsx` guards the start-up path).
+- A full offline refresh costs roughly one read per document plus one per query (see `planning/audits/plan-5b-probes/results.md`; measured: about 1,050 reads per refresh for a 100-restaurant household); it runs every 15 minutes per visible opted-in device. Watch the pilot's daily reads after deploy.
 - Never provision a Firebase Auth UID `former-member`; it is the reserved anonymisation marker (spec §3.8).
 - `checkAccountDeletion` is unauthenticated by design (a deleted account cannot sign in); it runs one request per instance with at most two instances, and belongs on the Plan 5c cost checklist.
 - Membership (`users/{uid}`, `households/{hid}`) is written only with the Admin SDK; there is no sign-up.
