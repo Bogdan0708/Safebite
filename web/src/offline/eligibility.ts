@@ -13,7 +13,8 @@ export function copyUsable(meta: CopyMeta | null, id: CopyIdentity, optedIn: boo
   if (meta.uid !== id.uid || meta.householdId !== id.householdId) return "otherCopy";
   if (!optedIn) return "optedOut";
   const age = now - meta.membershipCheckedAt;
-  if (age < 0 || age > COPY_MAX_AGE_MS) return "expired";
+  // Fails closed: a non-finite age (a NaN time or clock) is outside the window (final review M3).
+  if (!(age >= 0 && age <= COPY_MAX_AGE_MS)) return "expired";
   return true;
 }
 

@@ -120,7 +120,14 @@ export function createRefresher(deps: RefresherDeps): Refresher {
   }
 
   function kick(): Promise<void> {
-    if (!running) running = loop().finally(() => { running = null; });
+    if (!running) {
+      running = loop().finally(() => {
+        running = null;
+        // A request that landed after the loop's last check joined this finishing run: run it now
+        // (final review M4). The returned promise covers that run too.
+        if (target && (fullPending || partialsPending.size > 0)) return kick();
+      });
+    }
     return running;
   }
 

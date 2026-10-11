@@ -67,11 +67,18 @@ function result<T>(request: IDBRequest<T>): Promise<T> {
   });
 }
 
+/**
+ * Settles with the transaction. Marked handled at once (final review M1): when a read inside the
+ * transaction fails first, the caller leaves before awaiting this, and its rejection must not
+ * surface as an unhandled rejection. Callers that do await it still see the rejection.
+ */
 function finished(tx: IDBTransaction): Promise<void> {
-  return new Promise((resolve, reject) => {
+  const done = new Promise<void>((resolve, reject) => {
     tx.oncomplete = () => resolve();
     tx.onabort = () => reject(tx.error ?? new DOMException("aborted", "AbortError"));
   });
+  done.catch(() => {});
+  return done;
 }
 
 function isQuota(err: unknown): boolean {
@@ -81,7 +88,7 @@ function isQuota(err: unknown): boolean {
 function isMeta(value: unknown): value is CopyMeta {
   const m = value as Partial<CopyMeta> | null;
   return !!m && typeof m.uid === "string" && typeof m.householdId === "string" && typeof m.displayName === "string"
-    && typeof m.revision === "number" && typeof m.downloadedAt === "number" && typeof m.membershipCheckedAt === "number" && m.complete === true;
+    && Number.isFinite(m.revision) && Number.isFinite(m.downloadedAt) && Number.isFinite(m.membershipCheckedAt) && m.complete === true;
 }
 
 function ridRange(rid: string): IDBKeyRange {
@@ -271,20 +278,26 @@ export async function recordMembershipCheck(id: CopyIdentity, now: number): Prom
   }
 }
 
-/** One transaction: bump the epoch, delete meta and every record. Leaves opt-ins. Throws on failure. */
-export async function clearCopy(): Promise<void> {
+/** One transaction: bump the epoch, delete meta and every record, and with `optIns` every opt-in too. */
+async function clearInOneTransaction(optIns: boolean): Promise<void> {
   if (!hasIndexedDb()) return;
   await withDb(async (db) => {
-    const tx = db.transaction(["control", "meta", ...RECORD_STORES], "readwrite");
+    const tx = db.transaction(["control", "meta", ...RECORD_STORES, ...(optIns ? ["optIn"] : [])], "readwrite");
     const done = finished(tx);
     const control = (await result(tx.objectStore("control").get(EPOCH_KEY))) as { epoch?: unknown } | undefined;
     const epoch = typeof control?.epoch === "number" ? control.epoch : 0;
     tx.objectStore("control").put({ epoch: epoch + 1 }, EPOCH_KEY);
     tx.objectStore("meta").delete(META_KEY);
     for (const name of RECORD_STORES) tx.objectStore(name).clear();
+    if (optIns) tx.objectStore("optIn").clear();
     await done;
   });
   announceInvalidation();
+}
+
+/** One transaction: bump the epoch, delete meta and every record. Leaves opt-ins. Throws on failure. */
+export async function clearCopy(): Promise<void> {
+  await clearInOneTransaction(false);
 }
 
 export async function getOptIn(uid: string): Promise<boolean> {
@@ -321,8 +334,8 @@ export async function clearAllOptIns(): Promise<void> {
 /** Registered in device/registerCleaners.ts. Touches only the safebite-offline database. */
 export const offlineCopyCleaner: DeviceCleaner = {
   name: "offlineCopy",
+  /** The copy and every opt-in in one transaction (final review M2). */
   async clear() {
-    await clearCopy();
-    await clearAllOptIns();
+    await clearInOneTransaction(true);
   },
 };

@@ -1,7 +1,8 @@
 import "fake-indexeddb/auto";
 import { IDBFactory } from "fake-indexeddb";
-import { beforeEach, describe, expect, it } from "vitest";
-import { decideNoAnswer, prepareMemberCopy } from "./decide";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { decideNoAnswer, HOUSEHOLD_CHANGED_KEY, prepareMemberCopy } from "./decide";
+import { setCopySession } from "./session";
 import { readMeta, readToken, replaceCopy, setOptIn } from "./store";
 import { COPY_MAX_AGE_MS } from "./types";
 
@@ -41,6 +42,8 @@ function rawMeta(): Promise<unknown> {
 beforeEach(() => {
   globalThis.indexedDB = new IDBFactory();
   localStorage.clear();
+  sessionStorage.clear();
+  setCopySession(null);
 });
 
 describe("decideNoAnswer", () => {
@@ -83,5 +86,49 @@ describe("prepareMemberCopy", () => {
   it("no copy at all: nothing to clear and no meta created", async () => {
     await expect(prepareMemberCopy("ava-uid", "home", NOW)).resolves.toEqual({ householdChanged: false });
     await expect(rawMeta()).resolves.toBeUndefined();
+  });
+});
+
+describe("household-move notice across this document's own reset (final review I1)", () => {
+  it("is carried only when this document shows copy data, and read once by the next member start", async () => {
+    await seed("old-home");
+    setCopySession({ uid: "ava-uid", householdId: "old-home", mode: "offlineMember" });
+    await expect(prepareMemberCopy("ava-uid", "home", NOW)).resolves.toEqual({ householdChanged: true });
+    expect(sessionStorage.getItem(HOUSEHOLD_CHANGED_KEY)).not.toBeNull();
+    setCopySession(null); // the reloaded document
+    await expect(prepareMemberCopy("ava-uid", "home", NOW + 1000)).resolves.toEqual({ householdChanged: true });
+    expect(sessionStorage.getItem(HOUSEHOLD_CHANGED_KEY)).toBeNull();
+    await expect(prepareMemberCopy("ava-uid", "home", NOW + 2000)).resolves.toEqual({ householdChanged: false });
+  });
+  it("is not carried by a document that is not showing copy data (no reset follows)", async () => {
+    await seed("old-home");
+    await expect(prepareMemberCopy("ava-uid", "home", NOW)).resolves.toEqual({ householdChanged: true });
+    expect(sessionStorage.getItem(HOUSEHOLD_CHANGED_KEY)).toBeNull();
+  });
+  it("is ignored, and discarded, for another account or household, when stale, or when malformed", async () => {
+    for (const value of [
+      JSON.stringify({ uid: "bogdan-uid", householdId: "home", at: NOW }),
+      JSON.stringify({ uid: "ava-uid", householdId: "elsewhere", at: NOW }),
+      JSON.stringify({ uid: "ava-uid", householdId: "home", at: NOW - 61_000 }),
+      "{not json",
+    ]) {
+      sessionStorage.setItem(HOUSEHOLD_CHANGED_KEY, value);
+      await expect(prepareMemberCopy("ava-uid", "home", NOW)).resolves.toEqual({ householdChanged: false });
+      expect(sessionStorage.getItem(HOUSEHOLD_CHANGED_KEY)).toBeNull();
+    }
+  });
+  it("blocked sessionStorage only loses the notice", async () => {
+    await seed("old-home");
+    setCopySession({ uid: "ava-uid", householdId: "old-home", mode: "offlineMember" });
+    const set = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new Error("blocked"); });
+    const get = vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => { throw new Error("blocked"); });
+    try {
+      await expect(prepareMemberCopy("ava-uid", "home", NOW)).resolves.toEqual({ householdChanged: true });
+      await expect(readMeta()).resolves.toBeNull();
+      await expect(prepareMemberCopy("ava-uid", "home", NOW)).resolves.toEqual({ householdChanged: false });
+    } finally {
+      set.mockRestore();
+      get.mockRestore();
+    }
   });
 });

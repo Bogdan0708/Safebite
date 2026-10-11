@@ -253,3 +253,67 @@ describe("clearCopy and the cleaner", () => {
     await expect(getOptIn("bogdan-uid")).resolves.toBe(false);
   });
 });
+
+/** Writes a raw meta record, bypassing replaceCopy. */
+function putRawMeta(value: unknown): Promise<void> {
+  return new Promise<void>((resolve) => {
+    const open = indexedDB.open("safebite-offline");
+    open.onsuccess = () => {
+      const tx = open.result.transaction("meta", "readwrite");
+      tx.objectStore("meta").put(value, "copy");
+      tx.oncomplete = () => { open.result.close(); resolve(); };
+    };
+  });
+}
+
+describe("final review fixes", () => {
+  it("M1: a transaction aborted under a pending read leaves no unhandled rejection", async () => {
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown) => { unhandled.push(reason); };
+    process.on("unhandledRejection", onUnhandled);
+    try {
+      await replaceCopy(WHO, await readToken(), household("a"), T0);
+      const realGet = IDBObjectStore.prototype.get;
+      vi.spyOn(IDBObjectStore.prototype, "get").mockImplementation(function (this: IDBObjectStore, ...args: Parameters<IDBObjectStore["get"]>) {
+        const request = realGet.apply(this, args);
+        if (this.transaction.mode === "readwrite") this.transaction.abort(); // the read fails with its transaction
+        return request;
+      });
+      await expect(replaceCopy(WHO, await readToken(), household("b"), T0 + 1)).resolves.toBe("unavailable");
+      await expect(replaceRestaurant(ID, await readToken(), "a", null)).resolves.toBe("unavailable");
+      await expect(recordMembershipCheck(ID, T0 + 2)).resolves.toBeUndefined();
+      await expect(clearCopy()).rejects.toBeDefined();
+      await new Promise((r) => setTimeout(r, 50));
+      expect(unhandled).toEqual([]);
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+    }
+  });
+
+  it("M2: the cleaner removes the copy and every opt-in in one transaction", async () => {
+    await setOptIn("bogdan-uid", true);
+    await replaceCopy(WHO, await readToken(), household("a"), T0);
+    const before = await readToken();
+    const tx = vi.spyOn(IDBDatabase.prototype, "transaction");
+    await offlineCopyCleaner.clear();
+    const writes = tx.mock.calls.filter((call) => call[1] === "readwrite");
+    tx.mockRestore();
+    expect(writes).toHaveLength(1);
+    await expect(readMeta()).resolves.toBeNull();
+    await expect(readCopy(ID)).resolves.toEqual({ kind: "none" });
+    await expect(getOptIn("ava-uid")).resolves.toBe(false);
+    await expect(getOptIn("bogdan-uid")).resolves.toBe(false);
+    expect((await readToken()).epoch).toBe(before.epoch + 1);
+  });
+
+  it("M3: a meta record with a non-finite time or revision is malformed, never a usable copy", async () => {
+    const good = { uid: "ava-uid", householdId: "home", displayName: "Ava", revision: 1, downloadedAt: T0, membershipCheckedAt: T0, complete: true };
+    for (const bad of [{ downloadedAt: NaN }, { membershipCheckedAt: NaN }, { membershipCheckedAt: Infinity }, { revision: NaN }]) {
+      await putRawMeta({ ...good, ...bad });
+      await expect(readMeta()).resolves.toBeNull();
+      await expect(readCopy(ID)).resolves.toEqual({ kind: "malformed" });
+    }
+    await putRawMeta(good);
+    await expect(readMeta()).resolves.toEqual(good);
+  });
+});

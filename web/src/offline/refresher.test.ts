@@ -118,6 +118,24 @@ describe("refresher", () => {
     expect(d.readHousehold).toHaveBeenCalledTimes(2);
   });
 
+  it("a request landing as the loop finishes is not dropped (final review M4)", async () => {
+    const d = deps();
+    const r = createRefresher(d);
+    let asked = false;
+    // The loop's last status update runs after its final while check but before it is released:
+    // a request made there (as any subscriber may) used to join the finishing run and be lost.
+    const stop = r.subscribe(() => {
+      if (!asked && !r.status().running) {
+        asked = true;
+        void r.requestFull(TARGET);
+      }
+    });
+    await r.requestFull(TARGET);
+    await vi.waitFor(() => expect(d.readHousehold).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() => expect(r.status().running).toBe(false));
+    stop();
+  });
+
   it("switching off while the first download is reading leaves nothing written (Review Focus 2)", async () => {
     const g = gate();
     const r = createRefresher(deps({ pause: () => g.promise }));

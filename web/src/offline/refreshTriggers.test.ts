@@ -37,6 +37,17 @@ describe("startRefreshTriggers", () => {
     stop();
   });
 
+  it("an age read that answers after stop runs nothing (final review M5)", async () => {
+    const run = vi.fn();
+    let answer!: (age: number | null) => void;
+    const stop = startRefreshTriggers(run, () => new Promise<number | null>((r) => { answer = r; }));
+    document.dispatchEvent(new Event("visibilitychange"));
+    stop();
+    answer(null);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(run).not.toHaveBeenCalled();
+  });
+
   it("the 15-minute timer always runs while visible and never while hidden (review R2-1)", () => {
     vi.useFakeTimers();
     const run = vi.fn();

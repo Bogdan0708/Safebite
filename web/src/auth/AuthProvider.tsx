@@ -267,7 +267,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setWriteObserver((hid, rid) => {
       if (hid !== target.householdId) return;
       void getOptIn(target.uid).then((on) => {
-        if (on) void refresher.requestPartial(target, rid);
+        // A late answer after this session ended must not point the refresher back at it (final review M5).
+        if (on && !cancelled) void refresher.requestPartial(target, rid);
       });
     });
     return () => {

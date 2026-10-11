@@ -30,6 +30,14 @@ describe("copyUsable", () => {
   });
 });
 
+describe("copyUsable fails closed (final review M3)", () => {
+  it("a non-finite membership check or clock is expired, never usable", () => {
+    expect(copyUsable({ ...meta(0), membershipCheckedAt: NaN }, ID, true, false, NOW)).toBe("expired");
+    expect(copyUsable({ ...meta(0), membershipCheckedAt: -Infinity }, ID, true, false, NOW)).toBe("expired");
+    expect(copyUsable(meta(0), ID, true, false, NaN)).toBe("expired");
+  });
+});
+
 describe("copyIsOld", () => {
   it("is old only beyond exactly 7 days", () => {
     expect(copyIsOld(meta(0, STALE_BANNER_MS), NOW)).toBe(false);

@@ -409,6 +409,58 @@ describe("AuthProvider offline (spec §3.9)", () => {
     await expect(readMeta()).resolves.toBeNull();
   });
 
+  it("reconnecting after a household move: the self-reset keeps the notice for the reloaded page (ruling 8, final review I1)", async () => {
+    await seedCopy("old-home");
+    getDocMock.mockRejectedValue(unavailable());
+    (authMock as { currentUser?: unknown }).currentUser = AVA;
+    const first = render(<AuthProvider><Probe /></AuthProvider>);
+    listeners[0](AVA);
+    await waitFor(() => expect(stateText()).toContain('"status":"offlineMember"'));
+    expect(stateText()).toContain('"householdId":"old-home"');
+    memberDocs();
+    await waitFor(() => {
+      window.dispatchEvent(new Event("online"));
+      expect(stateText()).toContain('"status":"member"');
+    });
+    // The old household's copy is gone, and this document resets itself (it was showing copy data).
+    await expect(readMeta()).resolves.toBeNull();
+    await waitFor(() => expect(resetDocument).toHaveBeenCalled());
+    // The reloaded page: a fresh document whose start-up resolves the member of the new household.
+    first.unmount();
+    setCopySession(null);
+    render(<AuthProvider><Probe /></AuthProvider>);
+    listeners[listeners.length - 1](AVA);
+    await waitFor(() => expect(stateText()).toContain('"status":"member"'));
+    expect(stateText()).toContain('"householdId":"home"');
+    expect(stateText()).toContain('"householdChanged":true');
+  });
+
+  it("the household-move notice is carried across one reset only", async () => {
+    await seedCopy("old-home");
+    getDocMock.mockRejectedValue(unavailable());
+    (authMock as { currentUser?: unknown }).currentUser = AVA;
+    const first = render(<AuthProvider><Probe /></AuthProvider>);
+    listeners[0](AVA);
+    await waitFor(() => expect(stateText()).toContain('"status":"offlineMember"'));
+    memberDocs();
+    await waitFor(() => {
+      window.dispatchEvent(new Event("online"));
+      expect(stateText()).toContain('"status":"member"');
+    });
+    await waitFor(() => expect(resetDocument).toHaveBeenCalled());
+    first.unmount();
+    setCopySession(null);
+    const second = render(<AuthProvider><Probe /></AuthProvider>);
+    listeners[listeners.length - 1](AVA);
+    await waitFor(() => expect(stateText()).toContain('"householdChanged":true'));
+    second.unmount();
+    setCopySession(null);
+    render(<AuthProvider><Probe /></AuthProvider>);
+    listeners[listeners.length - 1](AVA);
+    await waitFor(() => expect(stateText()).toContain('"status":"member"'));
+    expect(stateText()).not.toContain("householdChanged");
+  });
+
   it("a confirmed loss of access wipes the device before showing the screen", async () => {
     getDocMock.mockImplementation(async () => snap(undefined));
     render(<AuthProvider><Probe /></AuthProvider>);
@@ -451,8 +503,12 @@ describe("AuthProvider offline (spec §3.9)", () => {
     listeners[0](AVA);
     await waitFor(() => expect(stateText()).toContain('"status":"offlineMember"'));
     memberDocs();
-    window.dispatchEvent(new Event("online"));
-    await waitFor(() => expect(stateText()).toContain('"status":"member"'));
+    // The online listener is attached by a passive effect after the offlineMember render: dispatch
+    // inside the retrying waitFor so an event sent before it is attached is simply sent again.
+    await waitFor(() => {
+      window.dispatchEvent(new Event("online"));
+      expect(stateText()).toContain('"status":"member"');
+    });
   });
 
   it("a listener denial while member re-reads membership once (review R2-4)", async () => {
@@ -576,8 +632,11 @@ describe("AuthProvider offline (spec §3.9)", () => {
     await waitFor(() => expect(stateText()).toContain('"status":"offlineMember"'));
     getDocMock.mockReset();
     getDocMock.mockRejectedValue(Object.assign(new Error("boom"), { code: "internal" }));
-    window.dispatchEvent(new Event("online"));
-    await waitFor(() => expect(getDocMock).toHaveBeenCalled(), { timeout: 3000 });
+    // Dispatch inside the retrying waitFor: the listener's passive effect may not be attached yet.
+    await waitFor(() => {
+      window.dispatchEvent(new Event("online"));
+      expect(getDocMock).toHaveBeenCalled();
+    });
     await new Promise((r) => setTimeout(r, 20));
     expect(stateText()).toContain('"status":"offlineMember"');
   });
@@ -684,5 +743,19 @@ describe("refresh start (spec §3.9 Refresh step 4)", () => {
     await waitFor(() => expect(refresh.requestFull).toHaveBeenCalledWith({ uid: "ava-uid", householdId: "home", displayName: "Ava" }));
     await observed("home", "r1", Promise.resolve({ kind: "ok" as const, value: undefined }));
     await waitFor(() => expect(refresh.requestPartial).toHaveBeenCalledWith({ uid: "ava-uid", householdId: "home", displayName: "Ava" }, "r1"));
+  });
+
+  it("a write observed just before the member session ends requests no partial refresh for it (final review M5)", async () => {
+    await setOptIn("ava-uid", true);
+    memberDocs();
+    const view = render(<AuthProvider><Probe /></AuthProvider>);
+    listeners[0](AVA);
+    await waitFor(() => expect(refresh.requestFull).toHaveBeenCalled());
+    // The observer's opt-in read is still in flight when the session's effect is torn down
+    // (a household change or sign-out re-runs it): its late answer must not target the old household.
+    await observed("home", "r1", Promise.resolve({ kind: "ok" as const, value: undefined }));
+    view.unmount();
+    await new Promise((r) => setTimeout(r, 30));
+    expect(refresh.requestPartial).not.toHaveBeenCalled();
   });
 });

@@ -129,6 +129,35 @@ test("O7. a household move replaces the copy and says so", async ({ page, reques
   await expect(page.getByTestId("household-changed")).toHaveCount(0); // shown only while the new copy downloads
 });
 
+test("O7b. a household move found on reconnecting from the copy replaces it and says so", async ({ page, request }) => {
+  await signIn(page, "ava@safebite.test");
+  await optInAndWait(page);
+  await waitPastMembershipCheck(page);
+  // On every load from here: hold the first refresh before its write, so the notice can be read.
+  await page.addInitScript(pauseFirstRefresh);
+  await cutServer(page); // navigator.onLine stays true: the reset after the clear must reach the server
+  await page.reload();
+  await expect(page.getByTestId("copy-banner")).toBeVisible({ timeout: 20_000 }); // offlineMember, reading home's copy
+  await expect(page.getByTestId("household-changed")).toHaveCount(0);
+  await moveToHousehold(request, "ava-uid", "home2");
+  await restoreServer(page);
+  await page.evaluate(() => { (window as unknown as { __beforeReset?: true }).__beforeReset = true; });
+  const reloaded = page.waitForEvent("load", { timeout: 45_000 });
+  await page.evaluate(() => window.dispatchEvent(new Event("online")));
+  // The tab showed home's copy, so clearing it resets the tab; the notice survives that reset (final review I1).
+  await reloaded;
+  expect(await page.evaluate(() => (window as unknown as { __beforeReset?: true }).__beforeReset ?? null)).toBeNull();
+  await expect(page.getByTestId("household-changed")).toHaveText("Your household changed; the offline copy was replaced.", { timeout: 45_000 });
+  await expect(page.getByTestId("copy-banner")).toHaveCount(0);
+  await refreshPaused(page);
+  expect(await copyMeta(page)).toBeNull(); // the old household's copy is gone before the new one is written
+  expect(await copyRowCounts(page)).toEqual(EMPTY);
+  await releaseRefresh(page);
+  await expect.poll(async () => (await copyMeta(page))?.householdId ?? null, { timeout: 30_000 }).toBe("home2");
+  expect(await copyRowCounts(page)).toEqual({ ...EMPTY, meta: 1 }); // home2 has no records
+  await expect(page.getByTestId("household-changed")).toHaveCount(0); // shown only while the new copy downloads
+});
+
 test("O12. membership revoked while the app is open online: the listener denial wipes the copy", async ({ page, request }) => {
   await signIn(page, "ava@safebite.test");
   await optInAndWait(page);
