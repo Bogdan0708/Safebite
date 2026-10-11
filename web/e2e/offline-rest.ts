@@ -41,11 +41,10 @@ export async function optInAndWait(page: Page): Promise<void> {
 }
 
 /**
- * Waits until the page clock is 2 s past the copy's last membership check. A check in the future
- * makes the copy unusable (spec §3.9: setting the clock back cannot extend the window), and the
- * WSL2 wall clock this suite runs on steps back ~1.5 s every ~30 s (measured), so a reload
- * straight after the check could see it "in the future" and fail for a reason that is not the
- * scenario's. Call it before taking the server away.
+ * Waits until the page clock is 2 s past the copy's last membership check. The WSL2 wall clock
+ * this suite runs on steps back ~1.5 s every ~30 s (measured). Spec §3.9 now tolerates a check up
+ * to 5 minutes in the future (owner follow-up 2026-10-11), so this wait is belt and braces: it keeps
+ * each scenario's copy plainly inside the window. Call it before taking the server away.
  */
 export async function waitPastMembershipCheck(page: Page): Promise<void> {
   const meta = await copyMeta(page);

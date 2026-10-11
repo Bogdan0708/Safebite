@@ -10,7 +10,12 @@ export const COPY_DB_VERSION = 1;
 const DAY_MS = 24 * 60 * 60 * 1000;
 export const COPY_MAX_AGE_MS = 30 * DAY_MS;
 export const STALE_BANNER_MS = 7 * DAY_MS;
-export const REFRESH_INTERVAL_MS = 15 * 60 * 1000;
+/** Full copy refresh while visible, and the resume-staleness threshold (owner follow-up 2026-10-11; was 15 min). */
+export const COPY_REFRESH_INTERVAL_MS = 30 * 60 * 1000;
+/** Quiet server membership read while visible: every `member`, and the `offlineMember` retry. */
+export const MEMBERSHIP_CHECK_INTERVAL_MS = 15 * 60 * 1000;
+/** A `membershipCheckedAt` up to this far in the future counts as age 0 (a small backward clock step). */
+export const CLOCK_TOLERANCE_MS = 5 * 60 * 1000;
 export const ELIGIBILITY_CHECK_MS = 60 * 1000;
 export const EARLY_OPEN_MS = 3000;
 

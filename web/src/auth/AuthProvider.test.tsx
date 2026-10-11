@@ -1,7 +1,7 @@
 import "fake-indexeddb/auto";
 import { IDBFactory } from "fake-indexeddb";
 import { render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const { listeners, unsubscribes, getDocMock } = vi.hoisted(() => ({
   listeners: [] as Array<(user: unknown) => void>,
@@ -53,7 +53,7 @@ import { auth as authMock } from "../firebase";
 import { getCopySession, reportDenied, setCopySession } from "../offline/session";
 import { readMeta, readToken, replaceCopy, setOptIn } from "../offline/store";
 import { observed } from "../records/repository";
-import { COPY_MAX_AGE_MS } from "../offline/types";
+import { COPY_MAX_AGE_MS, MEMBERSHIP_CHECK_INTERVAL_MS } from "../offline/types";
 import { EXPIRED_MESSAGE, NO_ANSWER_MESSAGE } from "./AuthProvider";
 
 function Probe() {
@@ -757,5 +757,189 @@ describe("refresh start (spec §3.9 Refresh step 4)", () => {
     view.unmount();
     await new Promise((r) => setTimeout(r, 30));
     expect(refresh.requestPartial).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * Retries `check` on real timeouts. Testing Library's waitFor polls with setInterval (faked in the
+ * block below, so it would only re-check on DOM mutations) and vi.waitFor advances fake timers
+ * (which would fire the very interval under test).
+ */
+async function until(check: () => unknown | Promise<unknown>, timeoutMs = 2000): Promise<void> {
+  const end = Date.now() + timeoutMs;
+  for (;;) {
+    try {
+      await check();
+      return;
+    } catch (err) {
+      if (Date.now() > end) throw err;
+      await new Promise((r) => setTimeout(r, 10));
+    }
+  }
+}
+
+describe("membership check while member (spec §3.9, owner follow-up 2026-10-11)", () => {
+  let visibility: DocumentVisibilityState = "visible";
+  beforeEach(() => {
+    visibility = "visible";
+    vi.spyOn(document, "visibilityState", "get").mockImplementation(() => visibility);
+    // Only the intervals are fake: the membership timeout and fake-indexeddb keep real timeouts.
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    (authMock as { currentUser?: unknown }).currentUser = AVA;
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  const userReads = () => getDocMock.mock.calls.filter(([p]) => p === "users/ava-uid").length;
+
+  async function startAsMember() {
+    memberDocs();
+    const view = render(<AuthProvider><Probe /></AuthProvider>);
+    listeners[0](AVA);
+    await until(() => expect(stateText()).toContain('"status":"member"'));
+    await until(() => expect(userReads()).toBe(1));
+    return view;
+  }
+
+  it("the interval is 15 minutes", () => {
+    expect(MEMBERSHIP_CHECK_INTERVAL_MS).toBe(15 * 60 * 1000);
+  });
+
+  it("re-reads membership every 15 minutes while visible, for a member who never opted in", async () => {
+    await startAsMember();
+    vi.advanceTimersByTime(MEMBERSHIP_CHECK_INTERVAL_MS - 1);
+    await new Promise((r) => setTimeout(r, 10));
+    expect(userReads()).toBe(1);
+    vi.advanceTimersByTime(1);
+    await until(() => expect(userReads()).toBe(2));
+    vi.advanceTimersByTime(MEMBERSHIP_CHECK_INTERVAL_MS);
+    await until(() => expect(userReads()).toBe(3));
+    expect(stateText()).toContain('"status":"member"');
+    expect(refresh.requestFull).not.toHaveBeenCalled();
+  });
+
+  it("never checks while hidden", async () => {
+    await startAsMember();
+    visibility = "hidden";
+    vi.advanceTimersByTime(3 * MEMBERSHIP_CHECK_INTERVAL_MS);
+    await new Promise((r) => setTimeout(r, 10));
+    expect(userReads()).toBe(1);
+    visibility = "visible";
+    vi.advanceTimersByTime(MEMBERSHIP_CHECK_INTERVAL_MS);
+    await until(() => expect(userReads()).toBe(2));
+  });
+
+  it("a confirmed loss of access wipes the device and shows the not-invited screen", async () => {
+    await startAsMember();
+    getDocMock.mockReset();
+    getDocMock.mockImplementation(async () => snap(undefined));
+    vi.advanceTimersByTime(MEMBERSHIP_CHECK_INTERVAL_MS);
+    await until(() => expect(stateText()).toContain('"status":"notMember"'));
+    expect(clearDeviceData).toHaveBeenCalledTimes(1);
+    expect(getCopySession()).toBeNull();
+  });
+
+  it("an opted-in member's loss of access wipes the copy", async () => {
+    await seedCopy();
+    await startAsMember();
+    await until(() => expect(refresh.requestFull).toHaveBeenCalled());
+    getDocMock.mockReset();
+    getDocMock.mockImplementation(async () => snap(undefined));
+    vi.advanceTimersByTime(MEMBERSHIP_CHECK_INTERVAL_MS);
+    await until(() => expect(stateText()).toContain('"status":"notMember"'));
+    expect(clearDeviceData).toHaveBeenCalledTimes(1);
+  });
+
+  it("no answer keeps the member state silently", async () => {
+    await startAsMember();
+    getDocMock.mockReset();
+    getDocMock.mockRejectedValue(unavailable());
+    vi.advanceTimersByTime(MEMBERSHIP_CHECK_INTERVAL_MS);
+    await until(() => expect(getDocMock).toHaveBeenCalled());
+    await new Promise((r) => setTimeout(r, 20));
+    expect(stateText()).toContain('"status":"member"');
+    expect(clearDeviceData).not.toHaveBeenCalled();
+  });
+
+  it("an unclassified read error keeps the member state silently", async () => {
+    await startAsMember();
+    getDocMock.mockReset();
+    getDocMock.mockRejectedValue(Object.assign(new Error("boom"), { code: "internal" }));
+    vi.advanceTimersByTime(MEMBERSHIP_CHECK_INTERVAL_MS);
+    await until(() => expect(getDocMock).toHaveBeenCalled());
+    await new Promise((r) => setTimeout(r, 20));
+    expect(stateText()).toContain('"status":"member"');
+    expect(clearDeviceData).not.toHaveBeenCalled();
+  });
+
+  it("a member answer renews membershipCheckedAt and keeps the household-change notice", async () => {
+    const old = Date.now() - 10 * 24 * 60 * 60 * 1000;
+    await seedCopy("old-home", old);
+    await startAsMember();
+    expect(stateText()).toContain('"householdChanged":true');
+    await seedCopy("home", old);
+    vi.advanceTimersByTime(MEMBERSHIP_CHECK_INTERVAL_MS);
+    await until(() => expect(userReads()).toBe(2));
+    await until(async () => expect((await readMeta())!.membershipCheckedAt).toBeGreaterThan(old));
+    expect(stateText()).toContain('"householdChanged":true');
+  });
+
+  it("does not run outside member", async () => {
+    getDocMock.mockImplementation(async () => snap(undefined));
+    render(<AuthProvider><Probe /></AuthProvider>);
+    listeners[0](AVA);
+    await until(() => expect(stateText()).toContain('"notMember"'));
+    const before = getDocMock.mock.calls.length;
+    vi.advanceTimersByTime(3 * MEMBERSHIP_CHECK_INTERVAL_MS);
+    await new Promise((r) => setTimeout(r, 10));
+    expect(getDocMock.mock.calls.length).toBe(before);
+  });
+
+  it("stops on unmount", async () => {
+    const view = await startAsMember();
+    view.unmount();
+    vi.advanceTimersByTime(3 * MEMBERSHIP_CHECK_INTERVAL_MS);
+    await new Promise((r) => setTimeout(r, 10));
+    expect(userReads()).toBe(1);
+  });
+
+  it("adds no read while a denial read is outstanding (per-episode guard)", async () => {
+    await startAsMember();
+    const slow = deferred<ReturnType<typeof snap>>();
+    getDocMock.mockReset();
+    getDocMock.mockImplementation((path: string) => (path === "users/ava-uid" ? slow.promise : Promise.resolve(snap({ name: "Home", memberIds: ["ava-uid"] }))));
+    reportDenied();
+    await until(() => expect(userReads()).toBe(1));
+    vi.advanceTimersByTime(MEMBERSHIP_CHECK_INTERVAL_MS);
+    await new Promise((r) => setTimeout(r, 10));
+    expect(userReads()).toBe(1);
+    slow.resolve(snap({ householdId: "home", displayName: "Ava" }));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(stateText()).toContain('"status":"member"');
+  });
+
+  it("leaves this tab's own account deletion to the deletion flow", async () => {
+    await startAsMember();
+    sessionStorage.setItem("safebite.deletionRequest", JSON.stringify({ requestId: "r1", uid: "ava-uid" }));
+    vi.advanceTimersByTime(MEMBERSHIP_CHECK_INTERVAL_MS);
+    await new Promise((r) => setTimeout(r, 10));
+    expect(userReads()).toBe(1);
+  });
+
+  it("in offlineMember, the retry timer runs every 15 minutes while visible", async () => {
+    await seedCopy();
+    getDocMock.mockRejectedValue(unavailable());
+    render(<AuthProvider><Probe /></AuthProvider>);
+    listeners[0](AVA);
+    await until(() => expect(stateText()).toContain('"status":"offlineMember"'));
+    getDocMock.mockReset();
+    memberDocs();
+    vi.advanceTimersByTime(MEMBERSHIP_CHECK_INTERVAL_MS - 1);
+    await new Promise((r) => setTimeout(r, 10));
+    expect(getDocMock).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+    await until(() => expect(stateText()).toContain('"status":"member"'));
   });
 });

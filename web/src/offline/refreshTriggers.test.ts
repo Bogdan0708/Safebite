@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { startRefreshTriggers } from "./refreshTriggers";
-import { REFRESH_INTERVAL_MS } from "./types";
+import { COPY_REFRESH_INTERVAL_MS } from "./types";
 
 let visibility: DocumentVisibilityState = "visible";
 beforeEach(() => {
@@ -21,14 +21,14 @@ describe("startRefreshTriggers", () => {
     stop();
   });
 
-  it("on return, refreshes only a copy older than 15 minutes (or none)", async () => {
+  it("on return, refreshes only a copy older than 30 minutes (or none)", async () => {
     const run = vi.fn();
-    let age: number | null = REFRESH_INTERVAL_MS - 1;
+    let age: number | null = COPY_REFRESH_INTERVAL_MS - 1;
     const stop = startRefreshTriggers(run, async () => age);
     document.dispatchEvent(new Event("visibilitychange"));
     await Promise.resolve();
     expect(run).not.toHaveBeenCalled();
-    age = REFRESH_INTERVAL_MS + 1;
+    age = COPY_REFRESH_INTERVAL_MS + 1;
     document.dispatchEvent(new Event("visibilitychange"));
     await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(1));
     age = null;
@@ -48,18 +48,24 @@ describe("startRefreshTriggers", () => {
     expect(run).not.toHaveBeenCalled();
   });
 
-  it("the 15-minute timer always runs while visible and never while hidden (review R2-1)", () => {
+  it("the interval is 30 minutes (owner follow-up 2026-10-11)", () => {
+    expect(COPY_REFRESH_INTERVAL_MS).toBe(30 * 60 * 1000);
+  });
+
+  it("the 30-minute timer always runs while visible and never while hidden (review R2-1)", () => {
     vi.useFakeTimers();
     const run = vi.fn();
     const stop = startRefreshTriggers(run, async () => 0);
-    vi.advanceTimersByTime(REFRESH_INTERVAL_MS);
+    vi.advanceTimersByTime(COPY_REFRESH_INTERVAL_MS - 1);
+    expect(run).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
     expect(run).toHaveBeenCalledTimes(1);
     visibility = "hidden";
-    vi.advanceTimersByTime(REFRESH_INTERVAL_MS);
+    vi.advanceTimersByTime(COPY_REFRESH_INTERVAL_MS);
     expect(run).toHaveBeenCalledTimes(1);
     stop();
     visibility = "visible";
-    vi.advanceTimersByTime(REFRESH_INTERVAL_MS);
+    vi.advanceTimersByTime(COPY_REFRESH_INTERVAL_MS);
     expect(run).toHaveBeenCalledTimes(1);
   });
 });

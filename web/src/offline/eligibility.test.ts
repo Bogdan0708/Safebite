@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { copyIsOld, copyUsable } from "./eligibility";
-import { COPY_MAX_AGE_MS, STALE_BANNER_MS, type CopyMeta } from "./types";
+import { CLOCK_TOLERANCE_MS, COPY_MAX_AGE_MS, STALE_BANNER_MS, type CopyMeta } from "./types";
 
 const NOW = Date.UTC(2026, 9, 10);
 const ID = { uid: "ava-uid", householdId: "home" };
@@ -17,9 +17,21 @@ describe("copyUsable", () => {
   it("refuses just past 30 days", () => {
     expect(copyUsable(meta(COPY_MAX_AGE_MS + 1), ID, true, false, NOW)).toBe("expired");
   });
-  it("refuses a membership check in the future, or a clock set back before it (Review Focus 5)", () => {
-    expect(copyUsable(meta(-1), ID, true, false, NOW)).toBe("expired");
-    expect(copyUsable(meta(0), ID, true, false, NOW - 60_000)).toBe("expired");
+  it("refuses a membership check more than 5 minutes in the future, or a clock set back further (Review Focus 5)", () => {
+    expect(copyUsable(meta(-CLOCK_TOLERANCE_MS - 1), ID, true, false, NOW)).toBe("expired");
+    expect(copyUsable(meta(0), ID, true, false, NOW - CLOCK_TOLERANCE_MS - 1)).toBe("expired");
+    expect(copyUsable(meta(-COPY_MAX_AGE_MS), ID, true, false, NOW)).toBe("expired");
+  });
+  it("treats a check up to 5 minutes in the future as age 0 (owner follow-up 2026-10-11)", () => {
+    expect(CLOCK_TOLERANCE_MS).toBe(5 * 60 * 1000);
+    expect(copyUsable(meta(-1), ID, true, false, NOW)).toBe(true);
+    expect(copyUsable(meta(-CLOCK_TOLERANCE_MS), ID, true, false, NOW)).toBe(true);
+    expect(copyUsable(meta(0), ID, true, false, NOW - CLOCK_TOLERANCE_MS)).toBe(true);
+  });
+  it("the tolerance never extends the 30-day expiry", () => {
+    expect(copyUsable(meta(COPY_MAX_AGE_MS), ID, true, false, NOW)).toBe(true);
+    expect(copyUsable(meta(COPY_MAX_AGE_MS + 1), ID, true, false, NOW)).toBe("expired");
+    expect(copyUsable(meta(COPY_MAX_AGE_MS + CLOCK_TOLERANCE_MS), ID, true, false, NOW)).toBe("expired");
   });
   it("refuses another account or household, an opt-out, a pending clear and a missing copy", () => {
     expect(copyUsable(meta(0), { uid: "bogdan-uid", householdId: "home" }, true, false, NOW)).toBe("otherCopy");

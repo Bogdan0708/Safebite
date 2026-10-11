@@ -8,7 +8,7 @@ import { clearDeviceData } from "../device/cleanup";
 import { decideNoAnswer, prepareMemberCopy } from "../offline/decide";
 import { isServingCopy, setCopySession, setDeniedHandler, startCopyWatch } from "../offline/session";
 import { earlyCopyCandidate } from "../offline/early";
-import { EARLY_OPEN_MS, REFRESH_INTERVAL_MS } from "../offline/types";
+import { EARLY_OPEN_MS, MEMBERSHIP_CHECK_INTERVAL_MS } from "../offline/types";
 import { refresher, useOptInVersion } from "../offline/refresher";
 import { startRefreshTriggers } from "../offline/refreshTriggers";
 import { getOptIn, readMeta } from "../offline/store";
@@ -95,6 +95,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const prep = await prepareMemberCopy(user.uid, answer.householdId, Date.now());
       if (mine !== generationRef.current) return;
       setCopySession({ uid: user.uid, householdId: answer.householdId, mode: "member" });
+      // A re-check confirming the same member (periodic check, denial) keeps the state as it is,
+      // including a household-change notice still on screen.
+      const current = stateRef.current;
+      if (!prep.householdChanged && current.status === "member" && current.uid === user.uid
+        && current.householdId === answer.householdId && current.displayName === answer.displayName) return;
       setState({
         status: "member", uid: user.uid, email: user.email, householdId: answer.householdId, displayName: answer.displayName,
         ...(prep.householdChanged ? { householdChanged: true as const } : {}),
@@ -278,6 +283,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, [memberKey, optInVersion]);
 
+  // Membership check while member (spec §3.9, owner follow-up 2026-10-11): listener denials are not
+  // guaranteed and a denied write does not re-check, so every member, opted in or not, re-reads
+  // membership quietly every 15 minutes while visible. Its answer is applied as a denial read's is.
+  useEffect(() => {
+    if (state.status !== "member") return;
+    const timer = setInterval(() => {
+      if (document.visibilityState !== "visible") return;
+      const user = auth.currentUser;
+      const current = stateRef.current;
+      if (!user || current.status !== "member" || current.uid !== user.uid) return;
+      // This tab's own deletion (or one already confirmed) owns the cleanup and the reset (spec §3.8).
+      if (readDeletionRequest() !== null || isDeletedUid(user.uid)) return;
+      // A denial read still outstanding answers the same question (review R2-4).
+      if (denialReadRef.current !== null && denialReadRef.current === generationRef.current) return;
+      resolveForUser(user, { quiet: true });
+    }, MEMBERSHIP_CHECK_INTERVAL_MS);
+    return () => clearInterval(timer);
+  }, [state.status, resolveForUser]);
+
   // Leaving offlineMember: retry on reconnection and every 15 minutes while visible (spec §3.9).
   useEffect(() => {
     if (state.status !== "offlineMember") return;
@@ -288,7 +312,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
     const timer = setInterval(() => {
       if (document.visibilityState === "visible") retryQuietly();
-    }, REFRESH_INTERVAL_MS);
+    }, MEMBERSHIP_CHECK_INTERVAL_MS);
     window.addEventListener("online", retryQuietly);
     return () => {
       clearInterval(timer);
