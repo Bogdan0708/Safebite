@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { canWrite } from "../offline/writeAccess";
 import { setShortlisted, setVisited } from "./collection";
 import { isData } from "./combine";
 import { formatCalendarDate } from "./dates";
@@ -46,6 +47,7 @@ export function StatusBlock({ householdId, rid, author, state, disabled, onRetry
   const base = current?.version ?? 0;
 
   async function run(action: () => Promise<WriteOutcome<number>>): Promise<boolean> {
+    if (!canWrite()) return false;
     setBusy(true);
     setOutcome(null);
     const result = await action();

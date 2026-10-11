@@ -20,6 +20,8 @@ const m = vi.hoisted(() => ({
 vi.mock("./repository", () => m);
 vi.mock("./collection", () => m);
 vi.mock("./notes", () => m);
+const w = vi.hoisted(() => ({ writable: true }));
+vi.mock("../offline/writeAccess", () => ({ useWriteAccess: () => w.writable, canWrite: () => w.writable }));
 vi.mock("../auth/AuthProvider", () => ({
   useAuth: () => ({ state: { status: "member", uid: "ava-uid", email: "ava@safebite.test", householdId: "home", displayName: "Ava" }, signOut: vi.fn() }),
 }));
@@ -38,6 +40,7 @@ const claim = (over: Partial<Claim> & Pick<Claim, "id">): Claim => ({
 });
 
 beforeEach(() => {
+  w.writable = true;
   m.watchRestaurant.mockImplementation((_h: string, _r: string, cb: (s: Snapshot<Restaurant>) => void) => { emitRestaurant = cb; return () => {}; });
   m.watchClaims.mockImplementation((_h: string, _r: string, cb: (s: Snapshot<Claim[]>) => void) => { emitClaims = cb; return () => {}; });
   m.deleteClaim.mockResolvedValue({ kind: "ok", value: undefined });
@@ -309,6 +312,17 @@ describe("RestaurantDetailPage — notes", () => {
       emitNotes({ status: "offline", value: [] });
     });
     expect(screen.getAllByTestId("read-offline")).toHaveLength(1);
+    expect(screen.getByTestId("note-add-save")).toBeDisabled();
+  });
+});
+
+describe("write gate (review R2-6)", () => {
+  it("when writes are not allowed, Add evidence and every write control are disabled", () => {
+    w.writable = false;
+    renderPage();
+    act(() => { emitRestaurant({ status: "ready", value: restaurant }); emitClaims({ status: "ready", value: [] }); });
+    expect(screen.getByTestId("add-evidence")).toHaveAttribute("aria-disabled", "true");
+    expect(screen.getByTestId("shortlist-add")).toBeDisabled();
     expect(screen.getByTestId("note-add-save")).toBeDisabled();
   });
 });

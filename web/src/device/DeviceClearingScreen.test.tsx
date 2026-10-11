@@ -1,12 +1,13 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const { clearDeviceData } = vi.hoisted(() => ({ clearDeviceData: vi.fn() }));
-vi.mock("./cleanup", () => ({ clearDeviceData }));
+vi.mock("./cleanup", async (importOriginal) => ({ ...(await importOriginal<typeof import("./cleanup")>()), clearDeviceData }));
 
 import { DeviceClearingScreen } from "./DeviceClearingScreen";
 
+beforeEach(() => localStorage.clear());
 afterEach(() => vi.clearAllMocks());
 
 describe("DeviceClearingScreen", () => {
@@ -26,5 +27,75 @@ describe("DeviceClearingScreen", () => {
     expect(onCleared).not.toHaveBeenCalled();
     await userEvent.click(screen.getByTestId("device-clear-retry"));
     await waitFor(() => expect(onCleared).toHaveBeenCalledTimes(1));
+  });
+});
+
+describe("captured key retirement (review R2-3)", () => {
+  it("retires only the keys present when it started, then clears again for a key written meanwhile", async () => {
+    localStorage.setItem("safebite.pendingClear.first", "1");
+    let round = 0;
+    clearDeviceData.mockImplementation(async () => {
+      round += 1;
+      if (round === 1) localStorage.setItem("safebite.pendingClear.second", "1"); // another tab starts clearing
+      return { failed: [] };
+    });
+    const onCleared = vi.fn();
+    render(<DeviceClearingScreen onCleared={onCleared} settleMs={0} />);
+    await waitFor(() => expect(onCleared).toHaveBeenCalledTimes(1));
+    expect(round).toBe(2);
+    expect(localStorage.getItem("safebite.pendingClear.first")).toBeNull();
+    expect(localStorage.getItem("safebite.pendingClear.second")).toBeNull();
+  });
+
+  it("a key that keeps reappearing ends on the failure screen, not an endless loop", async () => {
+    clearDeviceData.mockImplementation(async () => {
+      localStorage.setItem(`safebite.pendingClear.${Math.random()}`, "1");
+      return { failed: [] };
+    });
+    const onCleared = vi.fn();
+    render(<DeviceClearingScreen onCleared={onCleared} settleMs={0} />);
+    expect(await screen.findByTestId("device-clear-failed")).toBeInTheDocument();
+    expect(onCleared).not.toHaveBeenCalled();
+    expect(clearDeviceData).toHaveBeenCalledTimes(3);
+  });
+
+  // Found by the browser suite (Task 6): two tabs starting together each saw the other's run key
+  // after every round, and both could give up after three rounds.
+  it("waits for another tab's run still in progress instead of starting another round", async () => {
+    let started = false;
+    clearDeviceData.mockImplementation(async () => {
+      if (!started) {
+        started = true;
+        localStorage.setItem("safebite.pendingClear.other-tab", "1"); // another tab's run starts
+        setTimeout(() => localStorage.removeItem("safebite.pendingClear.other-tab"), 300); // and retires its key
+      }
+      return { failed: [] };
+    });
+    const onCleared = vi.fn();
+    render(<DeviceClearingScreen onCleared={onCleared} settleMs={2000} />);
+    await waitFor(() => expect(onCleared).toHaveBeenCalledTimes(1), { timeout: 2000 });
+    expect(clearDeviceData).toHaveBeenCalledTimes(1);
+  });
+
+  it("a key nobody retires within the settle time is cleared by another round", async () => {
+    let round = 0;
+    clearDeviceData.mockImplementation(async () => {
+      round += 1;
+      if (round === 1) localStorage.setItem("safebite.pendingClear.orphan", "1");
+      return { failed: [] };
+    });
+    const onCleared = vi.fn();
+    render(<DeviceClearingScreen onCleared={onCleared} settleMs={100} />);
+    await waitFor(() => expect(onCleared).toHaveBeenCalledTimes(1), { timeout: 2000 });
+    expect(round).toBe(2);
+    expect(localStorage.getItem("safebite.pendingClear.orphan")).toBeNull();
+  });
+
+  it("a failed run leaves every key in place", async () => {
+    localStorage.setItem("safebite.pendingClear.first", "1");
+    clearDeviceData.mockResolvedValue({ failed: ["offlineCopy"] });
+    render(<DeviceClearingScreen onCleared={vi.fn()} />);
+    expect(await screen.findByTestId("device-clear-failed")).toBeInTheDocument();
+    expect(localStorage.getItem("safebite.pendingClear.first")).toBe("1");
   });
 });

@@ -1,7 +1,8 @@
 import { collection, onSnapshot, serverTimestamp, Timestamp, type DocumentData, type DocumentSnapshot } from "firebase/firestore";
 import { db } from "../firebase";
+import { withCopy } from "../offline/withCopy";
 import { fromCalendarDate, toCalendarDate } from "./dates";
-import { collectionRef, ConflictError, LISTEN, listenerFailure, NotFoundError, restaurantRef, toDate, write, type Snapshot, type WriteOutcome } from "./repository";
+import { collectionRef, ConflictError, LISTEN, listenerFailure, NotFoundError, observed, restaurantRef, toDate, write, type Snapshot, type WriteOutcome } from "./repository";
 import type { Author, CalendarDate, CollectionState } from "./types";
 
 /**
@@ -24,7 +25,7 @@ export function toCollectionState(snap: Pick<DocumentSnapshot, "data">): Collect
   return s;
 }
 
-export function watchCollection(hid: string, cb: (s: Snapshot<Record<string, CollectionState>>) => void): () => void {
+function listenCollection(hid: string, cb: (s: Snapshot<Record<string, CollectionState>>) => void): () => void {
   return onSnapshot(
     collection(db, "households", hid, "collection"),
     LISTEN,
@@ -37,7 +38,7 @@ export function watchCollection(hid: string, cb: (s: Snapshot<Record<string, Col
   );
 }
 
-export function watchCollectionEntry(hid: string, rid: string, cb: (s: Snapshot<CollectionState | null>) => void): () => void {
+function listenCollectionEntry(hid: string, rid: string, cb: (s: Snapshot<CollectionState | null>) => void): () => void {
   return onSnapshot(
     collectionRef(hid, rid),
     LISTEN,
@@ -46,13 +47,21 @@ export function watchCollectionEntry(hid: string, rid: string, cb: (s: Snapshot<
   );
 }
 
+export function watchCollection(hid: string, cb: (s: Snapshot<Record<string, CollectionState>>) => void): () => void {
+  return withCopy<Record<string, CollectionState>>((c) => listenCollection(hid, c), (copy) => ({ status: "offline", source: "copy", value: copy.collection }))(cb);
+}
+
+export function watchCollectionEntry(hid: string, rid: string, cb: (s: Snapshot<CollectionState | null>) => void): () => void {
+  return withCopy<CollectionState | null>((c) => listenCollectionEntry(hid, rid, c), (copy) => ({ status: "offline", source: "copy", value: copy.collection[rid] ?? null }))(cb);
+}
+
 interface StatePatch {
   shortlisted?: boolean;
   visitedOn?: CalendarDate | null;
 }
 
 function writeState(hid: string, rid: string, author: Author, baseVersion: number, patch: StatePatch): Promise<WriteOutcome<number>> {
-  return write(async (tx) => {
+  return observed(hid, rid, write(async (tx) => {
     const parent = await tx.get(restaurantRef(hid, rid));
     if (!parent.exists() || (parent.data() as DocumentData).deleting === true) throw new NotFoundError();
     const ref = collectionRef(hid, rid);
@@ -73,7 +82,7 @@ function writeState(hid: string, rid: string, author: Author, baseVersion: numbe
     if (visitedOn !== null) data.visitedOn = fromCalendarDate(visitedOn);
     tx.set(ref, data);
     return version + 1;
-  });
+  }));
 }
 
 export function setShortlisted(hid: string, rid: string, author: Author, baseVersion: number, shortlisted: boolean): Promise<WriteOutcome<number>> {

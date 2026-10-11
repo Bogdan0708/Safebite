@@ -1,14 +1,18 @@
 import type { ReactNode } from "react";
 import { useAuth } from "../auth/AuthProvider";
+import { useCopyServing } from "../offline/hooks";
 import type { WatchState } from "./useWatch";
 
 /** Renders the non-ready read states (spec §3.5). Returns null for `ready` so callers just render data. */
 export function ReadStateNotice({ state, onRetry, gone }: { state: WatchState<unknown>; onRetry: () => void; gone?: ReactNode }) {
   const { signOut } = useAuth();
+  const serving = useCopyServing();
   switch (state.status) {
     case "loading":
       return <p data-testid="read-loading">Loading…</p>;
     case "offline":
+      // While copy data is shown, the shell's copy banner is the only notice (spec §3.9).
+      if (serving) return null;
       return (
         <p className="notice" role="status" data-testid="read-offline">
           Showing last loaded data — you are offline. Adding and editing need a connection.

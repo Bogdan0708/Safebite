@@ -1,10 +1,12 @@
 import { MemoryRouter, Route, Routes } from "react-router";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const m = vi.hoisted(() => ({ addClaim: vi.fn() }));
 vi.mock("./repository", () => m);
+const w = vi.hoisted(() => ({ writable: true }));
+vi.mock("../offline/writeAccess", () => ({ useWriteAccess: () => w.writable, canWrite: () => w.writable }));
 vi.mock("../auth/AuthProvider", () => ({
   useAuth: () => ({ state: { status: "member", uid: "ava-uid", email: "ava@safebite.test", householdId: "home", displayName: "Ava" }, signOut: vi.fn() }),
 }));
@@ -12,6 +14,9 @@ vi.mock("./useToday", () => ({ useToday: () => "2026-09-21" }));
 
 import { ClaimFormPage, toClaimInput } from "./ClaimFormPage";
 
+beforeEach(() => {
+  w.writable = true;
+});
 afterEach(() => vi.clearAllMocks());
 
 describe("toClaimInput", () => {
@@ -88,5 +93,26 @@ describe("ClaimFormPage", () => {
     await userEvent.click(screen.getByTestId("claim-submit"));
     await waitFor(() => expect(screen.getByTestId("claim-save-outcome")).toHaveAttribute("data-kind", "notFound"));
     expect(screen.getByTestId("claim-save-outcome")).toHaveTextContent("This restaurant was deleted.");
+  });
+});
+
+describe("write gate (review R2-6)", () => {
+  it("the evidence form opened while writes are not allowed is disabled and says why", () => {
+    w.writable = false;
+    renderPage();
+    expect(screen.getByTestId("write-blocked")).toHaveTextContent("Adding and editing need a connection.");
+    expect(screen.getByTestId("claim-submit")).toBeDisabled();
+  });
+
+  it("submitting after the connection drops sends nothing", async () => {
+    m.addClaim.mockResolvedValue({ kind: "ok", value: "c9" });
+    renderPage();
+    // A valid form, so the gate (not validation) is what stops the write (controller ruling m5).
+    await userEvent.type(screen.getByTestId("claim-source-label"), "Phone call with the manager");
+    w.writable = false;
+    const form = screen.getByTestId("claim-form") as HTMLFormElement;
+    act(() => { form.requestSubmit(); });
+    await new Promise((r) => setTimeout(r, 10));
+    expect(m.addClaim).not.toHaveBeenCalled();
   });
 });

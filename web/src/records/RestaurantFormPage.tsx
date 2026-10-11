@@ -4,6 +4,8 @@ import type { RestaurantPrefill } from "../discover/DiscoverPage";
 import { placeIdUrl } from "../discover/links";
 import { deleteProgressText, outcomeMessage } from "./messages";
 import { createRestaurant, deleteRestaurant, updateRestaurant, watchRestaurant, watchRestaurants, type WriteOutcome } from "./repository";
+import { canWrite, useWriteAccess } from "../offline/writeAccess";
+import { WriteBlockedNotice } from "../offline/WriteBlockedNotice";
 import { ReadStateNotice } from "./ReadStateNotice";
 import type { Restaurant, RestaurantInput } from "./types";
 import { useMember } from "./useMember";
@@ -40,6 +42,7 @@ export function readPrefill(state: unknown): RestaurantPrefill | null {
 
 export function RestaurantFormPage({ mode }: { mode: "create" | "edit" }) {
   const { householdId, uid } = useMember();
+  const writable = useWriteAccess();
   const { rid } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
@@ -76,7 +79,7 @@ export function RestaurantFormPage({ mode }: { mode: "create" | "edit" }) {
 
   const dirty = draft !== null && !same(draft.form, draft.seededFrom);
   const changedElsewhere = mode === "edit" && remote !== null && draft !== null && remote.version !== draft.baseVersion && dirty;
-  const offline = state.status === "offline";
+  const offline = state.status === "offline" || !writable;
 
   function reloadDraft() {
     if (!remote) return;
@@ -91,6 +94,7 @@ export function RestaurantFormPage({ mode }: { mode: "create" | "edit" }) {
 
   async function onSubmit(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (!canWrite()) return;
     if (!draft) return;
     const input: RestaurantInput = { ...normaliseRestaurantInput(draft.form), ...(placeId ? { googlePlaceId: placeId } : {}) };
     const problems = validateRestaurantInput(input);
@@ -114,6 +118,7 @@ export function RestaurantFormPage({ mode }: { mode: "create" | "edit" }) {
   }
 
   async function onDelete() {
+    if (!canWrite()) return;
     if (!draft || !rid) return;
     setBusy(true);
     const result = await deleteRestaurant(householdId, rid, draft.baseVersion, (step) => setDeleteProgress(deleteProgressText(step)));
@@ -140,6 +145,7 @@ export function RestaurantFormPage({ mode }: { mode: "create" | "edit" }) {
 
   return (
     <section>
+      {!writable && <WriteBlockedNotice />}
       <h2>{mode === "create" ? "Add restaurant" : "Edit restaurant"}</h2>
       {prefill && (
         <p className="notice" data-testid="prefill-notice">

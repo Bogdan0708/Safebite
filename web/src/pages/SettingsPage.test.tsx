@@ -11,15 +11,19 @@ vi.mock("firebase/functions", () => ({
     return { data: { uid: "ava-uid", householdId: "home", displayName: "Ava" } };
   },
 }));
-vi.mock("../auth/AuthProvider", () => ({
-  useAuth: () => ({ state: { status: "member", uid: "ava-uid", email: "ava@safebite.test", householdId: "home", displayName: "Ava" }, signOut: vi.fn() }),
-}));
+const MEMBER = { status: "member", uid: "ava-uid", email: "ava@safebite.test", householdId: "home", displayName: "Ava" };
+const authState = vi.hoisted(() => ({ value: null as null | Record<string, unknown> }));
+vi.mock("../auth/AuthProvider", () => ({ useAuth: () => { return { state: authState.value ?? MEMBER, signOut: vi.fn() }; } }));
+vi.mock("../offline/OfflineSection", () => ({ OfflineSection: () => <div data-testid="offline-section" /> }));
 vi.mock("./ChangePasswordForm", () => ({ ChangePasswordForm: () => <div data-testid="pw-form" /> }));
 vi.mock("../account/ExportSection", () => ({ ExportSection: () => <div data-testid="export-section" /> }));
 
 import { SettingsPage } from "./SettingsPage";
 
-beforeEach(() => whoamiCalls.mockClear());
+beforeEach(() => {
+  whoamiCalls.mockClear();
+  authState.value = null;
+});
 
 describe("SettingsPage", () => {
   it("issues exactly one whoami request even when StrictMode double-runs the effect", async () => {
@@ -46,5 +50,20 @@ describe("SettingsPage", () => {
   it("offers the household export section", () => {
     render(<MemoryRouter><SettingsPage /></MemoryRouter>);
     expect(screen.getByTestId("export-section")).toBeInTheDocument();
+  });
+
+  it("offers the offline copy section", () => {
+    render(<MemoryRouter><SettingsPage /></MemoryRouter>);
+    expect(screen.getByTestId("offline-section")).toBeInTheDocument();
+  });
+
+  it("offline member: no server confirmation is requested; it says membership will be confirmed later", () => {
+    authState.value = { status: "offlineMember", uid: "ava-uid", email: null, householdId: "home", displayName: "Ava", downloadedAt: 1, provisional: true };
+    render(<MemoryRouter><SettingsPage /></MemoryRouter>);
+    expect(screen.getByTestId("whoami-offline")).toHaveTextContent("Offline — membership will be confirmed when you reconnect.");
+    expect(whoamiCalls).not.toHaveBeenCalled();
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.queryByText(/Signed in as/)).toBeNull();
+    expect(screen.getByTestId("offline-section")).toBeInTheDocument();
   });
 });

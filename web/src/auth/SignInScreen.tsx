@@ -1,5 +1,6 @@
 import { useState, type SubmitEvent } from "react";
 import { deletedNoticeOnce } from "../account/deletedNotice";
+import { pendingClear } from "../device/cleanup";
 import { isDeletedUid } from "../account/deletedSessions";
 import { persistentAuthAllowed } from "../account/authPersistence";
 import { useAuth } from "./AuthProvider";
@@ -31,6 +32,9 @@ export function SignInScreen({ deletedUid }: { deletedUid?: string } = {}) {
     ? { kind: flag && flag.uid === deletedUid ? flag.kind : "ok" }
     : flag && (flag.uid === null || isDeletedUid(flag.uid)) ? { kind: flag.kind } : null;
 
+  // A clearFailed notice is stale once a later clear succeeded (no pending key remains; 5a ledger).
+  const noticeKind = notice && notice.kind === "clearFailed" && !pendingClear() ? "ok" : notice?.kind;
+
   async function onSubmit(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
@@ -49,7 +53,7 @@ export function SignInScreen({ deletedUid }: { deletedUid?: string } = {}) {
       <h1 className="brand"><BrandMark />SafeBite<span className="brand-dot" aria-hidden="true">.</span></h1>
       {notice && (
         <p role="status" data-testid="signin-deleted-notice">
-          {notice.kind === "ok" ? "Your account has been deleted." : "Your account has been deleted. Some data on this device couldn't be cleared."}
+          {noticeKind === "ok" ? "Your account has been deleted." : "Your account has been deleted. Some data on this device couldn't be cleared."}
         </p>
       )}
       <p>Private gluten-free restaurant research. Sign in with your invited account.</p>

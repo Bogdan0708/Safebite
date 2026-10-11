@@ -1,6 +1,9 @@
+import { offlineCopyCleaner } from "../offline/store";
+import { registerDeviceCleaner } from "./cleanup";
+
 /**
- * The one place device cleaners are registered, imported by main.tsx before anything else so the
- * start-up marker check can run them. Plan 5a registers none (nothing persists before 5b); Plan 5b
- * registers its IndexedDB store here.
+ * The one place device cleaners are registered, imported first by main.tsx so a pending clear at
+ * start-up runs every cleaner (spec §3.8). 5b registers the offline copy (spec §3.9). Nothing
+ * imported here may load Firebase (review P2-5; guarded by registerCleaners.test.tsx).
  */
-export {};
+registerDeviceCleaner(offlineCopyCleaner);

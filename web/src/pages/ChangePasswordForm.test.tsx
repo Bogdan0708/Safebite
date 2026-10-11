@@ -1,6 +1,6 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const { changePassword } = vi.hoisted(() => ({ changePassword: vi.fn() }));
 vi.mock("../auth/changePassword", async (importOriginal) => ({
@@ -8,9 +8,14 @@ vi.mock("../auth/changePassword", async (importOriginal) => ({
   changePassword,
 }));
 vi.mock("../firebase", () => ({ auth: {} }));
+const w = vi.hoisted(() => ({ writable: true }));
+vi.mock("../offline/writeAccess", () => ({ useWriteAccess: () => w.writable, canWrite: () => w.writable }));
 
 import { ChangePasswordForm } from "./ChangePasswordForm";
 
+beforeEach(() => {
+  w.writable = true;
+});
 afterEach(() => vi.clearAllMocks());
 
 async function fill(current: string, next: string, confirm = next) {
@@ -88,5 +93,24 @@ describe("ChangePasswordForm", () => {
     expect(screen.getByTestId("pw-new")).toHaveValue("");
     expect(screen.getByTestId("pw-confirm")).toHaveValue("");
     expect(screen.queryByTestId("pw-success")).toBeNull();
+  });
+
+  it("is disabled while writes are not allowed", () => {
+    w.writable = false;
+    render(<ChangePasswordForm />);
+    expect(screen.getByTestId("pw-submit")).toBeDisabled();
+  });
+
+  it("a submit after the connection drops never calls Firebase", async () => {
+    changePassword.mockResolvedValue("ok");
+    render(<ChangePasswordForm />);
+    await userEvent.type(screen.getByTestId("pw-current"), "old-password");
+    await userEvent.type(screen.getByTestId("pw-new"), "new-password-123");
+    await userEvent.type(screen.getByTestId("pw-confirm"), "new-password-123");
+    w.writable = false;
+    const form = screen.getByTestId("pw-form") as HTMLFormElement;
+    act(() => { form.requestSubmit(); });
+    await new Promise((r) => setTimeout(r, 10));
+    expect(changePassword).not.toHaveBeenCalled();
   });
 });

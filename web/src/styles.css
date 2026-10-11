@@ -227,6 +227,13 @@ html { scroll-padding-bottom: calc(110px + env(safe-area-inset-bottom, 0px)); }
 
 @keyframes appear { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: none; } }
 
+/* ---------- Offline copy (spec §3.9) ---------- */
+.copy-banner { margin: 0 0 16px; padding: 12px 16px; border-radius: 16px; background: var(--surface-soft); color: var(--ink); font-size: 14px; }
+.copy-banner.old { background: var(--amber-bg); color: var(--amber); }
+.offline-section { margin: 18px 0; padding: 20px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
+.switch-row { display: flex; align-items: center; gap: 10px; color: var(--ink); font-size: 15px; font-weight: 600; min-height: 44px; }
+.switch-row input[type="checkbox"] { width: 22px; height: 22px; accent-color: var(--accent); }
+
 /* ---------- Phone layout ---------- */
 @media (max-width: 759px) {
   .shell { padding-left: 20px; padding-right: 20px; }

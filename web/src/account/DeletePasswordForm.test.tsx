@@ -1,8 +1,10 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const m = vi.hoisted(() => ({ deleteMyAccount: vi.fn(), resetDocument: vi.fn(), readDeletionRequest: vi.fn() }));
+const w = vi.hoisted(() => ({ writable: true }));
+vi.mock("../offline/writeAccess", () => ({ useWriteAccess: () => w.writable, canWrite: () => w.writable }));
 vi.mock("./deleteFlow", () => ({ deleteMyAccount: m.deleteMyAccount }));
 vi.mock("../auth/resetDocument", () => ({ resetDocument: m.resetDocument }));
 vi.mock("./storage", () => ({ readDeletionRequest: m.readDeletionRequest }));
@@ -14,7 +16,10 @@ vi.mock("./DeletionRecoveryScreen", () => ({
 
 import { DeletePasswordForm } from "./DeletePasswordForm";
 
-beforeEach(() => Object.defineProperty(navigator, "onLine", { configurable: true, value: true }));
+beforeEach(() => {
+  w.writable = true;
+  Object.defineProperty(navigator, "onLine", { configurable: true, value: true });
+});
 afterEach(() => vi.clearAllMocks());
 
 const submit = async (pw = "pilot-password-1") => {
@@ -94,5 +99,28 @@ describe("DeletePasswordForm", () => {
     render(<DeletePasswordForm submitLabel="Delete my account" testid="del" expectedUid="ava-uid" />);
     expect(screen.getByTestId("del-submit")).toBeDisabled();
     expect(screen.getByTestId("delete-offline")).toHaveTextContent("You are offline");
+  });
+
+  it("with the write gate on, it is disabled while writes are not allowed (review R2-6)", () => {
+    w.writable = false;
+    render(<DeletePasswordForm submitLabel="Delete my account" testid="del" expectedUid="ava-uid" gated />);
+    expect(screen.getByTestId("del-submit")).toBeDisabled();
+  });
+
+  it("with the write gate on, a submit after the connection drops sends nothing (review R2-6)", async () => {
+    m.deleteMyAccount.mockReturnValue(new Promise(() => {}));
+    render(<DeletePasswordForm submitLabel="Delete my account" testid="del" expectedUid="ava-uid" gated />);
+    await userEvent.type(screen.getByTestId("del-password"), "pilot-password-1");
+    w.writable = false;
+    const form = screen.getByTestId("del-form") as HTMLFormElement;
+    act(() => { form.requestSubmit(); });
+    await new Promise((r) => setTimeout(r, 10));
+    expect(m.deleteMyAccount).not.toHaveBeenCalled();
+  });
+
+  it("without the gate (the not-invited and recovery screens) it follows only the browser's connection", () => {
+    w.writable = false;
+    render(<DeletePasswordForm submitLabel="Delete my account" testid="del" expectedUid="ava-uid" />);
+    expect(screen.getByTestId("del-submit")).toBeEnabled();
   });
 });

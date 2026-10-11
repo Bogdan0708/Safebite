@@ -170,8 +170,12 @@ test("6. saving while offline is refused, nothing is queued, and nothing appears
   await page.getByTestId("field-name").fill("Ghost");
   await page.getByTestId("field-address").fill("Nowhere 1");
   await context.setOffline(true);
-  await page.getByTestId("save-restaurant").click();
-  await expect(page.getByTestId("save-outcome")).toHaveAttribute("data-kind", "offline");
+  // The write gate (spec §3.9 "Write access", review R2-6) refuses before any request: Save is
+  // disabled and the page says why; the typed draft stays.
+  await expect(page.getByTestId("write-blocked")).toHaveText("Adding and editing need a connection.");
+  await expect(page.getByTestId("save-restaurant")).toBeDisabled();
+  await page.getByTestId("restaurant-form").evaluate((form) => (form as HTMLFormElement).requestSubmit());
+  await expect(page.getByTestId("save-outcome")).toHaveCount(0);
   await expect(page.getByTestId("field-name")).toHaveValue("Ghost");
   await context.setOffline(false);
   await page.goto("/restaurants");

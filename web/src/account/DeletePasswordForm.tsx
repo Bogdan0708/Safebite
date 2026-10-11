@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type SubmitEvent } from "react";
 import { resetDocument } from "../auth/resetDocument";
+import { canWrite, useWriteAccess } from "../offline/writeAccess";
 import { deleteMyAccount, finishDeleted, type DeleteOutcome } from "./deleteFlow";
 import { DeletionRecoveryScreen } from "./DeletionRecoveryScreen";
 import { readDeletionRequest } from "./storage";
@@ -32,9 +33,15 @@ function useOnline(): boolean {
   return online;
 }
 
-/** Password, submit, progress and outcome; shared by every screen that deletes the account (spec §3.8). */
-export function DeletePasswordForm({ submitLabel, testid, expectedUid }: { submitLabel: string; testid: string; expectedUid: string }) {
+/**
+ * Password, submit, progress and outcome; shared by every screen that deletes the account (spec §3.8).
+ * `gated` applies the write gate (spec §3.9 "Write access"): the member's Delete account page sets it;
+ * the not-invited and recovery screens follow only the browser's connection, as before.
+ */
+export function DeletePasswordForm({ submitLabel, testid, expectedUid, gated = false }: { submitLabel: string; testid: string; expectedUid: string; gated?: boolean }) {
   const online = useOnline();
+  const writable = useWriteAccess();
+  const blocked = gated && !writable;
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ key: string } | null>(null);
@@ -45,6 +52,7 @@ export function DeletePasswordForm({ submitLabel, testid, expectedUid }: { submi
 
   async function onSubmit(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (gated && !canWrite()) return;
     if (password.length === 0) { setMessage({ key: "empty" }); return; }
     setMessage(null);
     setBusy(true);
@@ -93,7 +101,7 @@ export function DeletePasswordForm({ submitLabel, testid, expectedUid }: { submi
         <input data-testid={`${testid}-password`} type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} />
       </label>
       {!online && <p data-testid="delete-offline">You are offline. Connect to delete your account.</p>}
-      <button data-testid={`${testid}-submit`} type="submit" disabled={!online}>{submitLabel}</button>
+      <button data-testid={`${testid}-submit`} type="submit" disabled={!online || blocked}>{submitLabel}</button>
       {message && <p role="alert" data-testid="delete-outcome" data-kind={message.key}>{MESSAGES[message.key]}</p>}
     </form>
   );

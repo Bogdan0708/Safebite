@@ -157,7 +157,7 @@ export async function getRestaurant(request: APIRequestContext, rid: string): Pr
 
 const MEMBERS: Record<string, string> = { "ava-uid": "Ava", "bogdan-uid": "Bogdan" };
 
-export async function seedNote(request: APIRequestContext, rid: string, id: string, over: { authorUid?: string; text?: string; version?: number } = {}): Promise<void> {
+export async function seedNote(request: APIRequestContext, rid: string, id: string, over: { authorUid?: string; text?: string; version?: number; createdAt?: string } = {}): Promise<void> {
   const authorUid = over.authorUid ?? "ava-uid";
   const res = await request.post(`${BASE}/households/home/restaurants/${rid}/notes?documentId=${id}`, {
     headers: HEADERS,
@@ -166,7 +166,7 @@ export async function seedNote(request: APIRequestContext, rid: string, id: stri
         text: s(over.text ?? `Seeded note ${id}`),
         authorUid: s(authorUid),
         authorName: s(MEMBERS[authorUid] ?? "Unknown"),
-        createdAt: ts("2026-09-01T10:00:00Z"),
+        createdAt: ts(over.createdAt ?? "2026-09-01T10:00:00Z"),
         updatedAt: ts("2026-09-01T10:00:00Z"),
         version: { integerValue: String(over.version ?? 1) },
       },

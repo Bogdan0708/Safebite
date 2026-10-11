@@ -4,6 +4,8 @@ import { abortable, callable, isAbortError } from "../api/callable";
 import { useAuth } from "../auth/AuthProvider";
 import { ChangePasswordForm } from "./ChangePasswordForm";
 import { ExportSection } from "../account/ExportSection";
+import { OfflineSection } from "../offline/OfflineSection";
+import { useWriteAccess } from "../offline/writeAccess";
 
 interface WhoAmI {
   uid: string;
@@ -15,6 +17,8 @@ const whoami = callable<Record<string, never>, WhoAmI>("whoami");
 
 export function SettingsPage() {
   const { state, signOut } = useAuth();
+  const writable = useWriteAccess();
+  const offline = state.status === "offlineMember";
   const [confirmed, setConfirmed] = useState<WhoAmI | null>(null);
   const [error, setError] = useState<string | null>(null);
   // Held in a ref so React StrictMode's mount → unmount → mount in development reuses the
@@ -22,6 +26,8 @@ export function SettingsPage() {
   const request = useRef<Promise<WhoAmI> | null>(null);
 
   useEffect(() => {
+    // While offlineMember the server cannot confirm membership; it is re-read on reconnection.
+    if (offline) return;
     const controller = new AbortController();
     request.current ??= whoami({});
     abortable(request.current, controller.signal)
@@ -30,21 +36,31 @@ export function SettingsPage() {
         if (!isAbortError(err)) setError("Could not confirm membership with the server.");
       });
     return () => controller.abort();
-  }, []);
+  }, [offline]);
 
   return (
     <section className="page settings-page">
       <h2 className="page-title">Settings<span className="brand-dot" aria-hidden="true">.</span></h2>
-      {state.status === "member" && <p>Signed in as {state.email}</p>}
+      {(state.status === "member" || state.status === "offlineMember") && state.email && <p>Signed in as {state.email}</p>}
       {confirmed && (
         <p data-testid="whoami">
           Server confirms: {confirmed.displayName} in household “{confirmed.householdId}”.
         </p>
       )}
       {error && <p role="alert">{error}</p>}
+      {offline && <p className="hint" data-testid="whoami-offline">Offline — membership will be confirmed when you reconnect.</p>}
       <ChangePasswordForm />
       <ExportSection />
-      <p><Link to="/settings/delete-account" data-testid="delete-account-link">Delete account</Link></p>
+      <OfflineSection />
+      <p><Link
+          to="/settings/delete-account"
+          data-testid="delete-account-link"
+          aria-disabled={writable ? undefined : "true"}
+          className={writable ? undefined : "disabled-link"}
+          onClick={(e) => { if (!writable) e.preventDefault(); }}
+        >
+          Delete account
+        </Link></p>
       <button data-testid="signout" type="button" onClick={() => void signOut()}>Sign out</button>
     </section>
   );

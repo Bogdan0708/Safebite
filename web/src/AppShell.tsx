@@ -5,6 +5,7 @@ import { ClaimFormPage } from "./records/ClaimFormPage";
 import { RestaurantDetailPage } from "./records/RestaurantDetailPage";
 import { RestaurantFormPage } from "./records/RestaurantFormPage";
 import { RestaurantsPage } from "./records/RestaurantsPage";
+import { CopyBanner } from "./offline/CopyBanner";
 import { SettingsPage } from "./pages/SettingsPage";
 import { BrandMark, Icon } from "./ui/Icon";
 
@@ -16,6 +17,7 @@ export function AppShell() {
         <span className="private-label">Just for us</span>
       </header>
       <main className="shell-main">
+        <CopyBanner />
         <Routes>
           <Route path="/" element={<Navigate to="/discover" replace />} />
           <Route path="/discover" element={<DiscoverPage />} />

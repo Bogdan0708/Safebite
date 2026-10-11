@@ -3,6 +3,8 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const m = vi.hoisted(() => ({ call: vi.fn(), shareOrDownload: vi.fn(), downloadFile: vi.fn() }));
+const w = vi.hoisted(() => ({ writable: true }));
+vi.mock("../offline/writeAccess", () => ({ useWriteAccess: () => w.writable, canWrite: () => w.writable }));
 vi.mock("./api", () => ({ exportHouseholdCall: m.call }));
 vi.mock("./exportFile", async (orig) => ({ ...(await orig<typeof import("./exportFile")>()), shareOrDownload: m.shareOrDownload, downloadFile: m.downloadFile }));
 
@@ -11,7 +13,10 @@ import { ExportSection } from "./ExportSection";
 const fnErr = (code: string) => Object.assign(new Error(code), { code: `functions/${code}` });
 const state = () => screen.getByTestId("export-status").getAttribute("data-state");
 
-beforeEach(() => Object.defineProperty(navigator, "onLine", { configurable: true, value: true }));
+beforeEach(() => {
+  w.writable = true;
+  Object.defineProperty(navigator, "onLine", { configurable: true, value: true });
+});
 afterEach(() => vi.clearAllMocks());
 
 describe("ExportSection", () => {
@@ -56,5 +61,11 @@ describe("ExportSection", () => {
     await userEvent.click(screen.getByTestId("export-prepare"));
     await waitFor(() => expect(state()).toBe(expected));
     expect(screen.queryByTestId("export-share")).toBeNull();
+  });
+
+  it("Prepare export is disabled while offline or reading the copy", () => {
+    w.writable = false;
+    render(<ExportSection />);
+    expect(screen.getByTestId("export-prepare")).toBeDisabled();
   });
 });

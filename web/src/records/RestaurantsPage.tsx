@@ -11,16 +11,20 @@ import type { CollectionState, Restaurant } from "./types";
 import { useMember } from "./useMember";
 import { useWatch } from "./useWatch";
 import { Icon } from "../ui/Icon";
+import { useCopyServing } from "../offline/hooks";
+import { canWrite, useWriteAccess } from "../offline/writeAccess";
 
 export function RestaurantsPage() {
   const { householdId } = useMember();
+  const serving = useCopyServing();
+  const writable = useWriteAccess();
   const restaurants = useWatch<Restaurant[]>((cb) => watchRestaurants(householdId, cb), [householdId]);
   const states = useWatch<Record<string, CollectionState>>((cb) => watchCollection(householdId, cb), [householdId]);
   const [filter, setFilter] = useState<RecordFilter>("shortlist");
   const [progress, setProgress] = useState<Record<string, string>>({});
   const resumed = useRef(new Set<string>());
   const combined = combineStates(restaurants.state, states.state);
-  const offline = combined.status === "offline";
+  const offline = combined.status === "offline" || !writable;
   const all = isData(combined) ? joinRecords(combined.value[0], combined.value[1]) : [];
   const rows = filterRows(all, filter);
 
@@ -30,6 +34,7 @@ export function RestaurantsPage() {
   }
 
   async function finish(rid: string) {
+    if (!canWrite()) return;
     setProgress((p) => ({ ...p, [rid]: deleteProgressText("sweeping") }));
     const outcome = await finishDeleting(householdId, rid, (step) => setProgress((p) => ({ ...p, [rid]: deleteProgressText(step) })));
     if (outcome.kind !== "ok") setProgress((p) => ({ ...p, [rid]: finishOutcomeText(outcome.kind) }));
@@ -73,6 +78,7 @@ export function RestaurantsPage() {
         <button type="button" className="filter-pill" data-testid="filter-all" aria-pressed={filter === "all"} onClick={() => setFilter("all")}>All records</button>
       </p>
       {combined.status === "ready" && all.length === 0 && <p className="empty-state" data-testid="restaurants-empty">No restaurants yet. Add the first one.</p>}
+      {combined.status === "offline" && serving && all.length === 0 && <p className="empty-state" data-testid="copy-empty">Nothing in the offline copy.</p>}
       {combined.status === "ready" && all.length > 0 && rows.length === 0 && (
         <p className="empty-state" data-testid="shortlist-empty">Nothing on the shortlist. Open a record and tap Add to shortlist.</p>
       )}

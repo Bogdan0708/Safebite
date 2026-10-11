@@ -17,6 +17,7 @@ import { useMember } from "./useMember";
 import { useToday } from "./useToday";
 import { useWatch } from "./useWatch";
 import { Icon } from "../ui/Icon";
+import { canWrite, useWriteAccess } from "../offline/writeAccess";
 
 const STATE_TEXT: Record<KindEvidence["state"], string> = {
   unknown: "Unknown — no evidence recorded yet.",
@@ -58,6 +59,8 @@ function ClaimCard({ claim, today, disabled, onDelete }: { claim: Claim; today: 
 
 export function RestaurantDetailPage() {
   const { householdId, uid, displayName } = useMember();
+  // Called with the other hooks, before the loading early return (controller ruling B4).
+  const writable = useWriteAccess();
   const { rid } = useParams();
   const today = useToday();
   const restaurantWatch = useWatch<Restaurant>((cb) => watchRestaurant(householdId, rid!, cb), [householdId, rid]);
@@ -78,12 +81,13 @@ export function RestaurantDetailPage() {
   const restaurant = rs.value;
   const ss = stateWatch.state;
   // One notice for every cache-backed listener on the page (spec §3.7); writes need the server.
-  const offline = anyOffline(rs, cs, ss, notesWatch.state);
+  const offline = anyOffline(rs, cs, ss, notesWatch.state) || !writable;
   const claimsReady = isData(cs);
   const claims = claimsReady ? cs.value : [];
   const summary = summariseEvidence(claims, today);
 
   async function onDeleteClaim(cid: string) {
+    if (!canWrite()) return;
     const result = await deleteClaim(householdId, rid!, cid);
     setOutcome(result.kind === "ok" ? null : result.kind);
   }

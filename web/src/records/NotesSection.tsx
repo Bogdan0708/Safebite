@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { canWrite } from "../offline/writeAccess";
 import { isData } from "./combine";
 import { outcomeMessage } from "./messages";
 import { addNote, deleteNote, updateNote } from "./notes";
@@ -50,6 +51,7 @@ function NoteComposer({ householdId, rid, author, disabled }: { householdId: str
   const [busy, setBusy] = useState(false);
 
   async function save() {
+    if (!canWrite()) return;
     const problem = validateNoteText(text);
     setError(problem);
     setOutcome(null);
@@ -91,6 +93,7 @@ function NoteCard({ householdId, rid, note, own, disabled }: { householdId: stri
   if (confirming !== null && confirming !== note.version) setConfirming(null);
 
   async function save(baseVersion: number) {
+    if (!canWrite()) return;
     if (!editing) return;
     const problem = validateNoteText(editing.draft);
     setError(problem);
@@ -112,6 +115,7 @@ function NoteCard({ householdId, rid, note, own, disabled }: { householdId: stri
   }
 
   async function confirmDelete() {
+    if (!canWrite()) return;
     if (confirming === null) return;
     setBusy(true);
     const result = await deleteNote(householdId, rid, note.id, confirming);

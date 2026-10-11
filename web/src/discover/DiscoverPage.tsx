@@ -8,6 +8,7 @@ import type { DiscoveryResult, SearchErrorReason, SearchMode } from "./api";
 import { requestPosition } from "./geolocation";
 import { directionsUrl } from "./links";
 import { useDiscoverySearch, type SearchState } from "./search";
+import { useConnectivity, useWriteAccess } from "../offline/writeAccess";
 import { Icon } from "../ui/Icon";
 import { TownArt } from "../ui/TownArt";
 
@@ -44,7 +45,7 @@ function StateLine({ state }: { state: SearchState }) {
   }
 }
 
-function ResultRow({ result, existingId, onAdd }: { result: DiscoveryResult; existingId: string | undefined; onAdd: (r: DiscoveryResult) => void }) {
+function ResultRow({ result, existingId, writable, onAdd }: { result: DiscoveryResult; existingId: string | undefined; writable: boolean; onAdd: (r: DiscoveryResult) => void }) {
   return (
     <li className="card place-card" data-testid="discover-result" data-place-id={result.placeId}>
       <a className="place-title" data-testid="result-name" href={result.googleMapsUri} target="_blank" rel="noopener noreferrer"><strong>{result.name}</strong></a>
@@ -54,7 +55,7 @@ function ResultRow({ result, existingId, onAdd }: { result: DiscoveryResult; exi
         {existingId ? (
           <Link className="text-link" data-testid="result-in-records" to={`/restaurants/${existingId}`}><Icon name="check" />In our records</Link>
         ) : (
-          <button type="button" className="secondary small" data-testid="result-add" onClick={() => onAdd(result)}><Icon name="plus" />Add to our records</button>
+          <button type="button" className="secondary small" data-testid="result-add" disabled={!writable} onClick={() => onAdd(result)}><Icon name="plus" />Add to our records</button>
         )}
       </div>
     </li>
@@ -63,6 +64,8 @@ function ResultRow({ result, existingId, onAdd }: { result: DiscoveryResult; exi
 
 export function DiscoverPage() {
   const { householdId } = useMember();
+  const writable = useWriteAccess();
+  const connected = useConnectivity();
   const navigate = useNavigate();
   const { state, submitDestination, submitNearby, fail } = useDiscoverySearch();
   const [query, setQuery] = useState("");
@@ -84,6 +87,7 @@ export function DiscoverPage() {
 
   function onSubmit(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (!connected) return; // "Search needs a connection." replaces the actions; Enter must not search either
     intent.current += 1;
     setLocating(false);
     const trimmed = query.trim();
@@ -131,10 +135,14 @@ export function DiscoverPage() {
             <span className="sr-only">{mode === "destination" ? "Town or area" : "Restaurant or venue name"}</span>
             <input data-testid="discover-query" value={query} maxLength={120} placeholder={mode === "destination" ? "e.g. Lisbon or Soho" : "e.g. Riverside Café, Lisbon"} onChange={(e) => setQuery(e.target.value)} />
           </label>
-          <div className="actions search-actions">
-            <button type="submit" className="primary" data-testid="discover-submit">Search<Icon name="arrow" /></button>
-            <button type="button" className="secondary" data-testid="discover-nearby" disabled={locating} onClick={() => void onNearMe()}><Icon name="location" />Near me</button>
-          </div>
+          {connected ? (
+            <div className="actions search-actions">
+              <button type="submit" className="primary" data-testid="discover-submit">Search<Icon name="arrow" /></button>
+              <button type="button" className="secondary" data-testid="discover-nearby" disabled={locating} onClick={() => void onNearMe()}><Icon name="location" />Near me</button>
+            </div>
+          ) : (
+            <p className="hint" data-testid="discover-offline">Search needs a connection.</p>
+          )}
           {locating && <span className="hint" data-testid="discover-locating">Finding your location…</span>}
         </form>
         <p className="fine-print">A listing doesn&rsquo;t tell us whether a place is suitable for coeliacs. Check the evidence and call ahead.</p>
@@ -143,7 +151,7 @@ export function DiscoverPage() {
       {state.status === "results" && (
         <div className="search-results">
           <ul className="list results-grid" data-testid="discover-results">
-            {state.results.map((r) => <ResultRow key={r.placeId} result={r} existingId={existing.get(r.placeId)} onAdd={onAdd} />)}
+            {state.results.map((r) => <ResultRow key={r.placeId} result={r} existingId={existing.get(r.placeId)} writable={writable} onAdd={onAdd} />)}
           </ul>
           <p className="attribution" data-testid="google-attribution">
             <img src="/google/GoogleMaps_Logo_Gray.svg" alt="Google Maps" height={19} />
